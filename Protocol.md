@@ -1,0 +1,1222 @@
+# ed3k Protocol Specification
+
+**Status:** draft 0.1 (2026-10-10). Nothing in this document is implemented yet.
+**Wire version:** 1 (ALPN `ed3k/1`).
+
+ed3k is a peer-to-peer file sharing protocol in the tradition of eD2K and Kad. It keeps their
+model (hash-identified files, a Kademlia DHT, optional index servers, upload queues with credits)
+and replaces the wire format, transport and identity:
+
+- every message is a **protobuf** message; there is exactly one message per purpose
+- transport is **UDP only**; the mandatory binding is **obfuscated QUIC**
+- **NAT traversal is a required feature**, not an add-on
+- **IPv4 and IPv6** are both first-class, in one overlay
+- identity is an **Ed25519 key**; its hash is the node ID in Kad and everywhere else
+- files are identified by a **BLAKE3** root hash
+
+**ed3k does not require eD2K.** A compliant ed3k implementation needs no eD2K, eMule-Kad or TCP
+code at all. The reference implementation, eMuleQt, speaks both protocols; §14 specifies how such a
+dual-protocol client tells eD2K peers that it also speaks ed3k. §14 is the only part of this
+document that concerns eD2K, and it is OPTIONAL.
+
+---
+
+## 0. Conventions
+
+The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, RECOMMENDED, MAY and OPTIONAL are to be
+read as in RFC 2119.
+
+- Protobuf is **proto3**. `bytes` fields with a fixed layout state it in a comment; integers inside
+  such layouts are **big-endian** (network order).
+- `H(ctx, data)` is BLAKE3 in `derive_key` mode with context string `ctx`, 32 bytes of output
+  unless a length is given. `H(ctx, data)[a..b)` is a byte slice.
+- `varint` is the protobuf base-128 varint.
+- Numbers marked *(initial)* are tuning values. They are collected in Appendix A and may change
+  without a wire version bump.
+
+---
+
+## 1. Design decisions
+
+Decisions taken while drafting. Each links to the section that carries the reasoning and the
+alternatives that were rejected.
+
+| # | Decision | Section |
+|---|---|---|
+| D1 | Messages are specified against an abstract transport contract; obfuscated QUIC is the one binding every peer MUST implement | §3, §4 |
+| D2 | One overlay for IPv4 and IPv6; records carry one endpoint per family | §8, §10.2 |
+| D3 | Node ID is 128 bits, the truncated hash of the public key, in Kad and outside it | §6.1 |
+| D4 | Routing position is IP-bound (BEP 42 style) in its top 21 bits and key-bound in the rest | §6.3 |
+| D5 | A dual-protocol client listens for ed3k on the UDP port whose number equals its eD2K TCP port | §14.1 |
+| D6 | eD2K peers learn about ed3k support from a user hash derived from the node ID, plus explicit tags | §14.2 |
+| D7 | zstd decompression is required; senders compress only when it helps | §5.3 |
+| D8 | Files are identified by a BLAKE3 root; the eD2K hash is an alias that can be dropped later | §7 |
+| D9 | Kad runs over QUIC in version 1; a sessionless datagram binding is reserved | §10.6 |
+| D10 | Relays forward rendezvous signalling only, never file data | §9.4 |
+| D11 | A server is an ordinary ed3k node with the INDEX capability; no separate server message set | §11 |
+
+---
+
+## 2. Roles and capabilities
+
+Every participant is a **node**. A node announces what it does with capability bits in `Hello`
+(§5.5):
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 0 | `ROUTER` | Reachable without prior signalling on at least one address; may be placed in routing tables and stores Kad records |
+| 1 | `RELAY` | Forwards rendezvous signalling for firewalled nodes (§9.4). A `ROUTER` node MUST set it unless it is out of relay slots |
+| 2 | `INDEX` | Index node ("server"): accepts and answers records for every target (§11) |
+| 3 | `BROWSE` | Answers `Browse` |
+| 4 | `CHAT` | Accepts `Chat` |
+| 5 | `KAD_DGRAM` | Reserved for the sessionless Kad binding (§10.6). MUST be 0 in version 1 |
+| 6 | `ED2K` | Also speaks eD2K (§14). Informational |
+
+A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
+table, and is reached through relays and hole punching.
+
+---
+
+## 3. Layering and the transport contract
+
+```
+  messages   (protobuf, §5–§12)             transport-agnostic
+  ------------------------------------------------------------
+  framing    tag + length, zstd flag (§5)   transport-agnostic
+  ------------------------------------------------------------
+  binding    quic-obfs (§4)                 the only binding in version 1
+  ------------------------------------------------------------
+  UDP over IPv4 / IPv6
+```
+
+Messages never refer to QUIC. They rely on a **transport contract** that any binding has to meet:
+
+| | Property |
+|---|---|
+| T1 | **Mutual authentication.** Each side learns the other's Ed25519 public key and has proof of possession |
+| T2 | **Confidentiality and integrity** of everything above the binding |
+| T3 | **Validated remote address.** The peer's source address is proven by a round trip before more than a bounded reply is sent to it |
+| T4 | **Exchanges.** Either side can open any number of independent, ordered, reliable, flow-controlled byte channels at negligible cost. An exchange has an initiator and can be half-closed by each side |
+| T5 | **Unlinkability to a protocol.** A passive observer without knowledge of the peer's node ID cannot classify the traffic by fixed bytes, fixed sizes or a decryptable handshake. A binding whose transport does not provide this MUST add obfuscation; a binding whose transport already hides itself MUST NOT add a second layer |
+
+Unreliable datagrams are not part of the contract in version 1 (see §10.6).
+
+**Why not gRPC or gRPC-Web over UDP.** It was considered because eNode's meta API uses
+Connect/gRPC-Web. gRPC assumes HTTP: per call it adds pseudo-headers, a 5-byte message prefix and a
+trailers block, and over UDP it would need HTTP/3 with QPACK. As of this draft neither grpc-core
+nor QtGrpc ship an HTTP/3 channel. Calls here are symmetric (either peer may ask), long-lived
+(a file stream) and carry raw file blocks, which fits streams better than RPC. HTTP/3 would also
+be one more recognisable layer. The framing in §5 gives the one useful property of gRPC, a typed
+request and answer on its own stream, for 2 bytes.
+
+**Other bindings.** WebTransport, TLS-over-TCP with a stream multiplexer, or an in-memory binding
+for tests can meet T1–T5. None is specified. A future binding gets its own name and ALPN-like
+identifier and changes no message.
+
+---
+
+## 4. The `quic-obfs` binding
+
+### 4.1 QUIC profile
+
+- QUIC version 1 (RFC 9000/9001/9002) with TLS 1.3. ALPN `ed3k/1`. No SNI.
+- **Mutual authentication with raw public keys** (RFC 7250), Ed25519 only. No X.509 certificates:
+  a certificate would add several hundred bytes to each handshake and carries nothing the key does
+  not. Both sides MUST send their key; a handshake without a client key is closed with
+  `NO_KEY`.
+- The initiator knows whom it is dialling. After the handshake it MUST compute the peer's node ID
+  (§6.1) and compare it with the expected ID; on mismatch it closes with `WRONG_PEER`.
+- An **exchange** (T4) is one bidirectional QUIC stream. Unidirectional streams are not used.
+- Connection migration SHOULD be enabled. It is what lets a session survive an address change and
+  move between IPv4 and IPv6 (§8.3).
+- 0-RTT MAY be used, and only for `Hello` and `KadRequest` without a `store` (replay-safe).
+- Idle timeout: 30 s *(initial)* for a connection with no open exchange; relay reservations and
+  file streams keep a connection alive with QUIC PING every 20 s *(initial)*.
+- Congestion control is the sender's choice. BBR is RECOMMENDED.
+
+### 4.2 Why obfuscation is required
+
+QUIC encrypts its payload but not its shape. The Initial packet is protected with a key derived
+from a public salt, so any observer can decrypt it; it is padded to 1200 bytes; and short-header
+packets repeat a connection ID. The Great Firewall has decrypted and filtered QUIC Initials since
+April 2024 and blocks the flow for about 180 s on a match. A UDP datagram of random bytes does not
+trigger its fully-encrypted-traffic heuristic, which is limited to TCP. The obfuscation layer
+therefore has two jobs: remove every fixed byte, and blur the 1200-byte handshake size.
+
+This is obfuscation, not secrecy. The key is derived from the receiver's node ID, which is public
+to anyone who takes part in the network. Confidentiality comes from TLS.
+
+### 4.3 Datagram format
+
+Every UDP datagram of this binding is:
+
+```
+salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ body )
+```
+
+| Field | Meaning |
+|---|---|
+| `salt` | 8 random bytes, sent in clear. `salt[0]` MUST NOT be `0xE3`, `0xE4`, `0xE5`, `0xC5`, `0xD4`, `0xA3` or `0xB2` (re-roll). These are the plaintext headers of eD2K/eMule UDP; the rule keeps a stray ed3k datagram from being parsed as one by a legacy node at a stale address |
+| `magic` | `0x65 0x33 0x6B 0x01` (`"e3k"`, version 1). Checked after unmasking |
+| `kp` | bits 7-6 `kind`, bits 5-0 `pad_len` (0–63) |
+| `pad` | `pad_len` random bytes |
+| `body` | depends on `kind` |
+
+| `kind` | Name | `body` |
+|---|---|---|
+| 0 | `DATA` | one QUIC datagram whose first packet has a short header |
+| 1 | `HANDSHAKE` | one QUIC datagram containing a long-header packet |
+| 2 | `FRAGMENT` | `msg_id(1) ‖ idx:4 total:4 (1) ‖ piece` of a `HANDSHAKE` datagram |
+| 3 | `PROBE` | `nonce(8)`; used for hole punching and reachability tests (§9) |
+
+**Key and mask.**
+
+```
+obf_id   = NodeID[0..12)                    of the node that ACCEPTED the connection
+key      = H("ed3k v1 obfs", obf_id ‖ dir ‖ salt)          dir = 0x00 to that node, 0x01 from it
+stream   = BLAKE3 keyed XOF (key), as many bytes as masked
+mask(x)  = x XOR stream
+```
+
+`obf_id` is 12 bytes, not 16, so that it can be learned from an eD2K user hash (§14.2). A `PROBE`
+is always keyed to its receiver with `dir = 0x00`.
+
+For `HANDSHAKE`, `FRAGMENT` and `PROBE` the whole datagram after the salt is masked. For `DATA`
+only the header, the padding and the first 64 bytes of the QUIC packet are masked: that covers the
+QUIC flags byte and connection ID, and the rest is AEAD ciphertext already. This keeps the layer's
+CPU cost on the bulk path at one BLAKE3 block per packet.
+
+**Overhead** is 13 bytes per datagram plus padding, about 1 % of a full data packet.
+
+### 4.4 Size shaping
+
+- A sender SHOULD split each `HANDSHAKE` datagram into 2–4 `FRAGMENT`s of random sizes, each with
+  random padding, and MAY send it whole with random padding instead. Receivers MUST support both.
+- Fragments are reassembled per (source address, `msg_id`). A receiver keeps at most 4
+  *(initial)* incomplete messages per source address and drops them after 3 s *(initial)*.
+- `DATA` datagrams SHOULD carry `pad_len = 0` once the packet is larger than 256 bytes; smaller
+  ones SHOULD be padded randomly.
+- **Anti-amplification.** The layer only ever adds bytes, so a reassembled datagram is never
+  larger than what arrived on the wire, and QUIC's 3× limit (RFC 9000 §8.1) stays conservative.
+  A receiver MUST NOT answer a `PROBE` and MUST NOT emit anything for an incomplete fragment set.
+- The QUIC maximum datagram size MUST be set 13 bytes below the path limit. An unsplit Initial is
+  then 1213 bytes, which fits the IPv6 minimum MTU (1232 bytes of UDP payload).
+
+This follows the approach of Hysteria 2's Salamander (salted XOR mask) and Gecko (fragmenting
+long-header packets), with a real keystream instead of a repeating 32-byte pad and without a
+pre-shared password. Censors adapt; the datagram format is versioned by `magic` so the shaping can
+change without touching QUIC or the messages.
+
+### 4.5 Receiving
+
+1. If the source address belongs to a live connection, unmask with that connection's key.
+2. Otherwise unmask the first 5 bytes with the node's own `obf_id` and `dir = 0x00`. If `magic`
+   matches, process it as a new flow.
+3. Otherwise the datagram is not ed3k. Drop it, or hand it to another protocol sharing the socket
+   (§14.1).
+
+A random datagram passes step 2 with probability 2⁻³².
+
+---
+
+## 5. Framing and common messages
+
+### 5.1 Frame
+
+Each message on an exchange is one frame:
+
+```
+tag  varint     (type << 1) | z          z = 1: body is zstd-compressed
+len  varint     length of body in bytes
+body            protobuf message of that type
+```
+
+`Block` (§12.3) is the only message followed by raw bytes outside the frame.
+
+Types 1–63 keep the tag at one byte.
+
+| Type | Message | Direction | Section |
+|---|---|---|---|
+| 1 | `Hello` | both, first exchange | §5.5 |
+| 2 | `Error` | answer | §5.6 |
+| 3 | `KadRequest` | request | §10 |
+| 4 | `KadAnswer` | answer | §10 |
+| 5 | `FileRequest` | downloader → uploader | §12 |
+| 6 | `FileStatus` | uploader → downloader | §12 |
+| 7 | `BlockRequest` | downloader → uploader | §12 |
+| 8 | `Block` | uploader → downloader | §12 |
+| 9 | `HashRequest` | downloader → uploader | §12 |
+| 10 | `HashAnswer` | uploader → downloader | §12 |
+| 11 | `Punch` | via relay | §9 |
+| 12 | `Relay` | request and answer | §9 |
+| 13 | `ReachTest` | request and answer | §9 |
+| 14 | `Browse` | request | §13 |
+| 15 | `BrowseAnswer` | answer | §13 |
+| 16 | `Chat` | one-way | §13 |
+| 48–63 | reserved | | §10.6 |
+
+### 5.2 Exchange patterns
+
+- **Request/answer:** the initiator opens an exchange, sends one request and half-closes. The
+  responder sends one answer (or `Error`) and closes. There are no request IDs; the exchange is
+  the correlation.
+- **File stream:** one exchange per (peer, file), open for as long as the download is wanted
+  (§12).
+- An answer is never fragmented: the exchange is reliable, so a large answer is simply a long
+  frame. A frame body MUST NOT exceed 1 MiB after decompression.
+- A responder that does not know a request type answers `Error{UNSUPPORTED}` and closes that
+  exchange only.
+
+### 5.3 Compression
+
+Every node MUST be able to **decompress** zstd (RFC 8878) frames in the profile below. A sender
+compresses a body only when the result is smaller, and SHOULD NOT try for bodies under 64 bytes
+*(initial)*. `Block` data is never compressed by the protocol: shared files are overwhelmingly
+compressed media and archives already.
+
+Profile:
+- magicless zstd frames, no content checksum, no content size field
+- window size at most 1 MiB
+- dictionary `ed3k-v1`, dictionary ID 1, shipped with this specification (`dict/ed3k-v1.dict`,
+  trained on a corpus of real messages before the format is frozen). The frame carries the
+  dictionary ID, so a later dictionary can be added without a new flag
+- each body is compressed on its own; no context is carried between messages
+- a receiver MUST stop and answer `Error{MALFORMED}` when the output exceeds 1 MiB
+
+Making *support* mandatory removes negotiation and every "does the peer do compression" variant.
+Making *use* mandatory would enlarge the many messages that are mostly hashes and keys.
+
+**Alternatives considered**
+
+| | Small-message ratio | Speed | Notes |
+|---|---|---|---|
+| **zstd + dictionary** | best: a trained dictionary gives ×2–×5 on bodies under 1 KiB | very fast both ways | chosen; a hard dependency, dictionary frozen per ID |
+| zstd without dictionary | poor under ~500 B | very fast | header cost eats the gain on typical messages |
+| deflate (zlib) | poor without, fair with a preset dictionary (32 KiB limit) | slower, larger header | what eD2K uses; no reason to keep it in a new format |
+| Brotli | good on text thanks to its built-in web dictionary, which does not match this traffic | slow to compress | larger library |
+| LZ4 | weak | fastest | wins nothing on bodies this small |
+| none | — | — | search results, source lists and shared-file lists stay 2–4 times larger |
+
+**Side channels.** Compress-then-encrypt leaks length. It matters when a secret and
+attacker-chosen text share one compression context. ed3k messages carry no secrets next to
+third-party content and no context spans messages, so the CRIME/BREACH pattern does not apply.
+An extension that adds secrets to a message MUST send that message uncompressed.
+
+### 5.4 Common types
+
+```protobuf
+syntax = "proto3";
+package ed3k.v1;
+
+// An endpoint is a bytes field: ip ‖ port(2, big-endian). 6 bytes = IPv4, 18 bytes = IPv6.
+// A compact node is node_id(16) ‖ endpoint: 22 bytes (IPv4) or 34 bytes (IPv6).
+
+message Peer {
+  bytes id = 1;               // 16 B node ID
+  bytes ep4 = 2;              // endpoint, 6 B
+  bytes ep6 = 3;              // endpoint, 18 B
+  bytes relays4 = 4;          // n × 22 B compact nodes; only for a leaf
+  bytes relays6 = 5;          // n × 34 B compact nodes; only for a leaf
+}
+
+message FileInfo {
+  bytes  root = 1;            // 32 B BLAKE3 root (§7)
+  uint64 size = 2;
+  string name = 3;
+  bytes  ed2k = 4;            // 16 B eD2K MD4 hash; see §7.4
+  uint32 sources = 5;         // complete sources known to the sender
+  uint32 duration = 6;        // media length in seconds, 0 = unknown
+  uint32 bitrate = 7;         // kbit/s, 0 = unknown
+}
+```
+
+Compact byte strings replace `repeated` sub-messages where a list is long and its elements have a
+fixed size: a compact IPv4 node is 22 bytes against about 30 as a sub-message (eMule Kad: 25).
+
+### 5.5 `Hello`
+
+The first exchange on every connection. The initiator sends `Hello`, the responder answers with
+its own. Other exchanges MAY be opened without waiting for the answer.
+
+```protobuf
+message Hello {
+  uint64 caps = 1;            // capability bits, §2
+  string agent = 2;           // "eMuleQt 0.7.0"
+  bytes  observed = 3;        // your endpoint as I see it
+  bytes  ep4 = 4;             // my advertised endpoints; absent = none in that family
+  bytes  ep6 = 5;
+  uint32 nat = 6;             // 0 unknown, 1 open, 2 cone, 3 symmetric (§9.2)
+  string nick = 7;            // optional
+}
+```
+
+There is no user hash, no key and no signature in `Hello`: the transport has already delivered and
+verified the key (T1), and the node ID is computed from it.
+
+### 5.6 `Error`
+
+```protobuf
+message Error {
+  enum Code {
+    UNKNOWN = 0;
+    UNSUPPORTED = 1;          // message type or option not handled
+    MALFORMED = 2;
+    NOT_FOUND = 3;            // file not shared
+    BUSY = 4;                 // queue full, store full, no relay slot
+    DENIED = 5;               // banned, filtered, not allowed
+    NOT_RESPONSIBLE = 6;      // Kad store refused: target outside this node's zone
+  }
+  Code   code = 1;
+  uint32 retry_after = 2;     // seconds; 0 = do not retry
+}
+```
+
+An `Error` is never answered with an `Error`. Unknown codes read as `UNKNOWN`.
+
+---
+
+## 6. Identity
+
+### 6.1 Key and node ID
+
+A node has one long-lived **Ed25519** key pair.
+
+```
+NodeID = H("ed3k v1 node id", public_key)[0..16)
+```
+
+The node ID is the only identifier of a node. It is its position seed in Kad (§6.3), the key of
+credit records, the source ID in source records and the thing a dialler authenticates. The eD2K
+user hash has no counterpart.
+
+**Why 128 bits.** Impersonating a node means finding a key whose ID equals the victim's: a second
+preimage, 2¹²⁸ work. The 2⁶⁴ birthday bound only lets an attacker make two of their *own* keys
+collide, which gains nothing. IDs are the most frequent field in the protocol (every contact,
+every source), so 16 bytes instead of 32 is the single largest saving available.
+
+**Why truncate, not fold.** XOR-folding a 256-bit hash to 128 bits is exactly as strong as
+truncating it for a hash without structure. Truncation keeps the short ID a prefix of the full
+hash, which leaves room to lengthen IDs later without renumbering the network.
+
+**Alternatives considered:** 256-bit IDs everywhere (16 more bytes per contact and source); 256
+bits in Kad and a folded 128 outside (two forms, and the saving misses Kad contact lists, where
+most IDs are).
+
+### 6.2 Secure identification
+
+eD2K's secure identification (RSA-384, SHA-1, a challenge packet pair) is replaced by the
+transport handshake (T1). There is no separate message. A node is identified from the first byte
+of the first exchange, in both directions.
+
+Ed25519 was chosen for 32-byte keys, 64-byte signatures, fast verification and universal library
+support. The key type is fixed in version 1; a future type gets a new node-ID context string and
+a new wire version.
+
+### 6.3 Routing ID: IP-bound, key-bound
+
+If a node could choose its position in the keyspace freely, an attacker would generate keys until
+one lands next to a target and then eclipse it. BitTorrent's BEP 42 prevents this by deriving the
+top bits of the ID from the node's IP address, but its IDs are not tied to a key. ed3k combines
+both: the position is fixed by the address in its top 21 bits and by the key in the remaining 107.
+
+```
+r          = NodeID[15] & 0x07
+
+IPv4:  m = ip[0..4)  AND  03 0F 3F FF
+IPv6:  m = ip[0..8)  AND  01 03 07 0F 1F 3F 00 00
+       m[0] = m[0] OR (r << 5)
+       c    = CRC32C(m)                              (Castagnoli, as in BEP 42)
+
+RoutingID(address) = top 21 bits of c  ‖  bits 21..127 of NodeID
+```
+
+- A node has **one node ID** and one routing ID **per public address**. A dual-stack node sits
+  at two positions with the same low 107 bits.
+- `r` comes from the key, so nothing is added to the wire. As in BEP 42 an address can reach 8
+  prefixes; an attacker picks among them by generating keys, which is cheap, and gains nothing
+  beyond those 8.
+- The IPv4 mask is BEP 42's. The IPv6 mask deliberately differs: BEP 42 hashes the top 64 bits,
+  so one /48 reaches 2¹⁸ prefixes. Here only the top 48 bits count (1+2+3+4+5+6 = 21 bits,
+  exactly the prefix length), so a /48 site reaches 8.
+- Distance in Kad is XOR over routing IDs. Targets (§10.1) are plain 128-bit values.
+
+**Verification.** A contact is *claimed* when it arrives in a `KadAnswer` and *verified* once a
+connection to it has completed: the handshake proves the key (hence the low 107 bits), and QUIC's
+address validation proves the source address (hence the top 21). Only verified contacts are
+inserted into a routing table, handed out in answers, counted towards lookup termination or
+used as storage targets. Verification costs nothing extra, because every node that is queried is
+connected to anyway.
+
+Private, loopback and link-local addresses are exempt, for LAN and test networks.
+
+**Test vectors** (CRC32C of the masked address; the first three match BEP 42):
+
+| Address | r | CRC32C | top 21 bits |
+|---|---|---|---|
+| 124.31.75.21 | 1 | `5fbfbdb2` | `0bf7f7` |
+| 21.75.31.124 | 6 | `5a3ce9b0` | `0b479d` |
+| 65.23.51.170 | 6 | `a5d4344a` | `14ba86` |
+| 2001:db8:1234:5678::1 | 3 | `32b2d72e` | `06565a` |
+
+**Limits, stated plainly**
+
+- The position moves when the address changes. The identity does not: credits, source records
+  and sessions follow the node ID.
+- On IPv4 an attacker needs on the order of 2¹⁶ addresses to place one node within a chosen
+  19-bit region (each address reaches 8 of 2²¹ prefixes). On IPv6 the holder of a /32 controls
+  11 of the 21 bits, so a few dozen /32 allocations, or one /28, do the same. IPv6 positions are
+  therefore weaker than IPv4 ones.
+- Nodes behind one carrier-grade NAT address share 8 prefixes. They are leaves in practice and do
+  not appear in routing tables.
+- BEP 42 itself has never been enforced by default in the BitTorrent DHT. ed3k can enforce it
+  from the first version because there is no installed base to break.
+
+**Extensions reserved for a network upgrade.** Neither is part of version 1.
+
+- *Key puzzle* (S/Kademlia): a key is valid only if `H("ed3k puzzle", public_key)` has `n` leading
+  zero bits, so every candidate ID costs 2ⁿ key generations. This adds a CPU price to the 8
+  positions per address. Optimised Ed25519 grinders reach millions of keys per second, so a
+  useful `n` costs honest users seconds to minutes at first start; it would be introduced with a
+  capability bit and a date after which unpuzzled keys stop being verified.
+- *IP diversity limits*: caps per /24 and per IPv6 /48 in each bucket, in the whole table and in
+  each result set (eMule Kad uses 1 per address, 2 per /24 per bucket, 10 per /24 overall), plus
+  lookups over disjoint paths. These need no wire change; an implementation MAY apply them
+  locally today. Making them a network rule means fixing the numbers so that all nodes agree on
+  which contacts count.
+
+**Alternatives considered:** pure key hash with diversity limits only (an attacker with a handful
+of subnets can sit next to any target); key grinding until the hash matches the address (about
+2²¹ key generations at every address change, and the identity would change with the address);
+a signed short-lived routing key under the identity key (a second key, a certificate and a grind
+per address change).
+
+---
+
+## 7. Files
+
+### 7.1 Identity
+
+```
+root = BLAKE3(file contents)          32 bytes, default (unkeyed) mode
+```
+
+A file is identified by `root`. The size travels with it in every record but is not part of the
+identity. The root is what the standard `b3sum` tool prints.
+
+### 7.2 Verification
+
+BLAKE3 is a Merkle tree over 1 KiB chunks. Any aligned range of 2ᵏ chunks is a subtree with its
+own 32-byte chaining value, so parts of a file can be verified against the root without the rest.
+
+- **Block:** 256 KiB (2⁸ chunks). The unit of verification and of hash exchange.
+- **Piece:** 4 MiB (16 blocks). The unit of availability bitmaps.
+
+A downloader fetches block chaining values with `HashRequest` (§12.4), verifies them against the
+root, and then verifies each received block on its own. A corrupt block is detected after 256 KiB
+and its sender is known exactly. The hash data is 32 bytes per block, 0.012 % of the file.
+A file of at most one block needs no hash exchange.
+
+This replaces both the eD2K part hashes (MD4 over 9.28 MB) and AICH (SHA-1 tree over 180 KiB
+blocks, trusted by majority vote because the eD2K hash does not commit to it). In ed3k the root
+commits to every block; there is nothing to vote on.
+
+### 7.3 Choice of hash function
+
+One function is used for files, node IDs, Kad targets, key derivation and the obfuscation
+keystream.
+
+| | Tree / partial verification | Speed (one core, order of magnitude) | Security margin | Availability |
+|---|---|---|---|---|
+| **BLAKE3** | built in; verified streaming is specified (Bao) | several GB/s with SIMD, scales across cores | 256-bit output, 128-bit collision security; 7 rounds, the thinnest margin in this table | small C library (CC0/Apache-2.0); not in Qt, OpenSSL or libsodium |
+| SHA-256 | none; a tree has to be defined on top (as BitTorrent v2 does) | ~0.5 GB/s, ~2 GB/s with SHA extensions | very well studied | everywhere |
+| SHA3-256 | none | ~0.5 GB/s | largest margin | everywhere |
+| KangarooTwelve | tree mode with 8 KiB leaves, but no standard for verifying a part | ~2–3 GB/s with SIMD | reduced-round Keccak, well analysed | few libraries |
+| BLAKE2b | none by default | ~1 GB/s | well studied | Qt, OpenSSL, libsodium |
+| SHA-1 (AICH), MD4 (eD2K) | AICH has a tree; MD4 only per 9.28 MB part | fast | both broken for collisions; MD4 collisions take milliseconds | — |
+
+BLAKE3 is chosen because the tree is part of the function. With any other entry the specification
+would have to define leaf size, node encoding, domain separation and odd-node handling itself,
+which is where hash-tree designs usually go wrong, and the root would no longer be something a
+standard tool can compute. It also supplies keyed hashing, key derivation with context strings
+and an extendable output, so no second primitive is needed for §4 and §6. The cost is the thinner
+round margin and one more dependency. SHA-256 with a BitTorrent-v2-style tree is the fallback if
+BLAKE3 is ever weakened: the root field is 32 bytes either way and the hash is named in every
+context string, so it can be replaced with a wire version bump.
+
+### 7.4 The eD2K alias
+
+`FileInfo.ed2k` carries the file's eD2K hash (MD4 root of the 9.28 MB part hashes). Together with
+`size` it is the eD2K identity, which lets a dual-protocol client resolve an eD2K link on ed3k and
+download one file from both networks at once.
+
+- In version 1 a sender that knows the eD2K hash MUST include it.
+- A receiver MUST accept records without it and MUST NOT use it as a key in any ed3k message.
+  Every request names a file by `root`.
+- The pairing (`root`, `ed2k`) in a record is a **claim** until the receiver has verified data
+  under both hashes. See §14.5.
+
+**The alias is expected to be dropped.** Nothing in ed3k depends on it: it is one optional field.
+A later revision turns the MUST above into a MAY, and field 4 is then left reserved.
+
+---
+
+## 8. IPv4 and IPv6
+
+### 8.1 One overlay
+
+There is one keyspace, one record store per node and one node ID per node. Addresses of both
+families live in the same routing table. A node with public addresses in both families holds two
+positions (§6.3) and is the bridge between single-stack nodes.
+
+**Alternative considered:** two separate overlays as in BitTorrent (BEP 32). Every contact in a
+table is then dialable, but dual-stack nodes maintain and publish twice and the IPv6 overlay
+starts small. Fully separate instances per family were rejected outright.
+
+### 8.2 The dual-stack contract
+
+1. A record (`Peer`, compact node) carries **at most one endpoint per family**.
+2. A node MUST use the same UDP port number in both families when it can, and MUST advertise the
+   real ports when it cannot.
+3. Requests that return contacts state which families the asker can dial (`KadRequest.want`). A
+   node answers with contacts of those families only.
+4. A single-stack node inserts only contacts of its own family into its routing table.
+5. The endpoint of the family a connection arrived on is **observed** and therefore trusted for
+   routing. An endpoint of the other family is **claimed** until dialled.
+6. Abuse limits count per IPv4 address and per IPv6 /64.
+7. An address is acceptable only if it is global unicast. For IPv6 this excludes at least
+   `::/128`, `::1`, `fe80::/10`, `fc00::/7`, `::ffff:0:0/96`, `64:ff9b::/96`, `2001::/32`
+   (Teredo), `2002::/16` (6to4), `2001:db8::/32` and `ff00::/8`. An IPv4-mapped address is
+   normalised to IPv4 on receipt.
+
+### 8.3 Dialling
+
+When a peer has endpoints in both families and so does the dialler, IPv6 is tried first and IPv4
+250 ms *(initial)* later; the first handshake to complete wins. An established connection MAY
+migrate to the other family with QUIC path validation.
+
+A node SHOULD advertise a stable IPv6 address rather than a temporary one (RFC 4941), and send
+from the address it advertises.
+
+---
+
+## 9. NAT traversal
+
+**NAT traversal is REQUIRED.** Every node MUST implement address observation (§9.2), act as punch
+initiator and punch target (§9.5), and, when it is a `ROUTER`, offer the relay service (§9.4).
+A node behind a stateful IPv6 firewall is in the same position as a node behind an IPv4 NAT and
+uses the same procedure.
+
+### 9.1 Before traversal
+
+A node SHOULD first try to become directly reachable with a port mapping (PCP, NAT-PMP, UPnP IGD;
+for IPv6 a firewall pinhole). Traversal is for when that fails.
+
+### 9.2 Address observation and classification
+
+Every `Hello` reports the sender's view of the receiver's endpoint (`observed`). A node collects
+these reports per local socket:
+
+| Class | Evidence |
+|---|---|
+| `open` (1) | a `ReachTest` (§9.3) arrived from a node it had never sent to |
+| `cone` (2) | at least 3 *(initial)* peers at different addresses observed the same endpoint, and no `ReachTest` arrived |
+| `symmetric` (3) | peers observed different ports |
+| `unknown` (0) | not enough reports yet |
+
+A reported address is adopted as the node's own only after that many distinct peers agree, where
+peers are distinct by their own address, not by their node ID.
+
+### 9.3 `ReachTest`
+
+```protobuf
+message ReachTest {
+  bytes  target_id = 1;       // set when forwarded: node to probe
+  bytes  target_ep = 2;       // set when forwarded: endpoint to probe
+  uint64 nonce = 3;
+  bool   ok = 4;              // answer: a prober was asked
+}
+```
+
+A node asks a peer A to have it tested. A picks a `ROUTER` contact B that has no connection with
+the asker, and forwards the request with `target_id` and `target_ep` filled in; `target_ep` MUST
+be the asker's observed endpoint as A sees it, never a value from the asker. B sends one `PROBE`
+datagram (§4.3) with the nonce to that endpoint. If it arrives, the asker is `open` in that
+family. A and B rate-limit these to 1 per asker address per minute *(initial)*.
+
+### 9.4 Relays
+
+A leaf keeps connections to 2 *(initial)* relays per family it has no open address in.
+
+```protobuf
+message Relay {
+  bool   reserve = 1;         // request: true = hold a slot, false = release
+  uint32 ttl = 2;             // answer: seconds the slot is held without traffic
+}
+```
+
+A relay holds the connection open and forwards `Punch` messages to the leaf. A leaf lists its
+relays in every `Peer` record it publishes (`relays4`, `relays6`).
+
+**A relay forwards signalling only.** It never carries file data or any other exchange between two
+peers. That keeps the service cheap enough to be an obligation for every reachable node and
+useless as a proxy. The consequence is that a pair whose punch fails cannot transfer.
+
+**Alternatives considered:** a rate-limited data relay as a last resort (connects every pair, but
+relays pay bandwidth for strangers and need quota and abuse rules); a multi-port "birthday" probe
+for symmetric NATs (hundreds of probe packets per attempt, which trips router session limits and
+looks like a scan). Both can be added later as capabilities without changing §9.5.
+
+### 9.5 Hole punching
+
+```protobuf
+message Punch {
+  bytes  peer_id = 1;         // to relay: the target. to target: the initiator
+  bytes  ep4 = 2;             // sender's observed endpoints
+  bytes  ep6 = 3;
+  uint32 nat = 4;             // sender's class, §9.2
+  uint64 nonce = 5;
+}
+```
+
+```
+initiator I                        relay R                          target T
+  ── Punch{peer_id=T, eps(I)} ──►   forward over T's reservation
+                                    ── Punch{peer_id=I, eps(I)} ──►
+                                                                     start PROBEs to eps(I)
+                                    ◄── Punch{peer_id=I, eps(T)} ──
+  ◄── Punch{peer_id=T, eps(T)} ──
+  dial QUIC to eps(T)
+```
+
+1. I opens an exchange to one of T's relays and sends `Punch`.
+2. R forwards it to T on a new exchange, with `peer_id` replaced by I's ID. R answers
+   `Error{NOT_FOUND}` if T holds no reservation.
+3. T answers with its own endpoints, and at once starts sending `PROBE` datagrams to each of I's
+   endpoints in the families both share, at random intervals of 10–200 ms for 5 s *(initial)*.
+   These open T's mapping.
+4. R returns T's answer to I. I dials T with a normal QUIC handshake; its retransmitted Initials
+   open I's mapping. I is the QUIC client, T the server.
+5. I tries up to 3 times *(initial)*. After that the source is marked unreachable for
+   30 min *(initial)*.
+
+Pairs that cannot work are skipped without trying: `symmetric` on both sides, in a family both
+need. IPv6 is preferred when both sides have it, since a stateful firewall has no port mapping to
+guess.
+
+Measurements of the same procedure in libp2p (DCUtR) put the success rate near 70 % of attempts
+across all NAT types and above 80 % for port-restricted cone NATs.
+
+### 9.6 Why a self-contained design
+
+The traversal above is four messages on top of a QUIC library that lets the application own the
+UDP socket. Existing stacks were evaluated against that:
+
+| Option | Verdict |
+|---|---|
+| **libp2p** (DCUtR, AutoNAT, Circuit Relay v2) | The procedure in §9.5 is DCUtR's. The stack is not usable as a dependency here: the C++ implementation has no QUIC, relay or hole punching; the Go and Rust ones bring their own runtime, socket, peer-ID format, stream negotiation and the ALPN `libp2p`, and offer no place for §4's obfuscation except a socket wrapper in Go |
+| **iroh** | Closest in spirit (dial by key, relays, QUIC with NAT traversal). Rust with an immature C interface; its relays carry data; it owns the socket |
+| **ICE/STUN/TURN** (libjuice, libnice, libdatachannel) | STUN is plaintext with a fixed magic cookie, which is exactly the kind of tell §4 removes, and it needs STUN/TURN servers. ICE's candidate machinery is far more than two candidate types need |
+| **QUIC drafts** (address discovery, NAT traversal) | The right long-term home: `OBSERVED_ADDRESS` is §9.2 and the punch frames are §9.5. Both are still drafts and not available in the candidate QUIC libraries. §9 is kept close to them so it can be replaced by the standard frames in a later wire version |
+
+---
+
+## 10. Kad
+
+### 10.1 Targets
+
+| Record kind | Target |
+|---|---|
+| `SOURCE`, `NOTE` | `root[0..16)` |
+| `KEYWORD` | `H("ed3k v1 keyword", word)[0..16)`, `word` being one keyword in Unicode NFKC, case-folded, UTF-8 |
+
+File hashes, node IDs and keyword keys all come from the same function and are cut to the same
+128 bits, so they share one keyspace without conversion.
+
+### 10.2 Routing table
+
+Buckets of K = 10 *(initial)* verified contacts, ordered by XOR distance between routing IDs. Each
+entry is one (node ID, endpoint) pair; a dual-stack node contributes two entries at two positions.
+Only `ROUTER` nodes are inserted. A contact is dropped when a connection attempt fails twice.
+
+### 10.3 The one request
+
+There is a single Kad request. It always asks for closer nodes and optionally carries an
+operation that the receiver performs if it is responsible for the target.
+
+```protobuf
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; }
+
+message KadRequest {
+  bytes  target = 1;          // 16 B
+  uint32 want = 2;            // bit 0: IPv4 contacts, bit 1: IPv6 contacts
+  Kind   kind = 3;            // NONE = find nodes only
+  Query  search = 4;          // search for records of `kind`
+  Store  store = 5;           // store records of `kind`
+}
+
+message Query {
+  repeated string all = 1;    // every word must occur in the name
+  repeated string none = 2;   // no word may occur
+  uint64 min_size = 3;
+  uint64 max_size = 4;
+  uint32 min_sources = 5;
+  string ext = 6;             // file extension without the dot
+  uint32 offset = 7;          // skip this many results
+}
+
+message Store {
+  Peer     source = 1;        // SOURCE: my endpoints and relays; `id` MUST be empty
+  repeated FileInfo files = 2;  // KEYWORD: files whose name contains the keyword
+  Note     note = 3;          // NOTE
+}
+
+message Note {
+  uint32 rating = 1;          // 1..5, 0 = none
+  string text = 2;
+}
+
+message KadAnswer {
+  bytes  nodes4 = 1;          // n × 22 B compact nodes, closest first
+  bytes  nodes6 = 2;          // n × 34 B
+  bool   responsible = 3;     // this node considers the target inside its zone
+  uint32 load = 4;            // 0..100, store fill level for this target
+  repeated Peer     sources = 5;
+  repeated FileInfo files = 6;
+  repeated Note     notes = 7;
+  bool   more = 8;            // further results exist; ask again with `offset`
+}
+```
+
+This one pair replaces 12 Kad2 opcodes: `REQ`/`RES`, three search requests and their answer, three
+publish requests with answer and acknowledgement, and bootstrap (a `KadRequest` for one's own ID).
+`Hello` (§5.5) replaces the Kad hello pair, ping/pong and the firewall check packets; §9 replaces
+the buddy packets.
+
+Rules:
+
+- A node returns up to 16 *(initial)* verified contacts per requested family that are closer to
+  the target than itself. It returns none when it knows none closer.
+- **Responsibility.** A node is responsible for a target when it knows fewer than
+  K verified contacts closer to the target than one of its own routing IDs. It sets
+  `responsible`, executes a `search`, and accepts a `store`.
+- A node that is not responsible ignores `search` and `store` and only returns contacts. It
+  answers a `store` with contacts and `responsible = false`, never with stored data.
+- **The requester follows closer nodes.** Whenever an answer contains contacts closer than the
+  answering node, the requester MUST continue to them, whether or not the answer said
+  `responsible`. Only the closest verified nodes hold the payload; an answer from a node further
+  out is a waypoint.
+- **Source records are bound to the connection.** The storing node takes the source's node ID
+  from the authenticated connection and its endpoint from the observed address. A node can
+  therefore publish only itself, and source lists cannot be filled with invented peers.
+- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h. Republish before expiry.
+- Flood limits are per source address and per `kind`.
+- Records are not signed in version 1; `FileInfo` and `Note` are claims, as in Kad today.
+
+### 10.4 Lookup
+
+1. Seed the candidate set with the closest contacts from the routing table.
+2. Query the α = 3 *(initial)* closest candidates not yet queried, carrying the operation in every
+   request.
+3. Add returned contacts to the candidates. A contact becomes verified when its connection
+   completes (§6.3).
+4. Stop when the R closest verified candidates have all answered and none of them returned a
+   closer node. R = 4 for a search, 8 for a store *(initial)*.
+
+### 10.5 What a lookup costs over QUIC, and what bounds it
+
+A new QUIC connection costs about 2.5 KB (both Initial flights are padded to 1200 bytes) and one
+round trip; an eMule Kad exchange is a few hundred bytes. The iterative walk cannot be skipped:
+the payload lives only on the closest nodes, and those are found by asking nodes that are not yet
+close. The number of connections per lookup is therefore the number of distinct nodes on the walk
+plus the responsible set, and no protocol trick removes it. What the design does is keep every
+other cost off that number:
+
+| Measure | Effect |
+|---|---|
+| Operation rides in the lookup request | The responsible nodes are contacted **once**. eMule Kad walks with `KADEMLIA2_REQ` and then sends the search or publish to the same nodes again; over QUIC the second pass is free only while the connection is still open, and here it does not exist |
+| 16 contacts per answer instead of 11 | Fewer hops. A contact costs 22 bytes, a hop costs a handshake |
+| No speculative queries | A candidate is queried only if it is among the α closest known. Every wasted query costs 2.5 KB, so α stays small and is not raised to hide timeouts |
+| First hop is warm | Connections to routing-table contacts stay open while idle (30 s) and resume with 0-RTT afterwards, which saves the round trip though not the padded Initial |
+| One connection per node, many exchanges | Lookups for different targets that pass through the same node share its connection; a client publishing many files orders them by target so neighbouring walks overlap |
+| Keyword records batched per node | All files sharing a keyword go in one `Store` |
+| Index nodes | A node logged in to an index node (§11) publishes and searches there over one connection and needs Kad for keywords only as a fallback |
+| Long record lifetimes | Publishing is the dominant Kad load; it happens every 5 h and 24 h, not per search |
+
+Expected cost of a lookup with operation: 3–4 hops and 8–12 nodes contacted, of which 5–9 are new
+connections, so roughly 15–25 KB against 3–5 KB in eMule Kad. That is the price of having one
+authentication and anti-spoofing mechanism instead of two, and of the verified addresses that §6.3
+depends on.
+
+### 10.6 Reserved: sessionless Kad datagrams
+
+If measurements on the live network show the cost above to be a problem, Kad requests can move to
+single sealed datagrams, as eMule Kad and Ethereum's discv5 do. Version 1 reserves for this:
+
+- capability bit 5 (`KAD_DGRAM`)
+- message types 48–63
+- a fifth `kind` value in a future `magic` version of §4.3
+
+Such a binding has to provide on its own what QUIC provides here: proof of the sender's key,
+proof of its address (a cookie round trip) and replay protection. It would carry the same
+`KadRequest` and `KadAnswer`. It is deliberately not designed in this version.
+
+---
+
+## 11. Index nodes
+
+An index node is a node with the `INDEX` capability. It is what eD2K calls a server, without a
+protocol of its own:
+
+| eD2K server function | ed3k |
+|---|---|
+| Login, ID assignment, "your IP" | `Hello` (`observed`, §9.2). There is no HighID/LowID: a node is `open` or it has relays |
+| Offer files | `KadRequest{kind=KEYWORD, store}` and `{kind=SOURCE, store}` |
+| Search | `KadRequest{kind=KEYWORD, search}` |
+| Get sources | `KadRequest{kind=SOURCE}` |
+| Callback request | `Punch` (an index node is a relay) |
+| Server list | `KadRequest{want}` returns nodes; index nodes are recognised by `Hello.caps` |
+
+Differences from a Kad node: an index node is `responsible` for **every** target, never needs the
+iterative walk, MAY keep records for as long as the publishing connection stays open instead of
+the fixed lifetimes, and MAY apply its own admission policy with `Error{DENIED}` or `{BUSY}`.
+
+A client finds index nodes from a configured list, from a link (§13.3) or from an eD2K server
+that advertises one (§14.3). Index nodes are optional for the network and optional for a client.
+
+---
+
+## 12. File transfer
+
+### 12.1 The file stream
+
+A downloader opens one exchange per (uploader, file) and keeps it open. Everything about that
+file between the two peers happens on it. The file is named once, in the first message.
+
+```protobuf
+message FileRequest {
+  bytes  root = 1;            // 32 B; only in the first FileRequest of the stream
+  bytes  have = 2;            // my piece bitmap, LSB first; empty = nothing or not told
+  uint32 want_sources = 3;    // max number of sources wanted, 0 = none
+}
+
+message FileStatus {
+  uint64 size = 1;
+  string name = 2;
+  bytes  ed2k = 3;            // §7.4
+  bytes  have = 4;            // uploader's piece bitmap; empty = complete file
+  uint32 rank = 5;            // queue position; 0 = upload slot granted, send BlockRequest
+  repeated Peer sources = 6;  // source exchange
+  Note   note = 7;            // uploader's rating/comment on the file
+}
+```
+
+- The uploader answers the first `FileRequest` with a full `FileStatus`, or `Error{NOT_FOUND}`.
+- The uploader sends a new `FileStatus` whenever `rank` or `have` changes. Later ones carry only
+  changed fields; `size`, `name` and `ed2k` are sent once.
+- The downloader sends a new `FileRequest` to update `have` or to ask for sources again.
+- Either side ends by closing the exchange. There is no cancel message.
+- A queued downloader MAY close the connection. Its queue position is kept for 1 h *(initial)*;
+  it comes back by opening a new file stream, which is also how it learns its rank. This replaces
+  the UDP reask.
+- Sources in `FileStatus` MUST be peers the uploader has itself had a verified connection with
+  for this file within the last hour *(initial)*.
+
+These two messages replace `OP_HELLO`'s file fields, `OP_REQUESTFILENAME`, `OP_SETREQFILEID`,
+`OP_FILESTATUS`, the three multipacket variants and their two answers, `OP_STARTUPLOADREQ`,
+`OP_ACCEPTUPLOADREQ`, `OP_QUEUERANKING`, `OP_REQUESTSOURCES2`/`OP_ANSWERSOURCES2`,
+`OP_REASKFILEPING`/`OP_REASKACK`, `OP_FILEDESC`, `OP_CANCELTRANSFER` and `OP_END_OF_DOWNLOAD`.
+There is no large-file variant; every offset is 64 bits.
+
+Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID.
+
+### 12.2 `BlockRequest`
+
+```protobuf
+message BlockRequest {
+  repeated uint64 offset = 1; // packed
+  repeated uint32 length = 2; // packed, same count; each ≤ 256 KiB
+}
+```
+
+Allowed only while `rank = 0`. Up to 16 *(initial)* ranges may be outstanding.
+
+### 12.3 `Block`
+
+```protobuf
+message Block {
+  uint64 offset = 1;
+  uint32 size = 2;            // number of raw bytes that follow this frame
+}
+```
+
+The frame is followed by exactly `size` raw bytes of file data. They are not inside the protobuf
+body, so a block is never copied through the serializer, and never compressed (§5.3).
+
+Per-block overhead is about 8 bytes on 256 KiB.
+
+### 12.4 Hashes
+
+```protobuf
+message HashRequest {
+  uint64 first = 1;           // first block index
+  uint32 count = 2;           // number of blocks
+}
+
+message HashAnswer {
+  bytes cvs = 1;              // count × 32 B block chaining values
+  bytes proof = 2;            // n × 32 B sibling values linking the range to the root
+}
+```
+
+`cvs` are the BLAKE3 chaining values of the 256 KiB subtrees `first .. first+count-1`. `proof`
+holds the sibling chaining values needed to recompute the root from that range, ordered from the
+lowest tree level upwards and left to right within a level. The receiver recomputes parent nodes
+up to the root and compares with `root`; the root node is finalised with BLAKE3's `ROOT` flag, all
+others without. A request for all blocks has an empty proof.
+
+---
+
+## 13. Other peer messages
+
+### 13.1 Browse
+
+```protobuf
+message Browse      { string dir = 1; }                       // empty = top level
+message BrowseAnswer { repeated string dirs = 1; repeated FileInfo files = 2; }
+```
+
+Only if the peer set `BROWSE`. Replaces the four shared-files/shared-directories opcodes.
+
+### 13.2 Chat
+
+```protobuf
+message Chat { string text = 1; }
+```
+
+Sent on its own exchange, no answer. Only if the peer set `CHAT`. Captchas are gone: the sender is
+an authenticated key that can be blocked.
+
+### 13.3 Links
+
+```
+ed3k:file?b3=<root, base32 lower case, no padding>&sz=<size>&dn=<url-encoded name>[&ed2k=<32 hex>]
+ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
+```
+
+### 13.4 Not carried over
+
+Preview requests, PeerCache, the eD2K server message, comment packets separate from file status,
+compressed part packets, Kad v1, and every "version N of packet X" have no ed3k equivalent.
+
+---
+
+## 14. Coexistence with eD2K (OPTIONAL)
+
+This section applies only to a client that speaks **both** eD2K and ed3k. It specifies, in terms
+an eD2K implementer can follow without reading the rest, how such a client lets eD2K peers know
+before any connection that it can also be reached over ed3k. Nothing here changes a byte that a
+legacy eD2K client or server interprets.
+
+### 14.1 The port rule
+
+> A dual-protocol client listens for ed3k on the **UDP port whose number equals its advertised
+> eD2K TCP port**, on every address it advertises.
+
+Every eD2K source record, from a server, from source exchange, from Kad or from a link, carries an
+address and the TCP port. None of the server or source-exchange formats carries the UDP port.
+With this rule the ed3k endpoint of any eD2K source is known without one extra byte.
+
+**Can ed3k share the eMule UDP socket?** Yes, when the user's eD2K UDP port has the same number
+as the TCP port; otherwise ed3k has a socket of its own. Sharing works as follows:
+
+- eD2K UDP cannot be told from ed3k by the first byte. An obfuscated eD2K datagram starts with a
+  random marker byte, and an ed3k datagram starts with a random salt.
+- It **can** be told reliably by a keyed check. Plaintext eD2K datagrams start with one of
+  `0xE3 0xE4 0xE5 0xC5 0xD4 0xA3 0xB2`, which an ed3k salt never does (§4.3). For every other
+  datagram the receiver runs §4.5 first: a live ed3k flow from that source address, else the
+  4-byte `magic` under its own key. Only if both fail does the datagram go to the eD2K trial
+  decryption, which has its own 32-bit magic. A datagram is misrouted with probability 2⁻³²
+  in either direction.
+- A legacy client that receives a stray ed3k datagram fails its trial decryption and drops it, as
+  it does with any noise.
+
+**Alternatives considered:** always sharing the eD2K UDP port (one mapping, but servers and source
+exchange do not tell a peer what that port is); a dedicated port carried in tags (no demultiplexing
+at all, but invisible through legacy servers and through source exchange relayed by legacy
+clients).
+
+### 14.2 The derived user hash
+
+A dual-protocol client derives its eD2K user hash from its ed3k node ID `N`:
+
+```
+byte   0  1  2  3  4  5   6  7  8  9  10 11 12  13  14   15
+       N0 N1 N2 N3 N4 14  N5 N6 N7 N8 N9 N10 N11 c0  111  c1
+
+(c0, c1) = H("ed3k v1 ed2k user hash", N[0..12))[0..2)
+```
+
+Bytes 5 and 14 are eMule's own client markers (14 and 111) and stay as they are, so every eD2K
+client still classifies the peer as eMule.
+
+**Recognising it.** For any user hash `u`: take `n = u[0..5) ‖ u[6..13)`, compute the two check
+bytes, and compare with `u[13]` and `u[15]`, with `u[5] = 14` and `u[14] = 111`. On a match:
+
+- the peer *probably* speaks ed3k version 1, at the UDP port of §14.1
+- `n` is the first 12 bytes of its node ID, which is exactly the `obf_id` of §4.3, so the first
+  ed3k datagram can be built at once
+- after the ed3k handshake, the peer's real node ID MUST start with `n`; otherwise close with
+  `WRONG_PEER`
+
+It is a **hint**: one legacy hash in 65,536 matches by accident. The cost of a false hint is one
+unanswered handshake. An implementation MUST fall back to eD2K when ed3k does not answer and
+MUST NOT drop a source for it.
+
+**Where the hint arrives before connecting**
+
+| Channel | User hash present? |
+|---|---|
+| Kad source search result | always: the source ID of a Kad source record is the publisher's user hash |
+| Source exchange v2, v3, v4 (`OP_ANSWERSOURCES`, `OP_ANSWERSOURCES2`) | always |
+| Extended source exchange | when the `CT_EMULE_USERHASH` tag is sent |
+| Server `OP_FOUNDSOURCES_OBFU` | when the per-source option byte has `0x80` set |
+| Server `OP_CALLBACKREQUESTED` with the crypt extension | yes |
+| Server `OP_FOUNDSOURCES`, UDP `OP_GLOBFOUNDSOURCES`, source exchange v1 | no |
+
+For a LowID source the hash is known but no address is. The hint then says that the file is worth
+looking up on ed3k.
+
+**Precedents.** eD2K clients have always carried signals in the user hash: eMule's 14/111, the
+older 13/110, MLDonkey's `'M'`/`'L'`. eNode's meta search does the same with a file hash, using a
+2-byte magic, a version byte and a 10-byte folded digest in the MD4 field of a search result.
+
+**Costs**
+
+- The user hash changes once when a client adopts this. Other peers key credits by user hash, so
+  credits earned at them are lost. An implementation SHOULD tell the user before switching.
+- The eD2K and ed3k identities become linkable by anyone. That is the purpose.
+- 96 of 112 free bits remain random-looking; nothing in eD2K depends on more.
+
+### 14.3 Explicit tags
+
+Tags are authoritative where the hash is a hint, and reach places the hash does not. A tag from
+the following list means "ed3k version `n`, port rule of §14.1".
+
+| Channel | Signal | Status |
+|---|---|---|
+| Client hello (`OP_HELLO`/`OP_HELLOANSWER`) | tag `CT_ED3K`, HASH type, value = the full 16-byte node ID | proposed ID `0xA1`; to be checked against other mods before use |
+| Kad source publish | string-named tag `"e3"`, UINT8 = wire version | stored and returned verbatim by legacy nodes, like `"ip6"` |
+| Extended source exchange record | tag `CT_ED3K`, UINT8 = wire version | only to peers that skip unknown tags |
+| Server login | tag `CT_ED3K`, HASH type, in `OP_LOGINREQUEST` | lets an ed3k-aware server mark sources and advertise an index node |
+| Server ident | a string tag with the server's `ed3k:node?…` link | proposed; ID to be assigned with the server authors |
+| eD2K link | token `e3=<base32 root>` | MUST be placed before the `sources` block, where legacy parsers stop reading |
+
+The hello tag binds the two identities after an eD2K connection: if secure identification passed
+and the tag's node ID yields the peer's user hash under §14.2, a client MAY carry the peer's eD2K
+credits over to the node ID.
+
+### 14.4 Other signals considered
+
+| Signal | Why not the primary one |
+|---|---|
+| Reserved bits 4–7 of the connect-options byte | Reaches Kad (`FT_ENCRYPTION`) and source exchange v4, but legacy clients rebuild that byte from their own flags when relaying, and servers mask it to 3 bits and use `0x80` for "hash follows" |
+| Free bits 14–31 of `CT_EMULE_MISCOPTIONS2`, or a `CT_MOD_MISCOPTIONS` bit | Only visible after a TCP hello |
+| Free bits 3–7 of `TAG_KADMISCOPTIONS`, or a higher Kad version | Tells Kad contacts, not download sources |
+| Fixed marker bytes in the user hash | Same one-time credit loss, but carries no node ID |
+| A Kad record mapping user hash to node ID | A second lookup per source |
+| Probing the port blindly | A wasted handshake against every legacy source |
+
+### 14.5 Using both networks for one file
+
+- A dual-protocol client learns (`root`, `ed2k`) pairs from `FileInfo` and `FileStatus`.
+- A pair is trusted once data has been verified under both: a block under the BLAKE3 tree and the
+  part containing it under the eD2K part hash. If a part fails under one hash while its blocks
+  pass under the other, the pair is false; the client drops it and the peers that supplied it.
+- A file's sources from both networks feed one download. Availability is kept as byte ranges
+  internally; eD2K part bitmaps and ed3k piece bitmaps are both projections of it.
+- A peer reachable over both protocols SHOULD be used over ed3k only.
+
+---
+
+## 15. Overhead summary
+
+Sizes are message bodies, estimated from the encoding rules; they are to be replaced by measured
+values once an implementation exists. eD2K figures are from the eMule sources.
+
+| Purpose | eD2K / Kad | ed3k | Why |
+|---|---|---|---|
+| Client hello | 103 B, plus 2 secure-ident packets (~150 B) | 30–45 B | no hash, key, ports, version tags or server fields |
+| Kad contact (IPv4) | 25 B | 22 B | no TCP port, no version byte |
+| Kad find + search or publish | 2 requests, 2 answers | 1 request, 1 answer | §10.3 |
+| File request with part status | 55 B + bitmap | 36 B + bitmap, once per stream | hash sent once, 4 MiB pieces |
+| Source entry (IPv4) | 29 B (v4) | 26 B | `Peer` with 16 B ID |
+| Block header | 32 B per ≤ 10 KiB packet | ~8 B per 256 KiB | QUIC segments the stream |
+| Reask while queued | 1 UDP packet each way per 29 min | none while connected; 1 file stream otherwise | §12.1 |
+| Per-datagram cost | 8–16 B obfuscation | 13 B obfuscation + QUIC header and 16 B AEAD tag | §4.3 |
+| New contact | 0 (connectionless UDP) or a TCP handshake | ~2.5 KB QUIC handshake | §10.5 |
+
+What was removed to get there: generic tag lists (every field is typed and absent when empty),
+request IDs, fragment markers, the user hash, ports that equal another port, version negotiation
+inside messages, and all packets that exist only as a second way to do the same thing.
+
+---
+
+## 16. Versioning and extensions
+
+- A change that an old node would misread gets a new ALPN (`ed3k/2`) and, if the datagram format
+  changes, a new `magic`.
+- Additive changes use new fields (unknown fields MUST be ignored), new message types (answered
+  with `UNSUPPORTED`) and new capability bits.
+- **Network rules** (who counts as verified, record lifetimes, an ID puzzle) change by upgrade: a
+  capability bit announces support, and a date fixed in the specification switches enforcement.
+- Anything that is ever signed MUST travel as `bytes` and be verified over exactly those bytes.
+  Protobuf serialisation is not canonical.
+
+Reserved for later: signed records, the key puzzle and diversity limits of §6.3, the Kad datagram
+binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
+
+---
+
+## Appendix A — initial constants
+
+| Constant | Value |
+|---|---|
+| Idle timeout without open exchange | 30 s |
+| Keep-alive on reservations and file streams | 20 s |
+| Fragment reassembly: messages per source, timeout | 4, 3 s |
+| Compression threshold | 64 B |
+| Maximum frame body | 1 MiB |
+| Address reports needed | 3 |
+| Reach tests per asker address | 1 per minute |
+| Relays per family | 2 |
+| Punch: probe interval, duration, attempts, back-off | 10–200 ms, 5 s, 3, 30 min |
+| Dual-stack head start for IPv6 | 250 ms |
+| Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
+| Record lifetimes: source, keyword, note | 5 h, 24 h, 24 h |
+| Block, piece | 256 KiB, 4 MiB |
+| Outstanding block ranges | 16 |
+| Queue position kept after disconnect | 1 h |
+| Source exchange freshness | 1 h |
+
+## Appendix B — open points
+
+- BLAKE3 test vectors for node ID, routing ID, keyword target, user hash and obfuscation key are
+  to be added under `tests/` with the first implementation.
+- The zstd dictionary does not exist yet; it needs a message corpus.
+- `CT_ED3K` and the server ident tag need IDs agreed with other client and server authors.
+- Raw-public-key support has to be confirmed in the TLS library chosen by each implementation.
+- The numbers in §10.5 and §15 are estimates.
+
+## Appendix C — references
+
+- RFC 9000, 9001, 9002 (QUIC); RFC 7250 (raw public keys); RFC 8878 (zstd); RFC 8032 (Ed25519)
+- BLAKE3 specification and the Bao verified-streaming specification
+- BEP 42, *DHT Security Extension*; BEP 32, *IPv6 extension for DHT*
+- Baumgart, Mies: *S/Kademlia: A Practicable Approach Towards Secure Key-Based Routing* (2007)
+- libp2p specifications: DCUtR, AutoNAT v2, Circuit Relay v2; Trautwein et al., measurement of
+  DCUtR hole punching (arXiv 2510.27500)
+- draft-ietf-quic-address-discovery; draft-seemann-quic-nat-traversal
+- *Exposing and Circumventing SNI-based QUIC Censorship of the Great Firewall of China* (USENIX
+  Security 2025); *How the Great Firewall of China Detects and Blocks Fully Encrypted Traffic*
+  (USENIX Security 2023)
+- Hysteria 2 protocol specification (Salamander, Gecko)
