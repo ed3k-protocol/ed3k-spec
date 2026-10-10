@@ -101,8 +101,8 @@ Messages never refer to QUIC. They rely on a **transport contract** that any bin
 
 Unreliable datagrams are not part of the contract in version 1 (see §10.6).
 
-**Why not gRPC or gRPC-Web over UDP.** It was considered because eNode's meta API uses
-Connect/gRPC-Web. gRPC assumes HTTP: per call it adds pseudo-headers, a 5-byte message prefix and a
+**Why not gRPC or gRPC-Web over UDP.** It was considered because protobuf services are usually
+exposed that way. gRPC assumes HTTP: per call it adds pseudo-headers, a 5-byte message prefix and a
 trailers block, and over UDP it would need HTTP/3 with QPACK. As of this draft neither grpc-core
 nor QtGrpc ship an HTTP/3 channel. Calls here are symmetric (either peer may ask), long-lived
 (a file stream) and carry raw file blocks, which fits streams better than RPC. HTTP/3 would also
@@ -854,11 +854,13 @@ single sealed datagrams, as eMule Kad and Ethereum's discv5 do. Version 1 reserv
 
 - capability bit 5 (`KAD_DGRAM`)
 - message types 48–63
-- a fifth `kind` value in a future `magic` version of §4.3
+- a second `magic` value for the datagram format of §4.3
+- field 8 of `Hello`
 
 Such a binding has to provide on its own what QUIC provides here: proof of the sender's key,
-proof of its address (a cookie round trip) and replay protection. It would carry the same
-`KadRequest` and `KadAnswer`. It is deliberately not designed in this version.
+proof of its address and replay safety. It carries the same `KadRequest` and `KadAnswer`.
+The design is specified as an extension in
+[`extensions/kad-datagram.md`](./extensions/kad-datagram.md); it is not part of version 1.
 
 ---
 
@@ -1086,9 +1088,8 @@ MUST NOT drop a source for it.
 For a LowID source the hash is known but no address is. The hint then says that the file is worth
 looking up on ed3k.
 
-**Precedents.** eD2K clients have always carried signals in the user hash: eMule's 14/111, the
-older 13/110, MLDonkey's `'M'`/`'L'`. eNode's meta search does the same with a file hash, using a
-2-byte magic, a version byte and a 10-byte folded digest in the MD4 field of a search result.
+**Precedents.** eD2K clients have always carried signals in the user hash: eMule's 14/111 and the
+older 13/110. Other clients mark their hashes with bytes of their own in the same way.
 
 **Costs**
 
@@ -1104,7 +1105,7 @@ the following list means "ed3k version `n`, port rule of §14.1".
 
 | Channel | Signal | Status |
 |---|---|---|
-| Client hello (`OP_HELLO`/`OP_HELLOANSWER`) | tag `CT_ED3K`, HASH type, value = the full 16-byte node ID | proposed ID `0xA1`; to be checked against other mods before use |
+| Client hello (`OP_HELLO`/`OP_HELLOANSWER`) | tag `CT_ED3K`, HASH type, value = the full 16-byte node ID | proposed ID `0xA1`; to be checked against other eD2K clients before use |
 | Kad source publish | string-named tag `"e3"`, UINT8 = wire version | stored and returned verbatim by legacy nodes, like `"ip6"` |
 | Extended source exchange record | tag `CT_ED3K`, UINT8 = wire version | only to peers that skip unknown tags |
 | Server login | tag `CT_ED3K`, HASH type, in `OP_LOGINREQUEST` | lets an ed3k-aware server mark sources and advertise an index node |
@@ -1209,14 +1210,29 @@ binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the 
 
 ## Appendix C — references
 
-- RFC 9000, 9001, 9002 (QUIC); RFC 7250 (raw public keys); RFC 8878 (zstd); RFC 8032 (Ed25519)
-- BLAKE3 specification and the Bao verified-streaming specification
-- BEP 42, *DHT Security Extension*; BEP 32, *IPv6 extension for DHT*
-- Baumgart, Mies: *S/Kademlia: A Practicable Approach Towards Secure Key-Based Routing* (2007)
-- libp2p specifications: DCUtR, AutoNAT v2, Circuit Relay v2; Trautwein et al., measurement of
-  DCUtR hole punching (arXiv 2510.27500)
-- draft-ietf-quic-address-discovery; draft-seemann-quic-nat-traversal
-- *Exposing and Circumventing SNI-based QUIC Censorship of the Great Firewall of China* (USENIX
-  Security 2025); *How the Great Firewall of China Detects and Blocks Fully Encrypted Traffic*
+- [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000),
+  [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001),
+  [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) (QUIC);
+  [RFC 7250](https://www.rfc-editor.org/rfc/rfc7250) (raw public keys);
+  [RFC 8878](https://www.rfc-editor.org/rfc/rfc8878) (zstd);
+  [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) (Ed25519)
+- [BLAKE3 specification](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf) and
+  the [Bao verified-streaming specification](https://github.com/oconnor663/bao/blob/master/docs/spec.md)
+- [BEP 42](https://www.bittorrent.org/beps/bep_0042.html), *DHT Security Extension*;
+  [BEP 32](https://www.bittorrent.org/beps/bep_0032.html), *IPv6 extension for DHT*
+- Baumgart, Mies:
+  [*S/Kademlia: A Practicable Approach Towards Secure Key-Based Routing*](https://doi.org/10.1109/ICPADS.2007.4447808)
+  (2007)
+- libp2p specifications: [DCUtR](https://github.com/libp2p/specs/blob/master/relay/DCUtR.md),
+  [AutoNAT v2](https://github.com/libp2p/specs/blob/master/autonat/autonat-v2.md),
+  [Circuit Relay v2](https://github.com/libp2p/specs/blob/master/relay/circuit-v2.md);
+  Trautwein et al., measurement of DCUtR hole punching
+  ([arXiv 2510.27500](https://arxiv.org/abs/2510.27500))
+- [draft-ietf-quic-address-discovery](https://datatracker.ietf.org/doc/draft-ietf-quic-address-discovery/);
+  [draft-seemann-quic-nat-traversal](https://datatracker.ietf.org/doc/draft-seemann-quic-nat-traversal/)
+- [*Exposing and Circumventing SNI-based QUIC Censorship of the Great Firewall of China*](https://gfw.report/publications/usenixsecurity25/en/)
+  (USENIX Security 2025);
+  [*How the Great Firewall of China Detects and Blocks Fully Encrypted Traffic*](https://gfw.report/publications/usenixsecurity23/en/)
   (USENIX Security 2023)
-- Hysteria 2 protocol specification (Salamander, Gecko)
+- [Hysteria 2 protocol specification](https://v2.hysteria.network/docs/developers/Protocol/)
+  (Salamander, Gecko)
