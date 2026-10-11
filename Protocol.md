@@ -56,6 +56,7 @@ alternatives that were rejected.
 | D11 | A server is an ordinary ed3k node with the INDEX capability; no separate server message set | §11 |
 | D12 | Keyword and note records are signed by their publisher; source records are not, they are proven by dialling | §10.3, §10.7 |
 | D13 | Every signed object carries a list of signatures, so algorithms can be added | §10.7 |
+| D14 | A keyword target includes a level, and a store is answered per record, so crowded keywords can spill to further levels later without a wire change | §10.1, §10.8 |
 
 ---
 
@@ -74,6 +75,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 5 | `KAD_DGRAM` | Reserved for the sessionless Kad binding (§10.6). MUST be 0 in version 1 |
 | 6 | `ED2K` | Also speaks eD2K (§14). Informational |
 | 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
+| 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -540,25 +542,18 @@ commits to every block; there is nothing to vote on.
 ### 7.3 Choice of hash function
 
 One function is used for files, node IDs, Kad targets, key derivation and the obfuscation
-keystream.
+keystream. BLAKE3 is chosen because the hash tree is part of the function: the specification
+does not have to define one, and the root is something a standard tool computes. It also
+supplies keyed hashing, key derivation with context strings and an extendable output, so no
+second primitive is needed for §4 and §6. The cost is a thinner round margin than the
+alternatives and one more dependency.
 
-| | Tree / partial verification | Speed (one core, order of magnitude) | Security margin | Availability |
-|---|---|---|---|---|
-| **BLAKE3** | built in; verified streaming is specified (Bao) | several GB/s with SIMD, scales across cores | 256-bit output, 128-bit collision security; 7 rounds, the thinnest margin in this table | small C library (CC0/Apache-2.0); not in Qt, OpenSSL or libsodium |
-| SHA-256 | none; a tree has to be defined on top (as BitTorrent v2 does) | ~0.5 GB/s, ~2 GB/s with SHA extensions | very well studied | everywhere |
-| SHA3-256 | none | ~0.5 GB/s | largest margin | everywhere |
-| KangarooTwelve | tree mode with 8 KiB leaves, but no standard for verifying a part | ~2–3 GB/s with SIMD | reduced-round Keccak, well analysed | few libraries |
-| BLAKE2b | none by default | ~1 GB/s | well studied | Qt, OpenSSL, libsodium |
-| SHA-1 (AICH), MD4 (eD2K) | AICH has a tree; MD4 only per 9.28 MB part | fast | both broken for collisions; MD4 collisions take milliseconds | — |
+SHA-256 with a tree defined on top is the fallback if BLAKE3 is ever weakened: the root field is
+32 bytes either way and the hash is named in every context string, so it can be replaced with a
+wire version bump.
 
-BLAKE3 is chosen because the tree is part of the function. With any other entry the specification
-would have to define leaf size, node encoding, domain separation and odd-node handling itself,
-which is where hash-tree designs usually go wrong, and the root would no longer be something a
-standard tool can compute. It also supplies keyed hashing, key derivation with context strings
-and an extendable output, so no second primitive is needed for §4 and §6. The cost is the thinner
-round margin and one more dependency. SHA-256 with a BitTorrent-v2-style tree is the fallback if
-BLAKE3 is ever weakened: the root field is 32 bytes either way and the hash is named in every
-context string, so it can be replaced with a wire version bump.
+The comparison with the alternatives is in
+[`docs/hash-comparison.md`](docs/hash-comparison.md).
 
 ### 7.4 The eD2K alias
 
@@ -726,14 +721,12 @@ across all NAT types and above 80 % for port-restricted cone NATs.
 ### 9.6 Why a self-contained design
 
 The traversal above is four messages on top of a QUIC library that lets the application own the
-UDP socket. Existing stacks were evaluated against that:
+UDP socket. Existing stacks (libp2p, iroh, ICE/STUN/TURN) were not adopted: none leaves room for
+the obfuscation of §4, and each brings its own socket, runtime or servers. The procedure of §9.5
+is libp2p's DCUtR, and §9 is kept close to the QUIC drafts for address discovery and NAT
+traversal, so that it can be replaced by the standard frames in a later wire version.
 
-| Option | Verdict |
-|---|---|
-| **libp2p** (DCUtR, AutoNAT, Circuit Relay v2) | The procedure in §9.5 is DCUtR's. The stack is not usable as a dependency here: the C++ implementation has no QUIC, relay or hole punching; the Go and Rust ones bring their own runtime, socket, peer-ID format, stream negotiation and the ALPN `libp2p`, and offer no place for §4's obfuscation except a socket wrapper in Go |
-| **iroh** | Closest in spirit (dial by key, relays, QUIC with NAT traversal). Rust with an immature C interface; its relays carry data; it owns the socket |
-| **ICE/STUN/TURN** (libjuice, libnice, libdatachannel) | STUN is plaintext with a fixed magic cookie, which is exactly the kind of tell §4 removes, and it needs STUN/TURN servers. ICE's candidate machinery is far more than two candidate types need |
-| **QUIC drafts** (address discovery, NAT traversal) | The right long-term home: `OBSERVED_ADDRESS` is §9.2 and the punch frames are §9.5. Both are still drafts and not available in the candidate QUIC libraries. §9 is kept close to them so it can be replaced by the standard frames in a later wire version |
+The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-comparison.md).
 
 ---
 
@@ -744,7 +737,7 @@ UDP socket. Existing stacks were evaluated against that:
 | Record kind | Target |
 |---|---|
 | `SOURCE`, `NOTE` | `root[0..16)` |
-| `KEYWORD` | `H("ed3k v1 keyword", word)[0..16)`, `word` being one keyword in Unicode NFKC, case-folded, UTF-8 |
+| `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword in Unicode NFKC, case-folded, UTF-8. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
 128 bits, so they share one keyspace without conversion.
@@ -771,6 +764,7 @@ message KadRequest {
   Kind   kind = 3;            // NONE = find nodes only
   Query  search = 4;          // search for records of `kind`
   Store  store = 5;           // store records of `kind`
+  uint32 level = 6;           // KEYWORD: level the target was computed for (§10.1); 0 in version 1
 }
 
 message Query {
@@ -798,12 +792,22 @@ message KadAnswer {
   bytes  nodes4 = 1;          // n × 22 B compact nodes, closest first
   bytes  nodes6 = 2;          // n × 34 B
   bool   responsible = 3;     // this node considers the target inside its zone
-  uint32 load = 4;            // 0..100, store fill level for this target
+  uint32 load = 4;            // 0..100: files held under this target, in percent of the level size (§10.8)
   repeated Peer     sources = 5;
   repeated Signed   files = 6;  // §10.7
   repeated Signed   notes = 7;  // §10.7
   bool   more = 8;            // further results exist; ask again with `offset`
   repeated bytes    keys = 9; // 32 B publisher keys, referenced by Signed.key
+  repeated StoreResult results = 10;  // one per record of the Store, in order; absent = all stored
+  bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
+  repeated uint32   sites = 12;       // one per entry of `files`: publisher sites counted; 0 = not counted
+}
+
+enum StoreResult {
+  STORED = 0;
+  FULL = 1;                   // no room under this target (§10.8)
+  BUSY = 2;                   // no room on this node; says nothing about the target
+  REJECTED = 3;               // failed a check (§10.7) or a flood limit
 }
 ```
 
@@ -838,6 +842,8 @@ Rules:
   claim; the signature fixes who made it.
 - Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h. Republish before expiry.
 - Flood limits are per source address and per `kind`.
+- A `store` is answered per record in `results`. What a keyword target holds, and what a
+  publisher does when it is full, is in §10.8.
 
 ### 10.4 Lookup
 
@@ -953,6 +959,41 @@ keyword or note records. A storing node deletes a record at `expires`.
 The publisher's node ID, `H("ed3k v1 node id", key)[0..16)`, is the author of the record. It is
 what a client counts once, ignores, or trusts. Why this helps against spam, and where it does
 not, is discussed in [`docs/signed-records.md`](docs/signed-records.md).
+
+### 10.8 Keyword load
+
+Some words occur in a large share of all file names, and every record of one word goes to the
+same few nodes. Version 1 bounds that as follows.
+
+**Storing node**
+
+- A keyword target holds at most 100,000 *(initial)* files: the **level size**. Records of
+  several publishers for one file count once.
+- While a target is full, a record for a file the node already holds is renewed (`STORED`), and
+  a record for a new file is refused (`FULL`).
+- `BUSY` means the node as a whole is out of room. It says nothing about the target.
+- `load` and `spill` MUST be set as defined in §10.3. `sites` MAY be left at 0.
+
+**Publisher**
+
+- A file is published under every keyword of its name.
+- A refused record is offered again at the next refresh, not earlier. There is no longer
+  back-off.
+- The outcome of a store is judged over all answers from responsible nodes, ignoring `BUSY`.
+  One node cannot make a publisher give up on a keyword.
+
+**Searcher**
+
+- `load` and `spill` tell the searcher that the results are a part of what was published under
+  that word.
+
+**Levels.** The keyword target includes a level (§10.1), and version 1 uses level 0 only: a node
+MUST send `level = 0` and MUST NOT publish or search at another level. A later network upgrade
+lets a full keyword spill to further levels and ranks files by the number of publisher sites, so
+that the most widely shared files are at level 0. Every field it needs is defined above;
+capability bit 8 is reserved for it. The rules are in
+[`extensions/keyword-load.md`](extensions/keyword-load.md), together with the alternatives that
+were considered.
 
 ---
 
@@ -1212,14 +1253,11 @@ credits over to the node ID.
 
 ### 14.4 Other signals considered
 
-| Signal | Why not the primary one |
-|---|---|
-| Reserved bits 4–7 of the connect-options byte | Reaches Kad (`FT_ENCRYPTION`) and source exchange v4, but legacy clients rebuild that byte from their own flags when relaying, and servers mask it to 3 bits and use `0x80` for "hash follows" |
-| Free bits 14–31 of `CT_EMULE_MISCOPTIONS2`, or a `CT_MOD_MISCOPTIONS` bit | Only visible after a TCP hello |
-| Free bits 3–7 of `TAG_KADMISCOPTIONS`, or a higher Kad version | Tells Kad contacts, not download sources |
-| Fixed marker bytes in the user hash | Same one-time credit loss, but carries no node ID |
-| A Kad record mapping user hash to node ID | A second lookup per source |
-| Probing the port blindly | A wasted handshake against every legacy source |
+Free bits in the connect-options byte, in the hello option tags and in the Kad option tag, fixed
+marker bytes in the user hash, a Kad record mapping user hash to node ID, and blind probing of
+the port were considered. None of them reaches a peer before the first connection, through
+legacy servers and legacy relaying clients, and carries the node ID. The comparison is in
+[`docs/ed2k-signal-comparison.md`](docs/ed2k-signal-comparison.md).
 
 ### 14.5 Using both networks for one file
 
@@ -1269,7 +1307,7 @@ inside messages, and all packets that exist only as a second way to do the same 
   Protobuf serialisation is not canonical.
 
 Reserved for later: further signature algorithms and the batch form (§10.7), the key puzzle of §6.3, the Kad datagram
-binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
+binding of §10.6, keyword levels and ranking (§10.8), a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
 A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 [`docs/hybrid-key-exchange.md`](docs/hybrid-key-exchange.md); version 1 does not use it.
 
@@ -1296,6 +1334,7 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
 | Record lifetimes: source, keyword, note | 5 h, 24 h, 24 h |
+| Keyword: files per target (level size), levels in use | 100,000, 1 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
