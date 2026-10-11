@@ -114,7 +114,8 @@ request and answer on its own stream, for 2 bytes.
 
 **Other bindings.** WebTransport, TLS-over-TCP with a stream multiplexer, or an in-memory binding
 for tests can meet T1–T5. None is specified. A future binding gets its own name and ALPN-like
-identifier and changes no message.
+identifier and changes no message. Version 1 has no way to advertise a second binding; the gap
+and a path to close it are described in [`docs/transport-bindings.md`](docs/transport-bindings.md).
 
 ---
 
@@ -281,10 +282,21 @@ Profile:
 - magicless zstd frames, no content checksum, no content size field
 - window size at most 1 MiB
 - dictionary `ed3k-v1`, dictionary ID 1, shipped with this specification (`dict/ed3k-v1.dict`,
-  trained on a corpus of real messages before the format is frozen). The frame carries the
-  dictionary ID, so a later dictionary can be added without a new flag
+  trained on a corpus of real messages before the format is frozen)
 - each body is compressed on its own; no context is carried between messages
 - a receiver MUST stop and answer `Error{MALFORMED}` when the output exceeds 1 MiB
+
+**Later dictionaries.** A dictionary never changes once published; a better one gets the next ID.
+Every zstd frame carries the ID of the dictionary it needs, so a receiver always knows which one
+to use. A sender learns what the peer holds from `Hello.dict` (§5.5):
+
+- A node that announces `dict = n` MUST hold every dictionary from 1 to n.
+- A sender MUST NOT use a dictionary with an ID above the peer's `dict`. Until the peer's `Hello`
+  has arrived it uses dictionary 1 or sends uncompressed.
+- A receiver answers a frame that needs a dictionary it does not hold with `Error{UNSUPPORTED}`.
+
+A new dictionary therefore needs no flag day, no capability bit and no new wire version: nodes
+that have it use it with each other, and everyone else keeps using an older one.
 
 Making *support* mandatory removes negotiation and every "does the peer do compression" variant.
 Making *use* mandatory would enlarge the many messages that are mostly hashes and keys.
@@ -342,6 +354,8 @@ message Hello {
   bytes  ep6 = 5;
   uint32 nat = 6;             // 0 unknown, 1 open, 2 cone, 3 symmetric (§9.2)
   string nick = 7;            // optional
+  // 8 and 9 are reserved (§10.6, §6.3)
+  uint32 dict = 10;           // highest zstd dictionary ID held (§5.3); absent = 1
 }
 ```
 
@@ -1256,6 +1270,8 @@ inside messages, and all packets that exist only as a second way to do the same 
 
 Reserved for later: further signature algorithms and the batch form (§10.7), the key puzzle of §6.3, the Kad datagram
 binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
+A hybrid post-quantum key exchange for the QUIC binding is evaluated in
+[`docs/hybrid-key-exchange.md`](docs/hybrid-key-exchange.md); version 1 does not use it.
 
 ---
 

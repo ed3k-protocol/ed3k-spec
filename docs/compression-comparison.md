@@ -41,7 +41,8 @@ knowledge of typical messages gains a lot. That is what a dictionary provides.
 - **A hard dependency.** Every implementation needs a zstd decoder with dictionary and magicless
   frame support.
 - **A frozen dictionary.** `ed3k-v1` (ID 1) can never change once deployed. A better one needs a
-  new ID, and every node must ship both for as long as old senders exist.
+  new ID, and every node must ship both for as long as old senders exist. Nodes announce the
+  highest ID they hold in `Hello` (§5.3), so a new dictionary needs no flag day.
 - **A corpus is needed first.** The dictionary has to be trained on real messages before the format
   is frozen, so it depends on a working implementation.
 
