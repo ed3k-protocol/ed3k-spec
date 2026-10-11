@@ -8,8 +8,9 @@ it can also be reached over ed3k. This note records which signals §14 uses and 
 considered.
 
 **Result:** the port rule (§14.1) and the derived user hash (§14.2) as the signal that needs no
-connection, with explicit tags (§14.3) as the authoritative one. No other signal passes through
-legacy servers and legacy relaying clients unchanged and also carries the node ID.
+connection. Explicit tags ([`ed2k-tags.md`](ed2k-tags.md)) are an optional, authoritative
+addition outside the specification. No other signal passes through legacy servers and legacy
+relaying clients unchanged and also carries the node ID.
 
 ## 1. What the signal has to do
 
@@ -28,7 +29,7 @@ legacy servers and legacy relaying clients unchanged and also carries the node I
 |---|---|---|---|
 | Port rule (§14.1) | every source record, since each has the TCP port | the ed3k UDP port | says nothing about whether the peer speaks ed3k |
 | Derived user hash (§14.2) | every channel that carries the user hash | 12 bytes of the node ID | a hint: one legacy hash in 65,536 matches by accident; the user hash changes once, which loses credits at other peers |
-| Explicit tags (§14.3) | hello, Kad source publish, extended source exchange, server login, links | the wire version or the full node ID | not relayed by legacy servers or by legacy source exchange |
+| Explicit tags ([`ed2k-tags.md`](ed2k-tags.md)), optional | hello, Kad source publish, extended source exchange, server login, links | the wire version or the full node ID | not relayed by legacy servers or by legacy source exchange |
 
 ## 3. Other signals considered
 

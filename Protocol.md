@@ -48,7 +48,7 @@ alternatives that were rejected.
 | D3 | Node ID is 128 bits, the truncated hash of the public key, in Kad and outside it | §6.1 |
 | D4 | Routing position is IP-bound (BEP 42 style) in its top 21 bits and key-bound in the rest | §6.3 |
 | D5 | A dual-protocol client listens for ed3k on the UDP port whose number equals its eD2K TCP port | §14.1 |
-| D6 | eD2K peers learn about ed3k support from a user hash derived from the node ID, plus explicit tags | §14.2 |
+| D6 | eD2K peers learn about ed3k support from a user hash derived from the node ID | §14.2 |
 | D7 | zstd decompression is required; senders compress only when it helps | §5.3 |
 | D8 | Files are identified by a BLAKE3 root; the eD2K hash is an alias that can be dropped later | §7 |
 | D9 | Kad runs over QUIC in version 1; a sessionless datagram binding is reserved | §10.6 |
@@ -77,6 +77,9 @@ Every participant is a **node**. A node announces what it does with capability b
 | 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
 | 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
 | 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
+
+`caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
+so a node learns a peer's capabilities after it has connected.
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -595,7 +598,7 @@ download one file from both networks at once.
 - A receiver MUST accept records without it and MUST NOT use it as a key in any ed3k message.
   Every request names a file by `root`.
 - The pairing (`root`, `ed2k`) in a record is a **claim** until the receiver has verified data
-  under both hashes. See §14.5.
+  under both hashes. See §14.4.
 
 **The alias is expected to be dropped.** Nothing in ed3k depends on it: it is one optional field.
 A later revision turns the MUST above into a MAY, and field 4 is then left reserved.
@@ -698,6 +701,34 @@ message Relay {
 
 A relay holds the connection open and forwards `Punch` messages to the leaf. A leaf lists its
 relays in every `Peer` record it publishes (`relays4`, `relays6`).
+
+**Finding relays.** A leaf takes its relays from the `ROUTER` nodes it meets in its own Kad
+lookups.
+
+- It asks nodes whose `Hello` has `RELAY` set, with `Relay{reserve = true}`. A node that
+  answers `Error{BUSY}` is skipped and not asked again for 30 min *(initial)*.
+- Its relays SHOULD be in different sites ([`extensions/ip-diversity.md`](extensions/ip-diversity.md)
+  §1), so that one network going away does not take all of them.
+- A relay that is lost is replaced at once, and the leaf publishes its `Peer` records again
+  with the new list.
+
+**Capacity.** The two numbers are the two sides of the service: a leaf holds a reservation at
+2 relays per family, and a relay serves many leaves. A `ROUTER` SHOULD be able to serve at
+least 8 *(initial)* leaves at the same time, one reservation per leaf node ID, and MAY serve
+more. When all are taken it answers `Error{BUSY}` and clears `RELAY` in its `Hello` until one
+is free.
+
+**Forward limit.** Every forwarded `Punch` makes the leaf send probes for 5 s (§9.5), so a
+relay limits what it forwards:
+
+| Counted per | Limit *(initial)* |
+|---|---|
+| leaf | 30 forwards per minute |
+| initiator host address and leaf | 3 forwards per minute |
+
+Above a limit the relay answers the initiator with `Error{BUSY}` and `retry_after`, and
+forwards nothing. The second limit matches the 3 attempts of §9.5. A leaf whose relays are
+often at the first limit SHOULD take a further relay.
 
 **A relay forwards signalling only.** It never carries file data or any other exchange between two
 peers. That keeps the service cheap enough to be an obligation for every reachable node and
@@ -1108,7 +1139,8 @@ instead of the fixed lifetime, and MAY apply its own admission policy with `Erro
 them.
 
 A client finds index nodes from a configured list, from a link (§13.2) or from an eD2K server
-that advertises one (§14.3). Index nodes are optional for the network and optional for a client.
+that advertises one ([`docs/ed2k-tags.md`](docs/ed2k-tags.md)). Index nodes are optional for the
+network and optional for a client.
 
 ---
 
@@ -1163,8 +1195,8 @@ These two messages replace `OP_HELLO`'s file fields, `OP_REQUESTFILENAME`, `OP_S
 `OP_REASKFILEPING`/`OP_REASKACK`, `OP_FILEDESC`, `OP_CANCELTRANSFER` and `OP_END_OF_DOWNLOAD`.
 There is no large-file variant; every offset is 64 bits.
 
-Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID. An
-uploader SHOULD offer at least 2 upload slots.
+Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID. How
+long a slot lasts and how many there are is in §12.5.
 
 ### 12.2 `BlockRequest`
 
@@ -1268,6 +1300,20 @@ then kept for 30 min so that the downloader can come back, and removed after tha
   After a second failure it gets no further offers.
 - In both cases the entry stays until its normal end, 30 min after the time the downloader was
   told to come back. A `FileRequest` from the downloader before then clears the failures.
+
+**Length of a slot.** A slot is one turn at an uploader.
+
+- An uploader SHOULD transfer 16 MiB (4 pieces) to a downloader before it takes the slot away,
+  as long as the downloader keeps requesting.
+- An uploader SHOULD take the slot away after 1 h even if less was transferred, so that a
+  downloader with little bandwidth does not hold it. Bytes count from the `FileStatus` that
+  granted the slot.
+- After 16 MiB the uploader MAY go on while nobody else is waiting.
+- A downloader that loses its slot stays in the queue. Its new position is local policy.
+
+**Number of slots.** An uploader SHOULD choose the number of its upload slots so that 16 MiB
+take 5 to 30 min in each, which is about 9 to 55 KiB/s per slot. It SHOULD offer at least 2
+slots; below about 19 KiB/s of upload that minimum comes first and a turn takes longer.
 
 The comparison with eMule's reask and with the alternatives is in
 [`docs/queue-status-comparison.md`](docs/queue-status-comparison.md).
@@ -1394,33 +1440,21 @@ older 13/110. Other clients mark their hashes with bytes of their own in the sam
 - The eD2K and ed3k identities become linkable by anyone. That is the purpose.
 - 96 of 112 free bits remain random-looking; nothing in eD2K depends on more.
 
-### 14.3 Explicit tags
+### 14.3 Other signals
 
-Tags are authoritative where the hash is a hint, and reach places the hash does not. A tag from
-the following list means "ed3k version `n`, port rule of §14.1".
+- **Explicit tags.** A tag in the eD2K hello, in the Kad source record, in extended source
+  exchange, in the server login and in an eD2K link can state ed3k support outright, where the
+  user hash is a hint. They are not part of this specification, since a dual-protocol client
+  works without them. A proposal with tag numbers checked against existing clients is in
+  [`docs/ed2k-tags.md`](docs/ed2k-tags.md).
+- **Signals not used.** Free bits in the connect-options byte, in the hello option tags and in
+  the Kad option tag, fixed marker bytes in the user hash, a Kad record mapping user hash to
+  node ID, and blind probing of the port were considered. None of them reaches a peer before
+  the first connection, through legacy servers and legacy relaying clients, and carries the
+  node ID. The comparison is in
+  [`docs/ed2k-signal-comparison.md`](docs/ed2k-signal-comparison.md).
 
-| Channel | Signal | Status |
-|---|---|---|
-| Client hello (`OP_HELLO`/`OP_HELLOANSWER`) | tag `CT_ED3K`, HASH type, value = the full 16-byte node ID | proposed ID `0xA1`; to be checked against other eD2K clients before use |
-| Kad source publish | string-named tag `"e3"`, UINT8 = wire version | stored and returned verbatim by legacy nodes, like `"ip6"` |
-| Extended source exchange record | tag `CT_ED3K`, UINT8 = wire version | only to peers that skip unknown tags |
-| Server login | tag `CT_ED3K`, HASH type, in `OP_LOGINREQUEST` | lets an ed3k-aware server mark sources and advertise an index node |
-| Server ident | a string tag with the server's `ed3k:node?…` link | proposed; ID to be assigned with the server authors |
-| eD2K link | token `e3=<base32 root>` | MUST be placed before the `sources` block, where legacy parsers stop reading |
-
-The hello tag binds the two identities after an eD2K connection: if secure identification passed
-and the tag's node ID yields the peer's user hash under §14.2, a client MAY carry the peer's eD2K
-credits over to the node ID.
-
-### 14.4 Other signals considered
-
-Free bits in the connect-options byte, in the hello option tags and in the Kad option tag, fixed
-marker bytes in the user hash, a Kad record mapping user hash to node ID, and blind probing of
-the port were considered. None of them reaches a peer before the first connection, through
-legacy servers and legacy relaying clients, and carries the node ID. The comparison is in
-[`docs/ed2k-signal-comparison.md`](docs/ed2k-signal-comparison.md).
-
-### 14.5 Using both networks for one file
+### 14.4 Using both networks for one file
 
 - A dual-protocol client learns (`root`, `ed2k`) pairs from `FileInfo` and `FileStatus`.
 - A pair is trusted once data has been verified under both: a block under the BLAKE3 tree and the
@@ -1486,6 +1520,9 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Address reports needed | 3 |
 | Reach tests per asker address | 1 per minute |
 | Relays per family | 2 |
+| Reservations a router holds, recommended minimum | 8 |
+| Relay that answered `BUSY`: not asked again for | 30 min |
+| `Punch` forwards per minute: per leaf, per initiator address and leaf | 30, 3 |
 | Punch: probe interval, duration, attempts, back-off | 10–200 ms, 5 s, 3, 30 min |
 | Dual-stack head start for IPv6 | 250 ms |
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
@@ -1507,6 +1544,8 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Queue: early return for an address or relay change | 1 per 30 min |
 | Slot offer: wait, failures before offers stop | 30 s, 2 |
 | Upload slots, recommended minimum | 2 |
+| Slot: data per turn, longest turn | 16 MiB, 1 h |
+| Slot: time aimed at for one turn | 5–30 min |
 | New connections accepted per minute: per node ID, per host address | 10, 30 |
 | Ban after exceeding the connection budget: node ID, host address | 24 h, 1 h |
 | Source exchange freshness | 1 h |
@@ -1516,7 +1555,6 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 - BLAKE3 test vectors for node ID, routing ID, keyword target, user hash and obfuscation key are
   to be added under `tests/` with the first implementation.
 - The zstd dictionary does not exist yet; it needs a message corpus.
-- `CT_ED3K` and the server ident tag need IDs agreed with other client and server authors.
 - Raw-public-key support has to be confirmed in the TLS library chosen by each implementation.
 - The numbers in §10.5 and §15 are estimates.
 

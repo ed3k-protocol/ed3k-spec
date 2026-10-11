@@ -49,8 +49,11 @@ message Sealed {
 - `alg` 1 is the scheme of HTTP Cache. Other values are reserved; a reader ignores a source
   with an `alg` it does not know.
 - A sealed chunk uses a fresh random key and IV. A key is never used for two chunks.
-- A sealed chunk SHOULD cover whole pieces (§7.2: multiples of 4 MiB, or the end of the file). A
-  chunk made for eD2K covers one eD2K part of 9,728,000 bytes and is equally valid here.
+- A sealed chunk covers at most 16 MiB (16,777,216 bytes) of the file, which is 4 pieces and a
+  ciphertext of 16,777,232 bytes. A reader MUST refuse a sealed chunk with a larger `length`.
+- A sealed chunk SHOULD start on a piece boundary and cover whole pieces (§7.2), or end with
+  the file. The default is 4 pieces; a publisher uses fewer when the server accepts less (§4).
+- A chunk made for eD2K covers one eD2K part of 9,728,000 bytes and is equally valid here.
 
 ## 2. Where sources travel
 
@@ -207,10 +210,19 @@ A sealed chunk is stored on a server that speaks the HTTP Cache contract: `POST`
 blob with a time to live, `GET` with `Range` to read it, `DELETE` to remove it. This extension
 adds nothing to that contract and requires nothing else of a server.
 
+- The contract sets no size limit. Each server states its own as `maxChunkSize` in `/v1/info`
+  and answers 413 above it. A publisher reads that value and seals the largest whole number of
+  pieces, up to 4, whose ciphertext fits. A server sized for exactly one eD2K part
+  (9,728,016 bytes) takes 2 pieces.
 - A server receives ciphertext only. It is given neither the root, the offset, nor the key.
-- The same server, and the same blob, serve eD2K and ed3k. A node on both networks publishes a
-  chunk once and describes it in both: the tags of an HTTP Cache offer map to `HttpSource` as
-  below.
+- The same server serves eD2K and ed3k, and so does the same blob when it is cut as an eD2K
+  part: the tags of an HTTP Cache offer map to `HttpSource` as below. A chunk cut in pieces is
+  read by ed3k nodes only, since an eD2K reader accepts nothing but one part of 9,728,000 bytes.
+- A node on both networks SHOULD cut a chunk the way that serves more of its waiting
+  downloaders. It counts the queued downloaders that lack the range, per network. With more on
+  eD2K it publishes the eD2K part and describes it in both networks; otherwise it publishes
+  pieces and describes them in ed3k only. On a tie it publishes the eD2K part, which both can
+  read.
 
 | HTTP Cache offer | `HttpSource` |
 |---|---|
@@ -268,7 +280,7 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 | Scheme | `http` or `https`, with a host; no user name or password in the URL |
 | Target address | public. A literal address is checked at once, a name after it is resolved, and again for every redirect. Private, loopback, link-local and unique-local addresses are refused, unless the node that gave the source is itself on a local address |
 | Range | `offset` and `length` lie inside the file and cover bytes still wanted |
-| Sealed | `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s ahead |
+| Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s ahead |
 | Origin | from a peer: the peer is a source for that file on an open or recent file stream. From Kad or a link: the node itself chose the file |
 | Load | below the node's limit of concurrent fetches; no other fetch running for the same range |
 
@@ -307,7 +319,7 @@ digest proves they are the ones the publisher stored.
 | | HTTP Cache (eD2K) | This extension | BitTorrent web seeds |
 |---|---|---|---|
 | Sources | sealed chunks only | sealed chunks and plain URLs | plain URLs |
-| Unit | one part of 9,728,000 bytes | any byte range; whole file for a plain source | whole torrent |
+| Unit | one part of 9,728,000 bytes | sealed: a range of up to 16 MiB, 4 pieces by default; plain: any range or the whole file | whole torrent |
 | Verified by | MD4 part hash, later | BLAKE3 per 256 KiB block | piece hashes |
 | Announced | opcode with tags; tags on the Kad source record | fields in the file stream, the Kad source record and links | in the metadata file |
 | Result report | to the offering peer | the same | none |
