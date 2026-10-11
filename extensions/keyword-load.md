@@ -25,7 +25,7 @@ A file is published under every keyword of its name, as in version 1.
 | Item | Where | Use |
 |---|---|---|
 | Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1 uses level 0 |
-| `KadRequest.level` | §10.3 | the level the sender computed the target for |
+| `KadRequest.level` | §10.3 | the level the sender computed the target for; the storing node checks that a keyword of the name gives the target at that level (§10.7) |
 | `KadAnswer.load` | §10.3 | files held under this target, in percent of the level size |
 | `KadAnswer.results` | §10.3 | one result per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED` |
 | `KadAnswer.spill` | §10.3 | the node answered `FULL` for this target within the last record lifetime |
@@ -231,8 +231,6 @@ Further alternatives:
   are popular within one large provider.
 - S, the number of levels and the size of the candidate and leaving tables are set without
   measurements. The record size of 300 B is an estimate from the encoding rules.
-- Whether a storing node should check that a name contains a word that hashes to the target at
-  the given `level`. The specification does not yet define how a name is split into words.
 - How an index node (§11), which is responsible for every target, treats levels. The simplest
   rule is that it holds everything at level 0 and never sets `spill`.
 - Whether notes need the same treatment. A file with more than a few hundred notes is not

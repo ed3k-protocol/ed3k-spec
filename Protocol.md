@@ -737,10 +737,61 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | Record kind | Target |
 |---|---|
 | `SOURCE`, `NOTE` | `root[0..16)` |
-| `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword in Unicode NFKC, case-folded, UTF-8. `level` is one byte, 0 in version 1 (§10.8) |
+| `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
 128 bits, so they share one keyspace without conversion.
+
+**Words and keywords.** Publisher, searcher and storing node MUST split a name the same way:
+
+1. **Normalise.** Apply Unicode NFKC, then full case folding, then NFKC again. Remove code
+   points of general category Cf (soft hyphen, zero-width joiners).
+2. **Split.** A word is a maximal run of code points of the general categories L (letter),
+   M (mark) and N (number). Every other code point separates words.
+3. **Scripts written without spaces.** Inside a word, a maximal run of *unspaced* code points is
+   replaced by its overlapping pairs: a run of n ≥ 2 gives n − 1 two-character words, and a run
+   of 1 gives that character. The parts of the word before and after the run are words of their
+   own. Unspaced code points are:
+
+   | Script | Code points |
+   |---|---|
+   | Han, Hiragana, Katakana | U+3005–3007, U+3040–30FF, U+31F0–31FF, U+3400–4DBF, U+4E00–9FFF, U+20000–323AF |
+   | Thai | U+0E00–0E7F |
+   | Lao | U+0E80–0EFF |
+   | Khmer | U+1780–17FF |
+   | Myanmar | U+1000–109F, U+A9E0–A9FF, U+AA60–AA7F |
+
+   Pairs are pairs of code points. In Thai, Lao, Khmer and Myanmar a vowel sign or tone mark is a
+   code point of its own, so a pair may begin or end with one. Tibetan needs no pair rule: its
+   syllables are divided by a punctuation mark (U+0F0B), so step 2 already yields one word per
+   syllable.
+4. **Extension.** If the text after the last `.` of the normalised name is 1 to 8 code points,
+   all of category L or N, it is the extension of the name. Otherwise the name has none.
+
+The **words** of a name are the distinct results of steps 1 to 3. Its **keywords** are those
+words that are at least 2 bytes long in UTF-8, without the word that step 4 made the extension.
+Targets are derived from keywords only, and a storing node refuses a record under any other
+target (§10.7). `Query` (§10.3) matches against words.
+
+| Name | Words | Keywords |
+|---|---|---|
+| `The.Big_Sleep (1946) [1080p].mkv` | `the` `big` `sleep` `1946` `1080p` `mkv` | `the` `big` `sleep` `1946` `1080p` |
+| `Ça-va_ÉTÉ.MP3` | `ça` `va` `été` `mp3` | `ça` `va` `été` |
+| `Straße.ﬁnal.txt` | `strasse` `final` `txt` | `strasse` `final` |
+| `東京物語 Tokyo Story.avi` | `東京` `京物` `物語` `tokyo` `story` `avi` | `東京` `京物` `物語` `tokyo` `story` |
+
+- The Unicode stability policy keeps normalisation and case folding of an assigned character
+  fixed across Unicode versions. A code point that an implementation does not know is treated
+  as a separator.
+- **2 bytes is the limit of the protocol; 3 bytes is the suggested default.** Two-byte words
+  are few and very common (`of`, `to`, `la`, `de`), so they are the most crowded targets. By
+  default a publisher SHOULD publish a file under its keywords of 3 bytes and more, and under
+  its 2-byte keywords only when the name has no longer one (`AC/DC`). A searcher SHOULD derive
+  the target from a keyword of 3 bytes or more when its search text has one.
+- A name whose words are all 1 byte long has no keyword and cannot be found by a keyword
+  search.
+- A publisher SHOULD publish a file under at most 40 *(initial)* keywords, taking them in the
+  order they occur in the name.
 
 ### 10.2 Routing table
 
@@ -768,12 +819,12 @@ message KadRequest {
 }
 
 message Query {
-  repeated string all = 1;    // every word must occur in the name
-  repeated string none = 2;   // no word may occur
+  repeated string all = 1;    // every word must be a word of the name (§10.1)
+  repeated string none = 2;   // no word may be a word of the name
   uint64 min_size = 3;
   uint64 max_size = 4;
   uint32 min_sources = 5;
-  string ext = 6;             // file extension without the dot
+  string ext = 6;             // extension of the name (§10.1)
   uint32 offset = 7;          // skip this many results
 }
 
@@ -842,6 +893,10 @@ Rules:
   claim; the signature fixes who made it.
 - Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h. Republish before expiry.
 - Flood limits are per source address and per `kind`.
+- **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
+  It derives the target from one of them that is a keyword, and sends the others in `all`. A
+  word in `all` or `none` matches a name when it equals one of the name's words; there is no
+  substring match. A search text without a keyword cannot be searched.
 - A `store` is answered per record in `results`. What a keyword target holds, and what a
   publisher does when it is full, is in §10.8.
 
@@ -951,6 +1006,7 @@ record cannot be replayed under another keyword or file.
 | Signature | valid under the connection's key | valid under `keys[key]` |
 | `expires` | later than now, and at most the lifetime of the kind plus 1 h *(initial)* ahead | later than now minus 1 h |
 | Content | `file` for `KEYWORD`, `note` for `NOTE`, nothing else | the same |
+| Keyword | one keyword of `file.name` (§10.1) gives the target of the request at its `level` | one keyword of `file.name` gives the target that was searched |
 | Count | one record per publisher and file under a keyword; one note per publisher and file | duplicates by publisher and file are merged |
 
 A record that fails a check is rejected (`Error{MALFORMED}`) or dropped. There are no unsigned
@@ -988,7 +1044,9 @@ same few nodes. Version 1 bounds that as follows.
   that word.
 
 **Levels.** The keyword target includes a level (§10.1), and version 1 uses level 0 only: a node
-MUST send `level = 0` and MUST NOT publish or search at another level. A later network upgrade
+MUST send `level = 0` and MUST NOT publish or search at another level. A storing node treats a
+target of level 1 to 15 like any other keyword target, so that upgraded publishers can use those
+levels on nodes that have not upgraded; it rejects a record with `level` above 15. A later network upgrade
 lets a full keyword spill to further levels and ranks files by the number of publisher sites, so
 that the most widely shared files are at level 0. Every field it needs is defined above;
 capability bit 8 is reserved for it. The rules are in
@@ -1334,7 +1392,8 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
 | Record lifetimes: source, keyword, note | 5 h, 24 h, 24 h |
-| Keyword: files per target (level size), levels in use | 100,000, 1 |
+| Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
+| Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
