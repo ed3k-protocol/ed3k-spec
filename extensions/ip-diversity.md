@@ -191,6 +191,8 @@ its own.
 - **Ban instead of refuse.** Rejected. A ban by address also hits the other users of a
   carrier-grade NAT address or of a /64, and a forged-source trigger would make it a tool for
   denial of service. Refusal has the same effect on the routing table with no victim.
+  Connection floods are a different matter and do carry a ban, counted on completed
+  handshakes only (§4.6).
 - **One IPv6 tier (/64).** Rejected, see §4.1.
 - **/56 instead of /48 as the IPv6 site.** A /48 customer would count as 256 sites. /48 is the
   largest prefix a single customer normally holds.

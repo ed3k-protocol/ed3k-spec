@@ -139,6 +139,8 @@ and a path to close it are described in [`docs/transport-bindings.md`](docs/tran
 - Idle timeout: 30 s *(initial)* for a connection with no open exchange; relay reservations and
   file streams keep a connection alive with QUIC PING every 20 s *(initial)*.
 - Congestion control is the sender's choice. BBR is RECOMMENDED.
+- A node MUST accept a Retry packet (RFC 9000 §8.1.2) and repeat its Initial with the token. A
+  node MAY answer an Initial with Retry at any time (§4.6).
 
 ### 4.2 Why obfuscation is required
 
@@ -223,6 +225,31 @@ change without touching QUIC or the messages.
 
 A random datagram passes step 2 with probability 2⁻³².
 
+### 4.6 Connection budget
+
+A node MUST limit the new connections it accepts from one peer.
+
+| Counted per | New connections per minute *(initial)* | When exceeded |
+|---|---|---|
+| node ID | 10 | the node ID is banned for 24 h |
+| host address (IPv4 /32, IPv6 /64) | 30 | the address is banned for 1 h |
+
+- **Only completed handshakes count.** The address is then validated and the key proven (T1,
+  T3), so a forged source address cannot get another node banned. A resumed connection counts
+  like a new one. Nothing is counted, and nobody is banned, on packets before that point.
+- While a ban lasts, the node closes a handshake of that node ID as soon as the key is known,
+  and drops datagrams of that address that would start a new flow. Connections that are already
+  open are closed.
+- The address budget is wider than the node ID budget because several nodes share one address
+  behind a NAT. A node with the `INDEX` capability MAY use a wider address budget.
+- Private, loopback, link-local and unique-local addresses are exempt.
+- To stay within the budget of others, a node MUST NOT open a second connection to a peer it
+  already has one with, and SHOULD keep a connection it will use again open for the idle
+  timeout.
+
+Protection against floods of packets that never complete a handshake is optional and local:
+[`extensions/flood-protection.md`](extensions/flood-protection.md).
+
 ---
 
 ## 5. Framing and common messages
@@ -259,6 +286,7 @@ Types 1–63 keep the tag at one byte.
 | 14 | `Browse` | request | §13 |
 | 15 | `BrowseAnswer` | answer | §13 |
 | 16 | `Chat` | one-way | §13 |
+| 17 | `SlotOffer` | uploader → downloader | §12.5 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -266,8 +294,8 @@ Types 1–63 keep the tag at one byte.
 - **Request/answer:** the initiator opens an exchange, sends one request and half-closes. The
   responder sends one answer (or `Error`) and closes. There are no request IDs; the exchange is
   the correlation.
-- **File stream:** one exchange per (peer, file), open for as long as the download is wanted
-  (§12).
+- **File stream:** one exchange per (downloader, uploader), open while blocks are transferred
+  or while the uploader asks the downloader to stay (§12).
 - An answer is never fragmented: the exchange is reliable, so a large answer is simply a long
   frame. A frame body MUST NOT exceed 1 MiB after decompression.
 - A responder that does not know a request type answers `Error{UNSUPPORTED}` and closes that
@@ -1084,14 +1112,19 @@ that advertises one (§14.3). Index nodes are optional for the network and optio
 
 ### 12.1 The file stream
 
-A downloader opens one exchange per (uploader, file) and keeps it open. Everything about that
-file between the two peers happens on it. The file is named once, in the first message.
+A downloader opens one exchange per uploader for the file it wants from it. Everything about
+that file between the two peers happens on it. The file is named once, in the first message.
+The stream stays open during a transfer; while the downloader waits in the queue, the uploader
+decides whether it stays open (§12.5).
 
 ```protobuf
 message FileRequest {
   bytes  root = 1;            // 32 B; only in the first FileRequest of the stream
   bytes  have = 2;            // my piece bitmap, LSB first; empty = nothing or not told
   uint32 want_sources = 3;    // max number of sources wanted, 0 = none
+  bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf (§12.5)
+  bytes  relays6 = 5;         // n × 34 B
+  bool   brief = 6;           // I know size, name, ed2k and note; leave them out
 }
 
 message FileStatus {
@@ -1102,27 +1135,30 @@ message FileStatus {
   uint32 rank = 5;            // queue position; 0 = upload slot granted, send BlockRequest
   repeated Peer sources = 6;  // source exchange
   Note   note = 7;            // uploader's rating/comment on the file
+  uint32 recheck = 8;         // queued: 0 = stay connected, else ask again after this many seconds (§12.5)
+}
+
+message SlotOffer {
+  bytes  root = 1;            // the file the downloader is queued for
 }
 ```
 
 - The uploader answers the first `FileRequest` with a full `FileStatus`, or `Error{NOT_FOUND}`.
-- The uploader sends a new `FileStatus` whenever `rank` or `have` changes. Later ones carry only
-  changed fields; `size`, `name` and `ed2k` are sent once.
+- Later `FileStatus` messages carry only changed fields; `size`, `name` and `ed2k` are sent
+  once. When they are sent is limited by §12.5.
 - The downloader sends a new `FileRequest` to update `have` or to ask for sources again.
 - Either side ends by closing the exchange. There is no cancel message.
-- A queued downloader MAY close the connection. Its queue position is kept for 1 h *(initial)*;
-  it comes back by opening a new file stream, which is also how it learns its rank. This replaces
-  the UDP reask.
 - Sources in `FileStatus` MUST be peers the uploader has itself had a verified connection with
   for this file within the last hour *(initial)*.
 
 These two messages replace `OP_HELLO`'s file fields, `OP_REQUESTFILENAME`, `OP_SETREQFILEID`,
 `OP_FILESTATUS`, the three multipacket variants and their two answers, `OP_STARTUPLOADREQ`,
-`OP_ACCEPTUPLOADREQ`, `OP_QUEUERANKING`, `OP_REQUESTSOURCES2`/`OP_ANSWERSOURCES2`,
+`OP_ACCEPTUPLOADREQ` (with `SlotOffer`), `OP_QUEUERANKING`, `OP_REQUESTSOURCES2`/`OP_ANSWERSOURCES2`,
 `OP_REASKFILEPING`/`OP_REASKACK`, `OP_FILEDESC`, `OP_CANCELTRANSFER` and `OP_END_OF_DOWNLOAD`.
 There is no large-file variant; every offset is 64 bits.
 
-Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID.
+Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID. An
+uploader SHOULD offer at least 2 upload slots.
 
 ### 12.2 `BlockRequest`
 
@@ -1168,6 +1204,67 @@ holds the sibling chaining values needed to recompute the root from that range, 
 lowest tree level upwards and left to right within a level. The receiver recomputes parent nodes
 up to the root and compares with `root`; the root node is finalised with BLAKE3's `ROOT` flag, all
 others without. A request for all blocks has an empty proof.
+
+### 12.5 Waiting in the queue
+
+An uploader's queue can hold thousands of downloaders. Keeping a connection and a stream of
+updates for each would cost far more than eMule's reask, so the uploader sets how each one
+waits.
+
+**One entry per downloader.** An uploader keeps one queue entry per node ID, for one file. A
+downloader has at most one file stream open to an uploader. Opening a file stream for another
+file replaces the request and keeps the position.
+
+**Stay or come back.** Every `FileStatus` to a queued downloader carries `recheck`:
+
+| `recheck` | Meaning |
+|---|---|
+| 0 | Stay connected. The uploader expects to serve this downloader soon |
+| 1800 to 14400 | Close the file stream and open a new one after this many seconds |
+
+- The uploader chooses the value per downloader, shorter near the front of the queue. How many
+  downloaders it keeps connected is local policy.
+- **The uploader closes the stream** after a `FileStatus` with a `recheck` above 0, and the
+  connection if nothing else uses it. A downloader cannot stay connected against the uploader's
+  choice.
+- The downloader comes back by opening a new file stream; `brief` keeps the answer small.
+- It MAY come back earlier to report changed endpoints or relays, at most once per 30 min
+  *(initial)*, or to ask for another file, which keeps its position as in eMule. Any other
+  early `FileRequest` MAY be answered with `Error{BUSY}` and `retry_after`. The
+  position is not affected.
+- The entry is kept until 30 min *(initial)* after the time the downloader was told to come
+  back. Then it is removed.
+
+**While connected.** The uploader sends a `FileStatus` only
+
+- when a slot is granted (`rank` = 0) or taken away,
+- to change `recheck`,
+- while the downloader holds a slot, for a changed `have`, at most once per 5 min *(initial)*,
+- every 30 min *(initial)* as a **ping**: with `rank` and `have` if they changed, empty
+  otherwise.
+
+The downloader answers a ping with a `FileRequest` within 30 s, empty unless its own `have`
+changed. If it does not, or the connection is lost, the uploader closes the stream. The entry is
+then kept for 30 min so that the downloader can come back, and removed after that.
+
+**A free slot.** The uploader contacts the next downloader at once.
+
+- Connected: `FileStatus` with `rank` = 0 on the open stream.
+- Not connected: the uploader dials the downloader at the endpoints of its `Hello`, or by
+  `Punch` through the relays of its last `FileRequest` (§9.5). It opens an exchange and sends
+  `SlotOffer`. The downloader answers on that exchange with a `FileRequest`, and the exchange
+  continues as a file stream with the slot granted. A downloader that no longer wants the file
+  answers `Error{NOT_FOUND}` and its entry is removed. It answers `Error{DENIED}` to an offer
+  from a node it is not queued at.
+- The uploader waits 30 s *(initial)* from the start of the dial. After that the slot goes to
+  the next downloader.
+- A downloader that could not be reached keeps its position and is offered the next free slot.
+  After a second failure it gets no further offers.
+- In both cases the entry stays until its normal end, 30 min after the time the downloader was
+  told to come back. A `FileRequest` from the downloader before then clears the failures.
+
+The comparison with eMule's reask and with the alternatives is in
+[`docs/queue-status-comparison.md`](docs/queue-status-comparison.md).
 
 ---
 
@@ -1343,7 +1440,7 @@ values once an implementation exists. eD2K figures are from the eMule sources.
 | Source entry (IPv4) | 29 B (v4) | 26 B | `Peer` with 16 B ID |
 | Keyword result, note | unsigned | about 80 B more per record, 34 B per publisher | signature, expiry, key once per answer (§10.7) |
 | Block header | 32 B per ≤ 10 KiB packet | ~8 B per 256 KiB | QUIC segments the stream |
-| Reask while queued | 1 UDP packet each way per 29 min | none while connected; 1 file stream otherwise | §12.1 |
+| Reask while queued | 1 UDP packet each way per 29 min | 1 resumed connection (about 2 KB) per 30 min to 4 h, as the uploader sets; a ping per 30 min for the few kept connected | §12.5 |
 | Per-datagram cost | 8–16 B obfuscation | 13 B obfuscation + QUIC header and 16 B AEAD tag | §4.3 |
 | New contact | 0 (connectionless UDP) or a TCP handshake | ~2.5 KB QUIC handshake | §10.5 |
 
@@ -1397,7 +1494,15 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
-| Queue position kept after disconnect | 1 h |
+| Queue: time to come back (`recheck`) | 30 min to 4 h |
+| Queue: entry kept after the time to come back, or after a lost connection | 30 min |
+| Queue: ping interval, answer time | 30 min, 30 s |
+| Queue: `have` update to a downloader with a slot | 1 per 5 min |
+| Queue: early return for an address or relay change | 1 per 30 min |
+| Slot offer: wait, failures before offers stop | 30 s, 2 |
+| Upload slots, recommended minimum | 2 |
+| New connections accepted per minute: per node ID, per host address | 10, 30 |
+| Ban after exceeding the connection budget: node ID, host address | 24 h, 1 h |
 | Source exchange freshness | 1 h |
 
 ## Appendix B — open points
