@@ -690,7 +690,9 @@ family. A and B rate-limit these to 1 per asker address per minute *(initial)*.
 
 ### 9.4 Relays
 
-A leaf keeps connections to 2 *(initial)* relays per family it has no open address in.
+A node keeps reservations at 2 *(initial)* relays in total while it has an address family in
+which it is not `open`. That includes a `ROUTER` that is open in one family only. A node that
+is open in IPv4 keeps one relay: only initiators without IPv4 need it.
 
 ```protobuf
 message Relay {
@@ -702,6 +704,21 @@ message Relay {
 A relay holds the connection open and forwards `Punch` messages to the leaf. A leaf lists its
 relays in every `Peer` record it publishes (`relays4`, `relays6`).
 
+**Listing.** The list a relay is in says how an initiator reaches the relay, not which family
+the punch uses: `Punch` carries the endpoints of both. A relay is listed with an endpoint of
+its own in that family, so a node prefers relays that have both.
+
+| The node is not open in | `relays4` | `relays6` |
+|---|---|---|
+| IPv4, and it is open in IPv6 or has none | both relays | none |
+| IPv6, and it has no IPv4 | none | both relays |
+| IPv6, and it is open in IPv4 | none | one relay; the node keeps only one |
+| both families | both relays | one of them |
+
+Two relays, because the list is published and a published list goes stale: with one, every
+record in circulation is dead from the moment the relay leaves. An initiator that has only
+IPv6 finds one relay where others find two; that is accepted for a record 34 bytes shorter.
+
 **Finding relays.** A leaf takes its relays from the `ROUTER` nodes it meets in its own Kad
 lookups.
 
@@ -709,11 +726,12 @@ lookups.
   answers `Error{BUSY}` is skipped and not asked again for 30 min *(initial)*.
 - Its relays SHOULD be in different sites ([`extensions/ip-diversity.md`](extensions/ip-diversity.md)
   §1), so that one network going away does not take all of them.
-- A relay that is lost is replaced at once, and the leaf publishes its `Peer` records again
-  with the new list.
+- A relay that is lost is replaced at once. The new list goes out with the next refresh of
+  each record. Only when a published list has no working relay left does the leaf publish its
+  `Peer` records again at once.
 
 **Capacity.** The two numbers are the two sides of the service: a leaf holds a reservation at
-2 relays per family, and a relay serves many leaves. A `ROUTER` SHOULD be able to serve at
+2 relays, and a relay serves many leaves. A `ROUTER` SHOULD be able to serve at
 least 8 *(initial)* leaves at the same time, one reservation per leaf node ID, and MAY serve
 more. When all are taken it answers `Error{BUSY}` and clears `RELAY` in its `Hello` until one
 is free.
@@ -1519,7 +1537,7 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Maximum frame body | 1 MiB |
 | Address reports needed | 3 |
 | Reach tests per asker address | 1 per minute |
-| Relays per family | 2 |
+| Relays per node that is not open in a family | 2; 1 when it is open in IPv4 |
 | Reservations a router holds, recommended minimum | 8 |
 | Relay that answered `BUSY`: not asked again for | 30 min |
 | `Punch` forwards per minute: per leaf, per initiator address and leaf | 30, 3 |
