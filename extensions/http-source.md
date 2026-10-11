@@ -237,6 +237,17 @@ adds nothing to that contract and requires nothing else of a server.
 When an uploader publishes a chunk is local policy. HTTP Cache publishes a range once two or
 more queued downloaders lack it and one of them is asking for it.
 
+**Copies of one range.** A range that is already on a cache server needs no second upload,
+except as a spare for a server that fails.
+
+- A node SHOULD NOT publish a sealed chunk for a range while it knows 2 *(initial)* live
+  sealed sources that cover it. A source is live until its `expires`; with `expires` = 0,
+  until a fetch from it fails.
+- When it knows 1, it SHOULD publish a second only on another server: one whose URL has a
+  different host name and, where both are known, a different IP address.
+- The rule counts sources from every origin: `FileStatus`, source exchange, Kad records and
+  the node's own uploads.
+
 ### 4.1 Links a server shows
 
 A server SHOULD show ed3k links, so that setting it up in a client is one click or one paste.

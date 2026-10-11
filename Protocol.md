@@ -77,6 +77,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
 | 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
 | 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
+| 10 | `SETS` | Optional extension: understands file sets ([`extensions/file-set.md`](extensions/file-set.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected.
@@ -369,6 +370,7 @@ message FileInfo {
   uint32 sources = 5;         // complete sources known to the sender
   uint32 duration = 6;        // media length in seconds, 0 = unknown
   uint32 bitrate = 7;         // kbit/s, 0 = unknown
+  // fields 8 and 9 belong to the optional file set extension (§13.1)
 }
 ```
 
@@ -671,6 +673,15 @@ these reports per local socket:
 A reported address is adopted as the node's own only after that many distinct peers agree, where
 peers are distinct by their own address, not by their node ID.
 
+**Testing again.** A class can go stale: a port mapping expires, a firewall rule changes.
+
+- A node asks for a `ReachTest` every 60 min *(initial)* per address family, and at once when
+  its local address or its observed endpoint changes.
+- When no prober was asked (`ok` not set, or no answer), it tries again with another peer after
+  30 s *(initial)*, doubling the wait each time up to 60 min.
+- An `open` node that was asked a prober and received no `PROBE` in two tests in a row is no
+  longer `open`. It classifies itself from its address reports and takes relays (§9.4).
+
 ### 9.3 `ReachTest`
 
 ```protobuf
@@ -691,8 +702,7 @@ family. A and B rate-limit these to 1 per asker address per minute *(initial)*.
 ### 9.4 Relays
 
 A node keeps reservations at 2 *(initial)* relays in total while it has an address family in
-which it is not `open`. That includes a `ROUTER` that is open in one family only. A node that
-is open in IPv4 keeps one relay: only initiators without IPv4 need it.
+which it is not `open`. That includes a `ROUTER` that is open in one family only.
 
 ```protobuf
 message Relay {
@@ -710,14 +720,12 @@ its own in that family, so a node prefers relays that have both.
 
 | The node is not open in | `relays4` | `relays6` |
 |---|---|---|
-| IPv4, and it is open in IPv6 or has none | both relays | none |
-| IPv6, and it has no IPv4 | none | both relays |
-| IPv6, and it is open in IPv4 | none | one relay; the node keeps only one |
+| IPv4 only, or it has no IPv6 | both relays | none |
+| IPv6 only, or it has no IPv4 | none | both relays |
 | both families | both relays | one of them |
 
-Two relays, because the list is published and a published list goes stale: with one, every
-record in circulation is dead from the moment the relay leaves. An initiator that has only
-IPv6 finds one relay where others find two; that is accepted for a record 34 bytes shorter.
+Why 2, with a comparison to one relay, to two per family and to libp2p (2 by default), is in
+[`docs/relay-count.md`](docs/relay-count.md).
 
 **Finding relays.** A leaf takes its relays from the `ROUTER` nodes it meets in its own Kad
 lookups.
@@ -815,7 +823,8 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 
 | Record kind | Target |
 |---|---|
-| `SOURCE`, `NOTE` | `root[0..16)` |
+| `SOURCE`, `NOTE`, `MEMBER` | `root[0..16)` |
+| `HEAD` | `H("ed3k v1 set head", key ‖ id)[0..16)`, with the author's key and the `id` of the set ([`extensions/file-set.md`](extensions/file-set.md) §5.1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
@@ -886,7 +895,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -912,6 +921,7 @@ message Store {
   repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword (§10.7)
   Signed   note = 3;          // NOTE (§10.7)
   // field 4 belongs to the optional HTTP source extension (§13.1)
+  // fields 5 to 7 belong to the optional file set extension (§13.1)
 }
 
 message Note {
@@ -933,6 +943,7 @@ message KadAnswer {
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
   repeated uint32   sites = 12;       // one per entry of `files`: publisher sites counted; 0 = not counted
   // field 13 belongs to the optional HTTP source extension (§13.1)
+  // field 14 belongs to the optional file set extension (§13.1)
 }
 
 enum StoreResult {
@@ -955,6 +966,10 @@ Rules:
 - **Responsibility.** A node is responsible for a target when it knows fewer than
   K verified contacts closer to the target than one of its own routing IDs. It sets
   `responsible`, executes a `search`, and accepts a `store`.
+- **`HEAD` and `MEMBER`** are the record kinds of file sets. Every `ROUTER` MUST store and return
+  them, whether or not it sets `SETS`. Their content and checks are in
+  [`extensions/file-set.md`](extensions/file-set.md) §5 and §6.
+- A node that does not know the `kind` of a request answers as a node that is not responsible.
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data.
 - **The requester follows closer nodes.** Whenever an answer contains contacts closer than the
@@ -972,7 +987,8 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h. Republish before expiry.
+- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `HEAD` up to
+  7 days. Republish before expiry.
 - Flood limits are per source address and per `kind`.
 - **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
   It derives the target from one of them that is a keyword, and sends the others in `all`. A
@@ -1042,6 +1058,7 @@ message Record {
   uint64   expires = 1;       // Unix time in seconds
   FileInfo file = 2;          // KEYWORD
   Note     note = 3;          // NOTE
+  // fields 4 and 5 belong to the optional file set extension (§13.1)
 }
 
 message Signature {
@@ -1180,6 +1197,7 @@ message FileRequest {
   bytes  relays6 = 5;         // n × 34 B
   bool   brief = 6;           // I know size, name, ed2k and note; leave them out
   // field 7 belongs to the optional HTTP source extension (§13.1)
+  // field 8 belongs to the optional file set extension (§13.1)
 }
 
 message FileStatus {
@@ -1192,6 +1210,7 @@ message FileStatus {
   Note   note = 7;            // uploader's rating/comment on the file
   uint32 recheck = 8;         // queued: 0 = stay connected, else ask again after this many seconds (§12.5)
   // field 9 belongs to the optional HTTP source extension (§13.1)
+  // field 10 belongs to the optional file set extension (§13.1)
 }
 
 message SlotOffer {
@@ -1241,6 +1260,16 @@ body, so a block is never copied through the serializer, and never compressed (�
 
 Per-block overhead is about 8 bytes on 256 KiB.
 
+**A block that fails.** Every block is verified on its own (§7.2), so the sender of a bad one
+is known exactly. The downloader discards the block and asks another source for it.
+
+- After 1 bad block a downloader SHOULD stop using that node as a source for that file for
+  4 h *(initial)*.
+- After a bad block in a second file, or 2 bad blocks in total, within 24 h *(initial)*, it
+  SHOULD stop using the node as a source for any file for 24 h *(initial)*.
+- Both are counted per node ID and are local: nothing is reported to other nodes. Uploads to
+  that node and its credits stay local policy (§12.1).
+
 ### 12.4 Hashes
 
 ```protobuf
@@ -1269,7 +1298,8 @@ waits.
 
 **One entry per downloader.** An uploader keeps one queue entry per node ID, for one file. A
 downloader has at most one file stream open to an uploader. Opening a file stream for another
-file replaces the request and keeps the position.
+file replaces the request and keeps the position, or the slot if one is granted (see "Several
+files in one turn" below).
 
 **Stay or come back.** Every `FileStatus` to a queued downloader carries `recheck`:
 
@@ -1329,6 +1359,17 @@ then kept for 30 min so that the downloader can come back, and removed after tha
 - After 16 MiB the uploader MAY go on while nobody else is waiting.
 - A downloader that loses its slot stays in the queue. Its new position is local policy.
 
+**Several files in one turn.** A slot belongs to the downloader, not to the file.
+
+- A downloader that holds a slot (`rank` = 0) MAY open a file stream for another file. It
+  replaces the open one, and the uploader MUST keep the slot: the bytes and the time of the
+  turn go on counting across files.
+- The uploader answers the new `FileRequest` with `rank` = 0, or with `Error{NOT_FOUND}`.
+  After `NOT_FOUND` it holds the slot for 30 s *(initial)* for a further `FileRequest`, and
+  then takes it away.
+- The downloader SHOULD set `brief` when it knows size and name.
+- A turn stays 16 MiB or 1 h, so several files give no more than one.
+
 **Number of slots.** An uploader SHOULD choose the number of its upload slots so that 16 MiB
 take 5 to 30 min in each, which is about 9 to 55 KiB/s per slot. It SHOULD offer at least 2
 slots; below about 19 KiB/s of upload that minimum comes first and a turn takes longer.
@@ -1342,7 +1383,7 @@ The comparison with eMule's reask and with the alternatives is in
 
 ### 13.1 Optional messages
 
-Browsing a peer's shared files, chat and HTTP sources are optional extensions. A node announces
+Browsing a peer's shared files, chat, HTTP sources and file sets are optional extensions. A node announces
 each with a capability bit and need not implement any of them.
 
 | Extension | Capability | Wire elements | Document |
@@ -1350,6 +1391,7 @@ each with a capability bit and need not implement any of them.
 | Browse | bit 3, `BROWSE` | message types 14, 15 | [`extensions/browse.md`](extensions/browse.md) |
 | Chat | bit 4, `CHAT` | message types 16, 18 | [`extensions/chat.md`](extensions/chat.md) |
 | HTTP sources | bit 9, `HTTP` | fields in `FileRequest`, `FileStatus`, `Store` and `KadAnswer`; `ws` and `wh` in links; `ed3k:cache` links | [`extensions/http-source.md`](extensions/http-source.md) |
+| File sets | bit 10, `SETS` | a manifest file format; record kinds 4 and 5; fields in `FileInfo`, `FileRequest`, `FileStatus`, `Record`, `Store` and `KadAnswer`; `path` in links; `ed3k:set` links | [`extensions/file-set.md`](extensions/file-set.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16).
@@ -1363,7 +1405,8 @@ ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 
 `ws` names an HTTP source for the whole file and may occur several times. `wh` names a URL of
 the file's hash tree. A client without the HTTP source extension ignores both. That extension
-also defines `ed3k:cache`, a link to a cache server.
+also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
+`ed3k:file` and defines `ed3k:set`.
 
 ### 13.3 Not carried over
 
@@ -1537,7 +1580,9 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Maximum frame body | 1 MiB |
 | Address reports needed | 3 |
 | Reach tests per asker address | 1 per minute |
-| Relays per node that is not open in a family | 2; 1 when it is open in IPv4 |
+| Reach test: repeated every, retry after a test without prober | 60 min, 30 s doubling up to 60 min |
+| Reach test: tests without `PROBE` before `open` is dropped | 2 |
+| Relays per node that is not open in a family | 2 |
 | Reservations a router holds, recommended minimum | 8 |
 | Relay that answered `BUSY`: not asked again for | 30 min |
 | `Punch` forwards per minute: per leaf, per initiator address and leaf | 30, 3 |
@@ -1549,12 +1594,14 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Diversity: new node ID per host group | 1 per hour |
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
-| Record lifetimes: source, keyword, note | 5 h, 24 h, 24 h |
+| Record lifetimes: source, keyword, note, member, head | 5 h, 24 h, 24 h, 24 h, up to 7 days |
 | Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
+| Bad block: source not used for that file | 4 h |
+| Bad block in a second file, or 2 in total, within 24 h: source not used at all | 24 h |
 | Queue: time to come back (`recheck`) | 30 min to 4 h |
 | Queue: entry kept after the time to come back, or after a lost connection | 30 min |
 | Queue: ping interval, answer time | 30 min, 30 s |
@@ -1564,6 +1611,7 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Upload slots, recommended minimum | 2 |
 | Slot: data per turn, longest turn | 16 MiB, 1 h |
 | Slot: time aimed at for one turn | 5–30 min |
+| Slot: held after `NOT_FOUND` for another file | 30 s |
 | New connections accepted per minute: per node ID, per host address | 10, 30 |
 | Ban after exceeding the connection budget: node ID, host address | 24 h, 1 h |
 | Source exchange freshness | 1 h |
