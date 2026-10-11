@@ -54,6 +54,8 @@ alternatives that were rejected.
 | D9 | Kad runs over QUIC in version 1; a sessionless datagram binding is reserved | §10.6 |
 | D10 | Relays forward rendezvous signalling only, never file data | §9.4 |
 | D11 | A server is an ordinary ed3k node with the INDEX capability; no separate server message set | §11 |
+| D12 | Keyword and note records are signed by their publisher; source records are not, they are proven by dialling | §10.3, §10.7 |
+| D13 | Every signed object carries a list of signatures, so algorithms can be added | §10.7 |
 
 ---
 
@@ -71,6 +73,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 4 | `CHAT` | Accepts `Chat` |
 | 5 | `KAD_DGRAM` | Reserved for the sessionless Kad binding (§10.6). MUST be 0 in version 1 |
 | 6 | `ED2K` | Also speaks eD2K (§14). Informational |
+| 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -286,16 +289,8 @@ Profile:
 Making *support* mandatory removes negotiation and every "does the peer do compression" variant.
 Making *use* mandatory would enlarge the many messages that are mostly hashes and keys.
 
-**Alternatives considered**
-
-| | Small-message ratio | Speed | Notes |
-|---|---|---|---|
-| **zstd + dictionary** | best: a trained dictionary gives ×2–×5 on bodies under 1 KiB | very fast both ways | chosen; a hard dependency, dictionary frozen per ID |
-| zstd without dictionary | poor under ~500 B | very fast | header cost eats the gain on typical messages |
-| deflate (zlib) | poor without, fair with a preset dictionary (32 KiB limit) | slower, larger header | what eD2K uses; no reason to keep it in a new format |
-| Brotli | good on text thanks to its built-in web dictionary, which does not match this traffic | slow to compress | larger library |
-| LZ4 | weak | fastest | wins nothing on bodies this small |
-| none | — | — | search results, source lists and shared-file lists stay 2–4 times larger |
+The alternatives considered (zstd without a dictionary, deflate, Brotli, LZ4, none) are compared in
+[`docs/compression-comparison.md`](docs/compression-comparison.md).
 
 **Side channels.** Compress-then-encrypt leaks length. It matters when a secret and
 attacker-chosen text share one compression context. ed3k messages carry no secrets next to
@@ -410,7 +405,8 @@ of the first exchange, in both directions.
 
 Ed25519 was chosen for 32-byte keys, 64-byte signatures, fast verification and universal library
 support. The key type is fixed in version 1; a future type gets a new node-ID context string and
-a new wire version.
+a new wire version. Signed records (§10.7) already carry a list of signatures, so a second
+algorithm can be added to them without a new record format.
 
 ### 6.3 Routing ID: IP-bound, key-bound
 
@@ -466,23 +462,30 @@ Private, loopback and link-local addresses are exempt, for LAN and test networks
   19-bit region (each address reaches 8 of 2²¹ prefixes). On IPv6 the holder of a /32 controls
   11 of the 21 bits, so a few dozen /32 allocations, or one /28, do the same. IPv6 positions are
   therefore weaker than IPv4 ones.
+- Far fewer bits are needed in practice. On a network of 100,000 nodes about 13 matching bits
+  put a node among the closest to a key, and one IPv6 /29 or one IPv4 /16 reaches 131,072
+  prefixes. The routing ID alone does not stop the holder of such a block; the diversity limits
+  below are required for that reason.
 - Nodes behind one carrier-grade NAT address share 8 prefixes. They are leaves in practice and do
   not appear in routing tables.
 - BEP 42 itself has never been enforced by default in the BitTorrent DHT. ed3k can enforce it
   from the first version because there is no installed base to break.
 
-**Extensions reserved for a network upgrade.** Neither is part of version 1.
+**IP diversity limits (REQUIRED).** A node MUST apply the limits of
+[`extensions/ip-diversity.md`](extensions/ip-diversity.md) wherever it builds a set of contacts:
+per bucket, in the whole routing table, per answer, per lookup, in the closest set, and among
+the publishers of a record. Contacts are counted in three groups per family: address, /24 and
+/16 for IPv4; /64, /48 and /32 for IPv6. The limits are local policy and need no wire change,
+which is why they can be required from the first version.
 
-- *Key puzzle* (S/Kademlia): a key is valid only if `H("ed3k puzzle", public_key)` has `n` leading
-  zero bits, so every candidate ID costs 2ⁿ key generations. This adds a CPU price to the 8
-  positions per address. Optimised Ed25519 grinders reach millions of keys per second, so a
-  useful `n` costs honest users seconds to minutes at first start; it would be introduced with a
-  capability bit and a date after which unpuzzled keys stop being verified.
-- *IP diversity limits*: caps per /24 and per IPv6 /48 in each bucket, in the whole table and in
-  each result set (eMule Kad uses 1 per address, 2 per /24 per bucket, 10 per /24 overall), plus
-  lookups over disjoint paths. These need no wire change; an implementation MAY apply them
-  locally today. Making them a network rule means fixing the numbers so that all nodes agree on
-  which contacts count.
+**Extension reserved for a network upgrade.** Not part of version 1.
+
+- *Key puzzle*: a `ROUTER` node shows a solution to a memory-hard puzzle (Argon2id, 64 MiB)
+  bound to its key, its /24 or /48 and a 30-day epoch. It is a nonce search, so the node ID does
+  not change, and it puts a recurring price on every router identity. Designed in
+  [`extensions/key-puzzle.md`](extensions/key-puzzle.md); introduced with a capability bit and a
+  date after which routers without a solution are treated as leaves. Capability bit 7 and field 9
+  of `Hello` are reserved for it.
 
 **Alternatives considered:** pure key hash with diversity limits only (an attacker with a handful
 of subnets can sit next to any target); key grinding until the hash matches the address (about
@@ -737,6 +740,8 @@ File hashes, node IDs and keyword keys all come from the same function and are c
 Buckets of K = 10 *(initial)* verified contacts, ordered by XOR distance between routing IDs. Each
 entry is one (node ID, endpoint) pair; a dual-stack node contributes two entries at two positions.
 Only `ROUTER` nodes are inserted. A contact is dropped when a connection attempt fails twice.
+Insertion is subject to the per-bucket and per-table limits of
+[`extensions/ip-diversity.md`](extensions/ip-diversity.md).
 
 ### 10.3 The one request
 
@@ -766,8 +771,8 @@ message Query {
 
 message Store {
   Peer     source = 1;        // SOURCE: my endpoints and relays; `id` MUST be empty
-  repeated FileInfo files = 2;  // KEYWORD: files whose name contains the keyword
-  Note     note = 3;          // NOTE
+  repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword (§10.7)
+  Signed   note = 3;          // NOTE (§10.7)
 }
 
 message Note {
@@ -781,9 +786,10 @@ message KadAnswer {
   bool   responsible = 3;     // this node considers the target inside its zone
   uint32 load = 4;            // 0..100, store fill level for this target
   repeated Peer     sources = 5;
-  repeated FileInfo files = 6;
-  repeated Note     notes = 7;
+  repeated Signed   files = 6;  // §10.7
+  repeated Signed   notes = 7;  // §10.7
   bool   more = 8;            // further results exist; ask again with `offset`
+  repeated bytes    keys = 9; // 32 B publisher keys, referenced by Signed.key
 }
 ```
 
@@ -808,9 +814,16 @@ Rules:
 - **Source records are bound to the connection.** The storing node takes the source's node ID
   from the authenticated connection and its endpoint from the observed address. A node can
   therefore publish only itself, and source lists cannot be filled with invented peers.
+- **Source records are not signed.** A searcher has only the storing node's word for a source
+  until it dials it. Dialling is the verification: the handshake proves that the node at that
+  address holds the key behind the node ID in the record (T1), and a source that fails it is
+  dropped. A signature would add nothing to that, because it cannot prove that an address
+  belongs to a key. What a false record can still cause is a wasted dial, which is bounded by
+  the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
+- **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
+  claim; the signature fixes who made it.
 - Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h. Republish before expiry.
 - Flood limits are per source address and per `kind`.
-- Records are not signed in version 1; `FileInfo` and `Note` are claims, as in Kad today.
 
 ### 10.4 Lookup
 
@@ -821,6 +834,10 @@ Rules:
    completes (§6.3).
 4. Stop when the R closest verified candidates have all answered and none of them returned a
    closer node. R = 4 for a search, 8 for a store *(initial)*.
+
+Which returned contacts become candidates, which candidates are queried and which R nodes form
+the final set are further restricted by [`extensions/ip-diversity.md`](extensions/ip-diversity.md)
+§2.2 and §2.3.
 
 ### 10.5 What a lookup costs over QUIC, and what bounds it
 
@@ -862,6 +879,67 @@ proof of its address and replay safety. It carries the same `KadRequest` and `Ka
 The design is specified as an extension in
 [`extensions/kad-datagram.md`](./extensions/kad-datagram.md); it is not part of version 1.
 
+### 10.7 Signed records
+
+```protobuf
+message Record {
+  uint64   expires = 1;       // Unix time in seconds
+  FileInfo file = 2;          // KEYWORD
+  Note     note = 3;          // NOTE
+}
+
+message Signature {
+  uint32 alg = 1;             // 1 = Ed25519
+  bytes  sig = 2;
+  // field 3 is reserved for a batch form: one signature over many records
+}
+
+message Signed {
+  bytes  body = 1;            // a serialised Record, verified over exactly these bytes
+  uint32 key = 2;             // index into KadAnswer.keys; absent in a Store
+  repeated Signature sigs = 3;
+}
+```
+
+Each signature is computed over
+
+```
+"ed3k v1 record" ‖ kind(1) ‖ target(16) ‖ body
+```
+
+`kind` and `target` are those of the request, so they are signed without being sent, and a
+record cannot be replayed under another keyword or file.
+
+**Signatures**
+
+- The publisher signs with its identity key (§6.1). In a `Store` the key is the one of the
+  connection. In a `KadAnswer` it is `keys[key]`, sent once per publisher.
+- `sigs` is a list from version 1 on. It holds at most one signature per algorithm.
+- A record is **valid** when every signature of an algorithm the verifier knows verifies, and
+  every *required* algorithm is present. In version 1 the required set is Ed25519 alone. The
+  set changes by network upgrade (§16).
+- Signatures of unknown algorithms are ignored by the verifier and kept by a storing node.
+- A `Signed` MUST NOT exceed 1 KiB *(initial)*. This bounds what unknown signatures can add.
+- How a key of another algorithm is tied to a node identity is **not defined** in version 1.
+  The specification that registers an algorithm has to define it. Signatures of the sizes that
+  post-quantum algorithms have today (2 KB and more) will need the reserved batch form.
+
+**Checks**
+
+| | Storing node, on `Store` | Searcher, on `KadAnswer` |
+|---|---|---|
+| Signature | valid under the connection's key | valid under `keys[key]` |
+| `expires` | later than now, and at most the lifetime of the kind plus 1 h *(initial)* ahead | later than now minus 1 h |
+| Content | `file` for `KEYWORD`, `note` for `NOTE`, nothing else | the same |
+| Count | one record per publisher and file under a keyword; one note per publisher and file | duplicates by publisher and file are merged |
+
+A record that fails a check is rejected (`Error{MALFORMED}`) or dropped. There are no unsigned
+keyword or note records. A storing node deletes a record at `expires`.
+
+The publisher's node ID, `H("ed3k v1 node id", key)[0..16)`, is the author of the record. It is
+what a client counts once, ignores, or trusts. Why this helps against spam, and where it does
+not, is discussed in [`docs/signed-records.md`](docs/signed-records.md).
+
 ---
 
 ## 11. Index nodes
@@ -879,8 +957,10 @@ protocol of its own:
 | Server list | `KadRequest{want}` returns nodes; index nodes are recognised by `Hello.caps` |
 
 Differences from a Kad node: an index node is `responsible` for **every** target, never needs the
-iterative walk, MAY keep records for as long as the publishing connection stays open instead of
-the fixed lifetimes, and MAY apply its own admission policy with `Error{DENIED}` or `{BUSY}`.
+iterative walk, MAY keep source records for as long as the publishing connection stays open
+instead of the fixed lifetime, and MAY apply its own admission policy with `Error{DENIED}` or
+`{BUSY}`. Signed records (§10.7) expire on an index node as anywhere else; the publisher renews
+them.
 
 A client finds index nodes from a configured list, from a link (§13.3) or from an eD2K server
 that advertises one (§14.3). Index nodes are optional for the network and optional for a client.
@@ -1151,6 +1231,7 @@ values once an implementation exists. eD2K figures are from the eMule sources.
 | Kad find + search or publish | 2 requests, 2 answers | 1 request, 1 answer | §10.3 |
 | File request with part status | 55 B + bitmap | 36 B + bitmap, once per stream | hash sent once, 4 MiB pieces |
 | Source entry (IPv4) | 29 B (v4) | 26 B | `Peer` with 16 B ID |
+| Keyword result, note | unsigned | about 80 B more per record, 34 B per publisher | signature, expiry, key once per answer (§10.7) |
 | Block header | 32 B per ≤ 10 KiB packet | ~8 B per 256 KiB | QUIC segments the stream |
 | Reask while queued | 1 UDP packet each way per 29 min | none while connected; 1 file stream otherwise | §12.1 |
 | Per-datagram cost | 8–16 B obfuscation | 13 B obfuscation + QUIC header and 16 B AEAD tag | §4.3 |
@@ -1173,7 +1254,7 @@ inside messages, and all packets that exist only as a second way to do the same 
 - Anything that is ever signed MUST travel as `bytes` and be verified over exactly those bytes.
   Protobuf serialisation is not canonical.
 
-Reserved for later: signed records, the key puzzle and diversity limits of §6.3, the Kad datagram
+Reserved for later: further signature algorithms and the batch form (§10.7), the key puzzle of §6.3, the Kad datagram
 binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
 
 ---
@@ -1193,7 +1274,13 @@ binding of §10.6, a data relay and symmetric-NAT probing (§9.4), dropping the 
 | Punch: probe interval, duration, attempts, back-off | 10–200 ms, 5 s, 3, 30 min |
 | Dual-stack head start for IPv6 | 250 ms |
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
+| Diversity, per host / site / block: bucket, answer, lookup | 1 / 2 / 4 |
+| Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
+| Diversity: new node ID per host group | 1 per hour |
+| Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
+| Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
 | Record lifetimes: source, keyword, note | 5 h, 24 h, 24 h |
+| Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
 | Queue position kept after disconnect | 1 h |
