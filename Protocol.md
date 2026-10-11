@@ -70,12 +70,13 @@ Every participant is a **node**. A node announces what it does with capability b
 | 0 | `ROUTER` | Reachable without prior signalling on at least one address; may be placed in routing tables and stores Kad records |
 | 1 | `RELAY` | Forwards rendezvous signalling for firewalled nodes (§9.4). A `ROUTER` node MUST set it unless it is out of relay slots |
 | 2 | `INDEX` | Index node ("server"): accepts and answers records for every target (§11) |
-| 3 | `BROWSE` | Answers `Browse` |
-| 4 | `CHAT` | Accepts `Chat` |
+| 3 | `BROWSE` | Optional extension: answers `Browse` ([`extensions/browse.md`](extensions/browse.md)) |
+| 4 | `CHAT` | Optional extension: accepts `Chat` ([`extensions/chat.md`](extensions/chat.md)) |
 | 5 | `KAD_DGRAM` | Reserved for the sessionless Kad binding (§10.6). MUST be 0 in version 1 |
 | 6 | `ED2K` | Also speaks eD2K (§14). Informational |
 | 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
 | 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
+| 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -283,10 +284,11 @@ Types 1–63 keep the tag at one byte.
 | 11 | `Punch` | via relay | §9 |
 | 12 | `Relay` | request and answer | §9 |
 | 13 | `ReachTest` | request and answer | §9 |
-| 14 | `Browse` | request | §13 |
-| 15 | `BrowseAnswer` | answer | §13 |
-| 16 | `Chat` | one-way | §13 |
+| 14 | `Browse` | request | optional, §13.1 |
+| 15 | `BrowseAnswer` | answer | optional, §13.1 |
+| 16 | `Chat` | request | optional, §13.1 |
 | 17 | `SlotOffer` | uploader → downloader | §12.5 |
+| 18 | `ChatAck` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -860,6 +862,7 @@ message Store {
   Peer     source = 1;        // SOURCE: my endpoints and relays; `id` MUST be empty
   repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword (§10.7)
   Signed   note = 3;          // NOTE (§10.7)
+  // field 4 belongs to the optional HTTP source extension (§13.1)
 }
 
 message Note {
@@ -880,6 +883,7 @@ message KadAnswer {
   repeated StoreResult results = 10;  // one per record of the Store, in order; absent = all stored
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
   repeated uint32   sites = 12;       // one per entry of `files`: publisher sites counted; 0 = not counted
+  // field 13 belongs to the optional HTTP source extension (§13.1)
 }
 
 enum StoreResult {
@@ -1103,7 +1107,7 @@ instead of the fixed lifetime, and MAY apply its own admission policy with `Erro
 `{BUSY}`. Signed records (§10.7) expire on an index node as anywhere else; the publisher renews
 them.
 
-A client finds index nodes from a configured list, from a link (§13.3) or from an eD2K server
+A client finds index nodes from a configured list, from a link (§13.2) or from an eD2K server
 that advertises one (§14.3). Index nodes are optional for the network and optional for a client.
 
 ---
@@ -1125,6 +1129,7 @@ message FileRequest {
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf (§12.5)
   bytes  relays6 = 5;         // n × 34 B
   bool   brief = 6;           // I know size, name, ed2k and note; leave them out
+  // field 7 belongs to the optional HTTP source extension (§13.1)
 }
 
 message FileStatus {
@@ -1136,6 +1141,7 @@ message FileStatus {
   repeated Peer sources = 6;  // source exchange
   Note   note = 7;            // uploader's rating/comment on the file
   uint32 recheck = 8;         // queued: 0 = stay connected, else ask again after this many seconds (§12.5)
+  // field 9 belongs to the optional HTTP source extension (§13.1)
 }
 
 message SlotOffer {
@@ -1270,32 +1276,32 @@ The comparison with eMule's reask and with the alternatives is in
 
 ## 13. Other peer messages
 
-### 13.1 Browse
+### 13.1 Optional messages
 
-```protobuf
-message Browse      { string dir = 1; }                       // empty = top level
-message BrowseAnswer { repeated string dirs = 1; repeated FileInfo files = 2; }
-```
+Browsing a peer's shared files, chat and HTTP sources are optional extensions. A node announces
+each with a capability bit and need not implement any of them.
 
-Only if the peer set `BROWSE`. Replaces the four shared-files/shared-directories opcodes.
+| Extension | Capability | Wire elements | Document |
+|---|---|---|---|
+| Browse | bit 3, `BROWSE` | message types 14, 15 | [`extensions/browse.md`](extensions/browse.md) |
+| Chat | bit 4, `CHAT` | message types 16, 18 | [`extensions/chat.md`](extensions/chat.md) |
+| HTTP sources | bit 9, `HTTP` | fields in `FileRequest`, `FileStatus`, `Store` and `KadAnswer`; `ws` and `wh` in links; `ed3k:cache` links | [`extensions/http-source.md`](extensions/http-source.md) |
 
-### 13.2 Chat
+A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
+ignores the fields (§16).
 
-```protobuf
-message Chat { string text = 1; }
-```
-
-Sent on its own exchange, no answer. Only if the peer set `CHAT`. Captchas are gone: the sender is
-an authenticated key that can be blocked.
-
-### 13.3 Links
+### 13.2 Links
 
 ```
-ed3k:file?b3=<root, base32 lower case, no padding>&sz=<size>&dn=<url-encoded name>[&ed2k=<32 hex>]
+ed3k:file?b3=<root, base32 lower case, no padding>&sz=<size>&dn=<url-encoded name>[&ed2k=<32 hex>][&ws=<url-encoded URL>][&wh=<url-encoded URL>]
 ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 ```
 
-### 13.4 Not carried over
+`ws` names an HTTP source for the whole file and may occur several times. `wh` names a URL of
+the file's hash tree. A client without the HTTP source extension ignores both. That extension
+also defines `ed3k:cache`, a link to a cache server.
+
+### 13.3 Not carried over
 
 Preview requests, PeerCache, the eD2K server message, comment packets separate from file status,
 compressed part packets, Kad v1, and every "version N of packet X" have no ed3k equivalent.
