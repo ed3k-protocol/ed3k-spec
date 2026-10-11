@@ -429,8 +429,8 @@ its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
 | Member record | about 150 B per file and set, once per 24 h, on the connections of the source lookup |
 | Per member in a turn | one `FileRequest` / `FileStatus` pair |
 
-- The manifest travels as file data, which is never compressed (§5.3). Directory paths are
-  stored once for that reason.
+- The manifest travels as file data. A sender may compress its blocks (§12.3), but a stored
+  manifest is as large as it is written. Directory paths are stored once for that reason.
 - Members are hashed and verified one by one. There is no hash over the whole set other than
   the manifest's root, which commits to every member root.
 
@@ -442,7 +442,7 @@ its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
 | **A new record kind in Kad for the list** | The list would live for a record lifetime and be limited to the record size. As a file it has sources as long as someone shares it, and needs no new storage rule |
 | **A message that transfers the list between peers** | It would be a second way to move bytes that the file stream already moves, with its own verification |
 | **A link that lists all members** | Works for a handful of files. A link of 100 KB is not something users pass around |
-| **Compressing the manifest** | Halves a file that is small already, at the cost of a decompression limit in the reader. Left out; `dirs` removes the largest repetition |
+| **Compressing the manifest** | Halves a file that is small already, at the cost of a decompression limit in the reader. Left out of the format; `dirs` removes the largest repetition, and block compression (§12.3) covers the transfer |
 | **Paths as one string per file** | Simpler to read, but repeats the directory for every file |
 | **Updates by a note under the old manifest** | Needs no new record kind, but a follower that missed versions walks from manifest to manifest, and only the author could store it |
 | **A pointer to the previous version in the manifest** | Gives a history, not a way forward. May be added later; nothing depends on it |

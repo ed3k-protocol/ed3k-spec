@@ -49,7 +49,7 @@ alternatives that were rejected.
 | D4 | Routing position is IP-bound (BEP 42 style) in its top 21 bits and key-bound in the rest | §6.3 |
 | D5 | A dual-protocol client listens for ed3k on the UDP port whose number equals its eD2K TCP port | §14.1 |
 | D6 | eD2K peers learn about ed3k support from a user hash derived from the node ID | §14.2 |
-| D7 | zstd decompression is required; senders compress only when it helps | §5.3 |
+| D7 | zstd decompression is required; senders compress only when it helps, messages and file blocks alike | §5.3, §12.3 |
 | D8 | Files are identified by a BLAKE3 root; the eD2K hash is an alias that can be dropped later | §7 |
 | D9 | Kad runs over QUIC in version 1; a sessionless datagram binding is reserved | §10.6 |
 | D10 | Relays forward rendezvous signalling only, never file data | §9.4 |
@@ -78,6 +78,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
 | 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
 | 10 | `SETS` | Optional extension: understands file sets ([`extensions/file-set.md`](extensions/file-set.md)) |
+| 11 | `LIVE` | Optional extension: takes part in live streams ([`extensions/live.md`](extensions/live.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected.
@@ -293,6 +294,9 @@ Types 1–63 keep the tag at one byte.
 | 16 | `Chat` | request | optional, §13.1 |
 | 17 | `SlotOffer` | uploader → downloader | §12.5 |
 | 18 | `ChatAck` | answer | optional, §13.1 |
+| 19 | `LiveJoin` | viewer → peer | optional, §13.1 |
+| 20 | `LiveState` | both | optional, §13.1 |
+| 21 | `LiveGet` | request | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -311,8 +315,8 @@ Types 1–63 keep the tag at one byte.
 
 Every node MUST be able to **decompress** zstd (RFC 8878) frames in the profile below. A sender
 compresses a body only when the result is smaller, and SHOULD NOT try for bodies under 64 bytes
-*(initial)*. `Block` data is never compressed by the protocol: shared files are overwhelmingly
-compressed media and archives already.
+*(initial)*. File data is not part of a frame body; it follows a `Block` frame and has its own
+rule and profile (§12.3).
 
 Profile:
 - magicless zstd frames, no content checksum, no content size field
@@ -665,13 +669,31 @@ these reports per local socket:
 
 | Class | Evidence |
 |---|---|
-| `open` (1) | a `ReachTest` (§9.3) arrived from a node it had never sent to |
-| `cone` (2) | at least 3 *(initial)* peers at different addresses observed the same endpoint, and no `ReachTest` arrived |
-| `symmetric` (3) | peers observed different ports |
-| `unknown` (0) | not enough reports yet |
+| `open` (1) | a `ReachTest` (§9.3) arrived from a node it had never sent to, or unasked connections arrived (below) |
+| `cone` (2) | one endpoint has the lead (below), and there is no evidence for `open` |
+| `symmetric` (3) | at least 3 *(initial)* reports name the same address, and no port has the lead |
+| `unknown` (0) | anything else: too few reports, or reports that name different addresses |
 
-A reported address is adopted as the node's own only after that many distinct peers agree, where
-peers are distinct by their own address, not by their node ID.
+**Which reports count.** A node that dials in can say anything in `observed`, and can do so from
+many node IDs. A report is therefore counted only when all of this holds:
+
+- It arrived on a direct connection that the node opened itself. A connection made by hole
+  punching (§9.5) counts for its initiator only.
+- It is the newest report from its site, where a site is the peer's /24 or /48
+  ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1). Peers are never told apart
+  by node ID.
+- It is at most 60 min *(initial)* old.
+
+**The lead.** An endpoint has the lead when at least 3 *(initial)* counted reports name it, and
+at least twice as many as name any other endpoint. Only an endpoint with the lead is adopted as
+the node's own. One peer that reports a false port can therefore neither change the address nor
+turn `cone` into `symmetric`.
+
+**Unasked connections.** A connection that completes from a host the node has sent nothing to
+within the last 60 min *(initial)* could not have passed a NAT or a stateful firewall. Two such
+connections from different sites within 60 min *(initial)* are evidence for `open` in that
+family, the same as a `PROBE`. Relayed and punched connections do not count. Two are asked for
+because one can come through a mapping that an earlier exchange left open.
 
 **Testing again.** A class can go stale: a port mapping expires, a firewall rule changes.
 
@@ -680,7 +702,10 @@ peers are distinct by their own address, not by their node ID.
 - When no prober was asked (`ok` not set, or no answer), it tries again with another peer after
   30 s *(initial)*, doubling the wait each time up to 60 min.
 - An `open` node that was asked a prober and received no `PROBE` in two tests in a row is no
-  longer `open`. It classifies itself from its address reports and takes relays (§9.4).
+  longer `open`, unless unasked connections arrived since the first of the two. It classifies
+  itself from its address reports and takes relays (§9.4).
+- An `open` node MAY skip a test that is due while it has evidence from unasked connections
+  that is less than 60 min old. A test after an address change is never skipped.
 
 ### 9.3 `ReachTest`
 
@@ -825,6 +850,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 |---|---|
 | `SOURCE`, `NOTE`, `MEMBER` | `root[0..16)` |
 | `HEAD` | `H("ed3k v1 set head", key ‖ id)[0..16)`, with the author's key and the `id` of the set ([`extensions/file-set.md`](extensions/file-set.md) §5.1) |
+| `LIVE` | `H("ed3k v1 live", key ‖ id)[0..16)`, with the key and the `id` of the channel ([`extensions/live.md`](extensions/live.md) §1.1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
@@ -889,13 +915,20 @@ Only `ROUTER` nodes are inserted. A contact is dropped when a connection attempt
 Insertion is subject to the per-bucket and per-table limits of
 [`extensions/ip-diversity.md`](extensions/ip-diversity.md).
 
+**Contacts that dialled in.** A contact is *dialled-in* when the node first verified it on a
+connection that the contact opened. At most half of a bucket, 5 of K = 10 *(initial)*, may be
+dialled-in contacts; a further one is not inserted. The mark stays while the contact is in the
+table, also after the node has connected to it itself. Opening connections to a node is the
+cheapest way to enter its table, and the contacts a node finds by its own lookups are not chosen
+by the other side.
+
 ### 10.3 The one request
 
 There is a single Kad request. It always asks for closer nodes and optionally carries an
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -962,13 +995,23 @@ the buddy packets.
 Rules:
 
 - A node returns up to 16 *(initial)* verified contacts per requested family that are closer to
-  the target than itself. It returns none when it knows none closer.
+  the target than itself. It returns none when it knows none closer. "Itself" is its routing ID
+  for the address the request arrived at.
+- **The requester checks the answer.** It computes the routing ID of each returned contact from
+  the contact's address and node ID (§6.3). It drops a contact that is not closer to the target
+  than the answering node, and every contact after the 16th of a family. An answer with such a
+  contact counts as one failed attempt for the answering node (§10.2); a correct node cannot
+  produce one. This check comes before the filters of
+  [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.2.
 - **Responsibility.** A node is responsible for a target when it knows fewer than
   K verified contacts closer to the target than one of its own routing IDs. It sets
   `responsible`, executes a `search`, and accepts a `store`.
 - **`HEAD` and `MEMBER`** are the record kinds of file sets. Every `ROUTER` MUST store and return
   them, whether or not it sets `SETS`. Their content and checks are in
   [`extensions/file-set.md`](extensions/file-set.md) §5 and §6.
+- **`LIVE`** is the record kind for the peers of a live stream. It is stored and returned like
+  `SOURCE`, with a shorter lifetime. Every `ROUTER` MUST store and return it, whether or not it
+  sets `LIVE` ([`extensions/live.md`](extensions/live.md) §5).
 - A node that does not know the `kind` of a request answers as a node that is not responsible.
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data.
@@ -987,7 +1030,7 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `HEAD` up to
+- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `HEAD` up to
   7 days. Republish before expiry.
 - Flood limits are per source address and per `kind`.
 - **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
@@ -1006,6 +1049,10 @@ Rules:
    completes (§6.3).
 4. Stop when the R closest verified candidates have all answered and none of them returned a
    closer node. R = 4 for a search, 8 for a store *(initial)*.
+
+A queried node that has not answered within 5 s *(initial)*, counted from the first packet sent
+to it, has failed for this lookup and counts one failed attempt (§10.2). A lookup ends after
+60 s *(initial)* at the latest, with the closest set it has by then.
 
 Which returned contacts become candidates, which candidates are queried and which R nodes form
 the final set are further restricted by [`extensions/ip-diversity.md`](extensions/ip-diversity.md)
@@ -1241,6 +1288,7 @@ long a slot lasts and how many there are is in §12.5.
 message BlockRequest {
   repeated uint64 offset = 1; // packed
   repeated uint32 length = 2; // packed, same count; each ≤ 256 KiB
+  bool   raw = 3;             // send these ranges as they are, never compressed (§12.3)
 }
 ```
 
@@ -1251,14 +1299,42 @@ Allowed only while `rank = 0`. Up to 16 *(initial)* ranges may be outstanding.
 ```protobuf
 message Block {
   uint64 offset = 1;
-  uint32 size = 2;            // number of raw bytes that follow this frame
+  uint32 size = 2;            // number of bytes that follow this frame
+  uint32 plain = 3;           // set when those bytes are zstd: length of the file data they hold
 }
 ```
 
-The frame is followed by exactly `size` raw bytes of file data. They are not inside the protobuf
-body, so a block is never copied through the serializer, and never compressed (§5.3).
+The frame is followed by exactly `size` bytes. They are not inside the protobuf body, so a block
+is never copied through the serializer. Without `plain` they are file data as it is.
 
 Per-block overhead is about 8 bytes on 256 KiB.
+
+**Compressed blocks.** Most shared files are compressed media and archives and gain nothing.
+Text, databases, disk images and file set manifests gain a lot. A sender MAY therefore compress
+a block, and every node MUST be able to receive one.
+
+- Profile: one magicless zstd frame per block as in §5.3, without a dictionary. Each block is
+  compressed on its own, so blocks can be asked for in any order and from any source.
+- `plain` is the length of the block after decompression and is at most 256 KiB. A receiver
+  stops when the output would exceed `plain`. Output of another length, or input that does not
+  decode, is a bad block (below).
+- Hashes are over the file data, never over the compressed bytes (§7.2).
+- **When to compress.** A sender sends a block compressed only when that saves at least 1/8 of
+  its length *(initial)*. After a block that did not, it SHOULD NOT try the next 15 blocks
+  *(initial)* of that file. It MAY remember the result per file, since a file never changes, and
+  it MAY skip files it expects to gain nothing without trying.
+- There is no list of file types. A name is not part of a file's identity (§7.1) and need not
+  match the content; the measured saving decides.
+- The data of a turn (§12.5) is counted in file bytes, so a turn is 4 pieces whether or not
+  they were compressed.
+- **What it shows.** The sizes of compressed blocks depend on the content. An observer who has
+  a copy of a file can compress it the same way and compare the sizes with a transfer it
+  sees; encryption does not hide them. Blocks sent as they are all look alike. Either side can
+  therefore turn compression off: a sender MAY be set never to compress, and a sender MUST NOT
+  compress a range that was asked for with `BlockRequest.raw`.
+
+The codecs and the alternatives are compared in
+[`docs/compression-comparison.md`](docs/compression-comparison.md) §5.
 
 **A block that fails.** Every block is verified on its own (§7.2), so the sender of a bad one
 is known exactly. The downloader discards the block and asks another source for it.
@@ -1383,7 +1459,7 @@ The comparison with eMule's reask and with the alternatives is in
 
 ### 13.1 Optional messages
 
-Browsing a peer's shared files, chat, HTTP sources and file sets are optional extensions. A node announces
+Browsing a peer's shared files, chat, HTTP sources, file sets and live streams are optional extensions. A node announces
 each with a capability bit and need not implement any of them.
 
 | Extension | Capability | Wire elements | Document |
@@ -1392,6 +1468,7 @@ each with a capability bit and need not implement any of them.
 | Chat | bit 4, `CHAT` | message types 16, 18 | [`extensions/chat.md`](extensions/chat.md) |
 | HTTP sources | bit 9, `HTTP` | fields in `FileRequest`, `FileStatus`, `Store` and `KadAnswer`; `ws` and `wh` in links; `ed3k:cache` links | [`extensions/http-source.md`](extensions/http-source.md) |
 | File sets | bit 10, `SETS` | a manifest file format; record kinds 4 and 5; fields in `FileInfo`, `FileRequest`, `FileStatus`, `Record`, `Store` and `KadAnswer`; `path` in links; `ed3k:set` links | [`extensions/file-set.md`](extensions/file-set.md) |
+| Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; a channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16).
@@ -1406,12 +1483,13 @@ ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 `ws` names an HTTP source for the whole file and may occur several times. `wh` names a URL of
 the file's hash tree. A client without the HTTP source extension ignores both. That extension
 also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
-`ed3k:file` and defines `ed3k:set`.
+`ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`.
 
 ### 13.3 Not carried over
 
 Preview requests, PeerCache, the eD2K server message, comment packets separate from file status,
-compressed part packets, Kad v1, and every "version N of packet X" have no ed3k equivalent.
+a separate packet type for compressed parts (a flag on `Block`, §12.3), Kad v1, and every
+"version N of packet X" have no ed3k equivalent.
 
 ---
 
@@ -1578,7 +1656,8 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Fragment reassembly: messages per source, timeout | 4, 3 s |
 | Compression threshold | 64 B |
 | Maximum frame body | 1 MiB |
-| Address reports needed | 3 |
+| Address reports: needed for the lead, counted for, lead over any other endpoint | 3, 60 min, 2 to 1 |
+| Unasked connections that show `open`: number, from hosts not sent to for, within | 2 from different sites, 60 min, 60 min |
 | Reach tests per asker address | 1 per minute |
 | Reach test: repeated every, retry after a test without prober | 60 min, 30 s doubling up to 60 min |
 | Reach test: tests without `PROBE` before `open` is dropped | 2 |
@@ -1589,17 +1668,20 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Punch: probe interval, duration, attempts, back-off | 10–200 ms, 5 s, 3, 30 min |
 | Dual-stack head start for IPv6 | 250 ms |
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
+| Kad: dialled-in contacts per bucket | 5 |
+| Kad: time for one node to answer, longest lookup | 5 s, 60 s |
 | Diversity, per host / site / block: bucket, answer, lookup | 1 / 2 / 4 |
 | Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
 | Diversity: new node ID per host group | 1 per hour |
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
-| Record lifetimes: source, keyword, note, member, head | 5 h, 24 h, 24 h, 24 h, up to 7 days |
+| Record lifetimes: source, keyword, note, member, live, head | 5 h, 24 h, 24 h, 24 h, 10 min, up to 7 days |
 | Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
 | Outstanding block ranges | 16 |
+| Block compression: least saving, blocks skipped after a miss | 1/8, 15 |
 | Bad block: source not used for that file | 4 h |
 | Bad block in a second file, or 2 in total, within 24 h: source not used at all | 24 h |
 | Queue: time to come back (`recheck`) | 30 min to 4 h |
@@ -1636,6 +1718,8 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
   the [Bao verified-streaming specification](https://github.com/oconnor663/bao/blob/master/docs/spec.md)
 - [BEP 42](https://www.bittorrent.org/beps/bep_0042.html), *DHT Security Extension*;
   [BEP 32](https://www.bittorrent.org/beps/bep_0032.html), *IPv6 extension for DHT*
+- [Node Discovery Protocol v5](https://github.com/ethereum/devp2p/blob/master/discv5/discv5.md)
+  (discv5); compared in [`docs/discv5-comparison.md`](docs/discv5-comparison.md)
 - Baumgart, Mies:
   [*S/Kademlia: A Practicable Approach Towards Secure Key-Based Routing*](https://doi.org/10.1109/ICPADS.2007.4447808)
   (2007)
