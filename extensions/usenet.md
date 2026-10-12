@@ -250,8 +250,13 @@ computed, and shares the files.
 | `PACKED` | where the node unpacked the archive itself |
 
 - **A post that was downloaded is published.** A client that shares the files of a post
-  shares the manifest and the article list with them, and publishes the records above. There
-  is no setting that shares the files and holds the names back.
+  shares the manifest and the article list with them, and publishes the records above.
+- **Holding posts back** is a setting, off by default. With it on, the client does not share
+  the article list and publishes no `ALIAS` record of `nzb` or `nzb-file`, so that nothing it
+  sends leads to the articles. **The files are shared all the same,** each under its root
+  with `SOURCE` and `KEYWORD` records, like any file. The client then does not share the post
+  set either: a manifest with `usenet` names the article list, and a set that others cannot
+  check is of no use. It MAY share a plain set of the same files.
 - A member that is complete and verified is an ordinary shared file from that moment, before
   the rest of the post is done. Its `nzb-file` record can be published then.
 
@@ -302,7 +307,7 @@ of a type they do not know.
 | Storage | the manifest, about 80 B per file, and the article list, about 45 B per article: 3 MiB for a post of 50 GiB |
 | Kad | one `ALIAS` record per post and one per file, next to the `SOURCE` records |
 | What a storing node learns | that a node has a post. The target is a hash, so it can test posts it knows |
-| What others learn | the message IDs of the post, from the article list. For a post under meaningless names they are all that an index sells. §6 shares them on purpose |
+| What others learn | the message IDs of the post, from the article list. For a post under meaningless names they are all that an index sells. §6 shares them on purpose, unless the user holds posts back |
 | What a news server learns | nothing about ed3k |
 
 ---

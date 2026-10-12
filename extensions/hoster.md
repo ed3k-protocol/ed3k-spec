@@ -141,7 +141,7 @@ id        = H("ed3k v1 url", canonical)                          32 B
 
 **Publisher.** A node publishes the record when it fetched the whole file from the link and
 the bytes gave the root, or when it uploaded the file there itself. A node that shares the
-file always does (§4.1). For `SET`: when it
+file does so unless it holds links back (§4.1). For `SET`: when it
 expanded the link itself and holds every member.
 
 **Searcher**
@@ -172,8 +172,12 @@ Nobody has published the file, or the client has no ed3k source for it.
 - **A link that was downloaded is shared.** Once the file is complete and verified, a client
   that shares the file publishes the `ALIAS` record of the link, attaches the link to its
   `SOURCE` record, and hands it to its downloaders (§2). This holds for a link the user
-  pasted as for any other, and for a link that came with a known root as well. There is no
-  setting that shares the file and holds the link back.
+  pasted as for any other, and for a link that came with a known root as well.
+- **Holding links back** is a setting, off by default. With it on, the client does none of
+  the three: no `ALIAS` record of the link, no link at its `SOURCE` record, none handed to
+  downloaders, and no link in a manifest it makes. **The file is shared all the same,** under
+  its root, like any file. The setting covers every link the client knows, also those it got
+  from peers.
 - Whether a client shares what it downloaded from a hoster at all is the user's choice, as
   for any file.
 
@@ -275,7 +279,8 @@ every volume, and the file that came out has the root in `id`.
 - **To a peer or a storing node that is given a link:** the link. A link is often all that
   protects a file at a hoster. This extension shares it on purpose: a link the user pasted is
   passed on and published once the file is downloaded (§4.1). A client MUST say so where
-  the user switches downloads from hosters on. What stays with the node is everything of an
+  the user switches downloads from hosters on, and offer the setting that holds links back
+  there. What stays with the node is everything of an
   account (§3).
 - **In Kad:** an `ALIAS` record of the scheme `url` holds a hash of the link, not the link.
   Whoever knows the link learns the root and the publisher.

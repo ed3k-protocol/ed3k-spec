@@ -962,7 +962,9 @@ Buckets of K = 10 *(initial)* verified contacts, ordered by XOR distance between
 entry is one (node ID, endpoint) pair; a dual-stack node contributes two entries at two positions.
 Only `ROUTER` nodes are inserted. A contact is dropped when a connection attempt fails twice.
 Insertion is subject to the per-bucket and per-table limits of
-[`extensions/ip-diversity.md`](extensions/ip-diversity.md).
+[`extensions/ip-diversity.md`](extensions/ip-diversity.md). The limits hold for the contacts in
+the table at all times: if they ever become stricter, the node checks the table again and takes
+out what no longer fits (§2.1 there).
 
 **Contacts that dialled in.** A contact is *dialled-in* when the node first verified it on a
 connection that the contact opened. At most half of a bucket, 5 of K = 10 *(initial)*, may be
@@ -1351,6 +1353,10 @@ A client finds index nodes from a configured list, from a link (§13.2) or from 
 that advertises one ([`docs/ed2k-tags.md`](docs/ed2k-tags.md)). Index nodes are optional for the
 network and optional for a client.
 
+An index node stores and answers records. A service that keeps a catalogue of its own, such as
+a video site, is not an index node by that; it runs a node next to it, which may be one
+([`extensions/chaintube.md`](extensions/chaintube.md) §5).
+
 ---
 
 ## 12. File transfer
@@ -1592,7 +1598,7 @@ The comparison with eMule's reask and with the alternatives is in
 
 Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
 each with a capability bit and need not implement any of them. Hidden sets, sets with
-several authors, other names of a file, torrents and Usenet posts as file sets, shared filter lists, first
+several authors, other names of a file, torrents and Usenet posts as file sets, videos named on a chain, shared filter lists, first
 contact and finding a known node are optional too. They add file formats, links and four record
 kinds, and have no bit of their own. Links at file hosters are a further kind of source, with
 a bit of their own.
@@ -1602,6 +1608,8 @@ outside leads to a root through one record kind, `ALIAS`, and the rules that eve
 extension follows are in [`extensions/alias.md`](extensions/alias.md) §5.
 Anonymous paths, which put other nodes between a node and its peers, are optional as well.
 So are credits that count at every uploader; they need a ledger outside ed3k.
+A video site whose catalogue is on a chain keeps its media in ed3k as file sets; its site is a
+program of its own next to an ordinary node, and no further role (§11).
 
 | Extension | Capability | Wire elements | Document |
 |---|---|---|---|
@@ -1620,6 +1628,7 @@ So are credits that count at every uploader; they need a ledger outside ed3k.
 | Other names of a file | none | record kind 13; a field in `Record`, `Store` and `KadAnswer` | [`extensions/alias.md`](extensions/alias.md) |
 | Torrents as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; `bt` in `ed3k:file` links | [`extensions/torrent.md`](extensions/torrent.md) |
 | Usenet posts as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; an article list file format | [`extensions/usenet.md`](extensions/usenet.md) |
+| Videos named on a chain | none (`SETS`) | a field in a manifest; `b3` and `sz` in `ed3k:set` links; a layout for a set; contracts on a chain of their own, reached by RPC | [`extensions/chaintube.md`](extensions/chaintube.md) |
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
 | First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
@@ -1639,7 +1648,8 @@ the file's hash tree. A client without the HTTP source extension ignores both. T
 also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
 `ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
 set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the extension for links at file hosters adds `hl` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
-extension for finding a known node defines `ed3k:friend`.
+extension for finding a known node defines `ed3k:friend`. The extension for videos named on a
+chain adds `b3` and `sz` to `ed3k:set`.
 
 ### 13.3 Not carried over
 
@@ -1863,6 +1873,8 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Anonymous paths: `ANON` records per target, `GATE` lifetime and renewal, session idle time | 64, 1 h and 45 min, 10 min |
 | Other names: records per root and scheme, roots per target, records per answer, roots tried per name | 4, 64, 16, 3 |
 | Usenet: article list at most, sets tried per NZB, `nzb-file` records per post | 32 MiB, 3, 256 |
+| Videos on a chain: files per upload set, subtitles and picture at most, link at most, blocks per log read | 64, 1 MiB, 512 B, 2,048 |
+| Videos on a chain, shown at most: title, tag, tags, comment | 256 B, 64 B, 16, 8,192 B |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots at most, time for a payment, bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
 | Credits: a bid ends a turn that has more left than, rate measured over; uploader's share of a payment | 60 s, 10 s; 10 % |

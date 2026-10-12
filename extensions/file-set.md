@@ -55,6 +55,7 @@ message FileSet {
   // field 8 belongs to the optional extension for several authors (multi-author-set.md §3.1)
   // field 9 belongs to the optional torrent extension (torrent.md §1)
   // field 10 belongs to the optional Usenet extension (usenet.md §3)
+  // field 11 belongs to the optional extension for videos named on a chain (chaintube.md §2.3)
 }
 
 message Member {
@@ -366,6 +367,8 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
   not know `ed3k:set`.
 - An `ed3k:set` link with `s` in place of `id` names a hidden set
   ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
+- Unknown parameters of an `ed3k:set` link are ignored. [`chaintube.md`](chaintube.md) §3.1
+  adds `b3` and `sz`, which name one version of the manifest.
 
 ## 6. From a member to its sets
 

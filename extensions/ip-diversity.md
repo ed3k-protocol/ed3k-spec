@@ -1,6 +1,6 @@
 # Extension: IP diversity limits (`ip-diversity`)
 
-**Status:** draft 0.1 (2026-10-11). Not implemented. **Required in version 1.**
+**Status:** draft 0.2 (2026-10-13). Not implemented. **Required in version 1.**
 **Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2 and §10.4. Section numbers (§) refer to that document.
 **Capability:** none. The limits are local policy; nothing on the wire changes.
 
@@ -49,8 +49,14 @@ A node MUST NOT insert a contact that would exceed a bucket or table limit. When
 replaces another, the contact being replaced is taken out of the counts first.
 
 - The table limits exist because the bucket limits alone allow 2 per site in *every* bucket.
-- The limits decide which new contacts may fill a free slot. They never evict a working
-  contact.
+- **The limits hold for the contacts that are in the table, not only for the one that
+  arrives.** While the limits stay as they are, checking each insertion is enough. Whenever
+  they become stricter (new numbers by a network upgrade, or by any later rule that changes
+  them with the size of the table), the node checks the whole table again and takes out what
+  no longer fits. Insertion then uses the stricter of the limits now and the limits the table
+  was last checked against, so that what was taken out does not come back.
+- A working contact is never taken out to make room for a new one. It is taken out only when
+  the table itself is over a limit.
 - **Identity churn.** A host group is admitted with a new node ID at most once per hour. A
   contact whose host group was in the table under a different node ID less than an hour ago is
   not inserted. This slows an address from walking through the 8 positions that the choice of
@@ -135,7 +141,8 @@ number of false records.
   Kad contacts, Kad records and failed source dials only.
 - Answer requests from any address. A node that is over a limit is not inserted or queried; its
   own requests are served as usual.
-- Use bootstrap contacts beyond the limits for the first lookup, when the table is empty.
+- Query bootstrap contacts beyond the lookup limits for the first lookup, when the table is
+  empty. They are inserted into the table under the limits like any contact.
 
 ## 4. Comparison
 
@@ -200,6 +207,10 @@ its own.
 - **Limits by autonomous system.** The best grouping in principle, since it follows ownership
   and not prefix length. It needs a routing database that every implementation ships and
   updates, and nodes with different database versions would disagree.
+- **Looser limits while the table is small.** Fills slots on a young network that strict
+  limits leave empty. Left out for simplicity (§8). Done without a re-check it is harmful:
+  whatever was let in early keeps its slots for as long as it answers, so the loose limits of
+  the first minutes become the limits for good.
 - **Disjoint lookup paths** (S/Kademlia). Complements these limits: d independent paths survive
   when fewer than d are captured. At about 2.5 KB per queried node over QUIC (§10.5) it
   multiplies the cost of every lookup by d. Left for the datagram binding.
@@ -208,8 +219,8 @@ its own.
 
 On a young network the honest nodes cluster in a few providers, and hard limits can leave table
 slots empty. The block limits are loose for that reason (4 of 10 slots in a bucket), and the
-closest set never shrinks (§2.3). Whether the block limits should scale with table size is an
-open point (§8).
+closest set never shrinks (§2.3). Whether the limits should be looser while a table is small
+is an open point (§8).
 
 ## 7. What an attacker still needs
 
@@ -233,6 +244,9 @@ Costs with the limits in force, K = 10 and R = 8:
   should be checked against the share of the largest provider once there is a network to measure.
 - Whether the IPv6 block should be /29 instead of /32, which would bind the usual registry
   allocation at the price of grouping more unrelated customers.
-- Whether block limits should scale with the number of contacts in the table (§6).
+- Whether the limits of a bucket should be looser while a table is small (§6). It was drafted
+  and left out to keep the protocol simple: it needs a boundary, a re-check when the table
+  crosses it, and a band around it so that a table does not take contacts out and insert them
+  again in turns. §2.1 already says what any such rule must do.
 - Whether the routing-ID mask for IPv6 should end at /32 (§6.3 of the main document). It was
   left at /48; with it, a /32 would reach 8 routing prefixes instead of 16,384.
