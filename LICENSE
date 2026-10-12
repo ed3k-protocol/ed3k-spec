@@ -1,0 +1,14 @@
+The ed3k specification is placed in the public domain.
+
+This covers every file in this repository: Protocol.md, the extensions, the
+design notes and comparisons, the scripts and the test vectors.
+
+Anyone may copy, change, publish, implement and distribute it, in whole or in
+part, for any purpose, commercial or not, without asking and without naming
+the authors.
+
+Where the law does not allow a work to be placed in the public domain, the
+authors grant everyone the same rights without conditions, for all time and
+in all countries.
+
+The specification is provided as is, without warranty of any kind.

@@ -34,7 +34,7 @@ places; where this note differs from it, the code was followed.
 | Peers find each other | by identity and a rendezvous area in the DHT; data runs through relay nodes | by address; relays carry signalling only (§9.4) |
 | File hash | SHA-256 tree, 256 KB leaves, top 12 levels kept | BLAKE3 tree, 256 KiB blocks, all levels (§7) |
 | Multi-file | cross hash over a set, list fetched from peers or the DHT | manifest file (extension) |
-| Other networks | eD2K, BitTorrent, hosters in one download | eD2K optional (§14), HTTP sources (extension) |
+| Other networks | eD2K, BitTorrent, hosters in one download | eD2K optional (§14), HTTP sources and torrents (extensions) |
 
 ## 2. Multi-file sets
 
@@ -81,6 +81,42 @@ What was not taken:
   until one matches the hash.
 - **Names outside the hash.** Two peers can give different names for the same set, and nothing
   decides between them.
+
+### 2.1 Torrents under the set hash
+
+NeoLoader downloads a torrent from BitTorrent peers and NeoShare peers at once. Read on
+2026-10-12, *by reading*.
+
+**How NeoLoader does it**
+
+- A torrent with several files becomes one file whose part map is joined from sub-files. Each
+  file of the torrent is a sub-file with a part map of its own, linked to its range in the
+  whole (`FileTransfer/BitTorrent/Torrent.cpp:75-135`).
+- The download starts under the torrent hash as **master hash**. Further hashes of the whole
+  and of each sub-file are looked up in the DHT as aliases: a map of hash types to values
+  (`FileTransfer/NeoShare/NeoKad.cpp:226`). An alias is taken as it comes.
+- A false alias is found by its effect. If a range is corrupt under an added hash and lies
+  wholly inside a range that the master hash verified, the added hash is put on a black list
+  (`FileTransfer/HashInspector.cpp:446`, `:808`).
+- The set hash of this section needs the tree over the joined data and the hash of every
+  sub-file. A torrent gets it when it is complete, and is published under it then, with the
+  list of sub-files and their hash maps (`FileTransfer/NeoShare/NeoKad/HashPublisher.cpp:105-150`).
+- A sub-file with a hash of its own is a normal file, with sources of its own in NeoShare and
+  eD2K.
+
+| | NeoLoader | ed3k ([`extensions/torrent.md`](../extensions/torrent.md)) |
+|---|---|---|
+| One hash for a torrent | `SHA256(MetaHash ‖ TreeRoot)` over the joined data | the root of a manifest in a fixed form, which every node computes alike |
+| Commits to the infohash | no; the link is an alias record | yes, a field of the manifest |
+| Commits to names and paths | no | yes |
+| From the infohash to that hash | alias record, unsigned | `TORRENT` record, signed, ordered by publisher sites |
+| A false link between the two | found by a hash conflict, the added hash is dropped | the same test (`torrent.md` §4.2) |
+| Who decides | the hash the download started with | the same: BLAKE3 for a start from an ed3k link, the torrent for a start from a magnet link |
+| Hashing | every byte twice | once per file |
+| A file of the torrent alone | a normal file | a normal file |
+
+What was taken: the master hash, the conflict test, and sub-files as normal files. What was
+not: the tree over the joined data, for the reasons above, and aliases that nobody signs.
 
 ## 3. File hash and verification
 
@@ -263,7 +299,7 @@ Considered and not adopted:
 | Source records under an eD2K hash that also name the ed3k node | Covered by the Kad tag in [`ed2k-tags.md`](ed2k-tags.md) |
 | Availability bitmap that halves its resolution until it fits in 1 KB | A 100 GiB file is 3.2 KiB of bitmap at 4 MiB pieces, and bodies are compressed (§5.3) |
 | Lookup tracing (each hop adds its ID) | A diagnostic aid; it would add a field to `KadAnswer` for no protocol use |
-| A typed list of alias hashes instead of the single `ed2k` field | Only worth it if a second network is added. The field is expected to be dropped (§7.4) |
+| A typed list of alias hashes instead of the single `ed2k` field | The field is expected to be dropped (§7.4). BitTorrent is joined through a set, not through an alias (section 2.1) |
 
 ## 10. Open points
 

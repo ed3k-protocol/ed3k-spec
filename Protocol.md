@@ -967,7 +967,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; TORRENT = 13; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -1071,6 +1071,9 @@ Rules:
   another to become its friend. It
   is stored and returned like `SOURCE`, but its content is a sealed byte string that the storing
   node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §4).
+- **`TORRENT`** is the record kind that leads from the infohash of a BitTorrent torrent to the
+  file set that describes it. It is stored and returned like `MEMBER`. Every `ROUTER` MUST store
+  and return it, whether or not it sets `SETS` ([`extensions/torrent.md`](extensions/torrent.md) §5).
 - **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
   which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the `ANON`
@@ -1567,8 +1570,9 @@ The comparison with eMule's reask and with the alternatives is in
 
 Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
 each with a capability bit and need not implement any of them. Hidden sets, sets with
-several authors, shared filter lists, first contact and finding a known node are optional
-too. They add file formats, links and three record kinds, and have no bit of their own.
+several authors, torrents as file sets, shared filter lists, first contact and finding a known
+node are optional too. They add file formats, links and four record kinds, and have no bit of
+their own.
 Anonymous paths, which put other nodes between a node and its peers, are optional as well.
 
 | Extension | Capability | Wire elements | Document |
@@ -1583,6 +1587,7 @@ Anonymous paths, which put other nodes between a node and its peers, are optiona
 | Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34; record kinds 11 and 12; a field in `Record` and `Store`, two in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
 | Hidden sets | none (`SETS`) | record kind 8; a field in `Record` and in a manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
 | Sets with several authors | none (`SETS`) | record kind 9; two fields in `Record`; fields in a manifest | [`extensions/multi-author-set.md`](extensions/multi-author-set.md) |
+| Torrents as file sets | none (`SETS`) | record kind 13; a field in a manifest; `bt` in `ed3k:file` links | [`extensions/torrent.md`](extensions/torrent.md) |
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
 | First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
@@ -1601,7 +1606,7 @@ ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 the file's hash tree. A client without the HTTP source extension ignores both. That extension
 also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
 `ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
-set extension adds `s` to `ed3k:set`, the first contact extension defines `ed3k:nodes`, and the
+set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
 extension for finding a known node defines `ed3k:friend`.
 
 ### 13.3 Not carried over

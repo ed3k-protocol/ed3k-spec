@@ -13,6 +13,9 @@ and finding nodes in the local network (BEP 14), both in another shape (section 
 the rest ed3k has already in its own form (section 3). Three ideas were looked at and left for
 later (section 4).
 
+Downloading a torrent itself, from BitTorrent peers and ed3k nodes at once, is a separate
+optional extension: [`extensions/torrent.md`](../extensions/torrent.md).
+
 ## 1. Overview
 
 | Area | BEPs | ed3k | Section |

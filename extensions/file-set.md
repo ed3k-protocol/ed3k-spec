@@ -53,6 +53,7 @@ message FileSet {
   bytes  id = 6;              // optional: 1 to 32 B, names a set that changes (§5)
   uint64 seq = 7;             // with `id`: version number, higher = newer
   // field 8 belongs to the optional extension for several authors (multi-author-set.md §3.1)
+  // field 9 belongs to the optional torrent extension (torrent.md §1)
 }
 
 message Member {

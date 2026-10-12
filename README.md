@@ -6,3 +6,8 @@ It is inspired by ed2k and its reference implementation [eMuleQt](https://github
 compatible with the ed2k network.
 
 See [Protocol.md](./Protocol.md) for implementation details.
+
+## License
+
+The specification is placed in the public domain.
+See [LICENSE](./LICENSE).
