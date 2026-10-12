@@ -31,6 +31,9 @@ read as in RFC 2119.
 - `H(ctx, data)` is BLAKE3 in `derive_key` mode with context string `ctx`, 32 bytes of output
   unless a length is given. `H(ctx, data)[a..b)` is a byte slice.
 - `varint` is the protobuf base-128 varint.
+- Integer fields are `uint32` or `uint64`; both are a varint on the wire, and the type states the
+  range a reader accepts. A field that holds a random 64-bit value is `fixed64`
+  ([`docs/wire-format-comparison.md`](docs/wire-format-comparison.md) section 2.4).
 - Numbers marked *(initial)* are tuning values. They are collected in Appendix A and may change
   without a wire version bump.
 
@@ -741,7 +744,7 @@ because one can come through a mapping that an earlier exchange left open.
 message ReachTest {
   bytes  target_id = 1;       // set when forwarded: node to probe
   bytes  target_ep = 2;       // set when forwarded: endpoint to probe
-  uint64 nonce = 3;
+  fixed64 nonce = 3;          // random; goes into the PROBE as 8 B, big-endian
   bool   ok = 4;              // answer: a prober was asked
 }
 ```
@@ -828,7 +831,7 @@ message Punch {
   bytes  ep4 = 2;             // sender's observed endpoints
   bytes  ep6 = 3;
   uint32 nat = 4;             // sender's class, §9.2
-  uint64 nonce = 5;
+  fixed64 nonce = 5;          // random; goes into each PROBE as 8 B, big-endian
 }
 ```
 
@@ -1708,6 +1711,10 @@ older 13/110. Other clients mark their hashes with bytes of their own in the sam
   the first connection, through legacy servers and legacy relaying clients, and carries the
   node ID. The comparison is in
   [`docs/ed2k-signal-comparison.md`](docs/ed2k-signal-comparison.md).
+- **eD2K callbacks as a punch signal.** The rendezvous of an eD2K server gives two firewalled
+  dual-protocol clients each other's mapped UDP endpoint and user hash, which is what §9.5
+  needs. The Kad buddy callback does not. It is not part of this specification;
+  [`docs/ed2k-tags.md`](docs/ed2k-tags.md) section 5 has the comparison and a procedure.
 
 ### 14.4 Using both networks for one file
 

@@ -103,6 +103,44 @@ variant is 55% larger keyed by index and 84% larger keyed by name.
 zstd (§5.3) removes most of the repeated keys from a large variant message, but small messages
 are sent uncompressed, and those are the ones where the overhead is largest.
 
+### 2.4 Integer types in ed3k
+
+`uint32` and `uint64` are the same on the wire: a varint whose length follows the value, not
+the declared type. Declaring a field `uint64` costs nothing.
+
+| Value | Bytes, without the key |
+|---|---|
+| Zero, or a field left out | 0 |
+| Counts, queue rank, `nat`, `kind`, a low `seq` | 1–2 |
+| `caps` with bits up to 13 / up to 20 | 2 / 3 |
+| File size up to 32 GiB / up to 4 TiB | 5 / 6 |
+| Unix time in seconds, until the year 3058 | 5 |
+| A random 64-bit value | 9 or 10 |
+| The same as `fixed64` | 8 |
+
+The rules that follow:
+
+- **`uint64` wherever a value may pass 4 GiB or 2³².** Sizes, offsets, times, version numbers.
+- **`uint32` where 2³² is a real limit.** The type is the range a reader accepts: a parser cuts
+  a larger varint down to 32 bits without an error. `Block.size` and the size of a live segment
+  are such fields.
+- **`fixed64` for random values.** A varint spends 7 bits per byte, so a random 64-bit value
+  takes 9 or 10 bytes. `ReachTest.nonce`, `Punch.nonce` (§9) and the `id` of a chat message
+  ([`chat.md`](../extensions/chat.md)) are `fixed64`. The saving is 1 to 2 bytes each.
+- **No `int32` or `int64`.** A negative value takes 10 bytes. No field of ed3k is negative.
+- **Hashes, keys and IDs are `bytes`,** with the length in a comment.
+
+Integers are a small part of a message. A keyword result is about 64 B of signature, 32 B of
+root, 30–60 B of name, about 17 B of integers, and about 20 B of keys and lengths. What would
+save most is one signature over many records, for which field 3 of `Signature` is reserved
+(§10.7).
+
+| Looked at | Saving | Decision |
+|---|---|---|
+| `Signature.alg` absent = Ed25519 | 2 B per signature | not taken: an algorithm that is always named is safer to extend |
+| A block index in place of the byte offset in `BlockRequest` | 2–3 B per range of up to 256 KiB | not taken |
+| Times relative to now, or in hours | 2 B per record | not taken: `expires` is signed and has to mean the same to every reader |
+
 ---
 
 ## 3. Upgradability

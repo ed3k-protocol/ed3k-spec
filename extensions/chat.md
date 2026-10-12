@@ -11,7 +11,7 @@ A node that sets `CHAT` accepts text messages from other nodes.
 ```protobuf
 message Chat {
   string text = 1;            // at most 4,096 bytes in UTF-8
-  uint64 id = 2;              // random per message; the same again when a message is repeated
+  fixed64 id = 2;             // random per message; the same again when a message is repeated
 }
 
 message ChatAck { }
