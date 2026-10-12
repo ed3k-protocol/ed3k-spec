@@ -230,11 +230,14 @@ Lookups and stores can be handed to other nodes ("hops"), with random detours ("
   is 100 relayed operations in total.
 - Every byte costs upload at each relay.
 
-ed3k does not adopt this. Its relays forward a few signalling messages (§9.4), and transfers
-run directly. A data relay is reserved (§16) for pairs that cannot be punched, which is a
-different purpose.
+The core of ed3k does not adopt this. Its relays forward a few signalling messages (§9.4), and
+transfers run directly. The optional extension [`hops.md`](../extensions/hops.md) takes the
+idea of a number of hops that the user chooses and builds it another way: the owner of a path
+picks its nodes, every node adds a layer of encryption, and a node limits what it carries
+(§7 there has the comparison, read from the NeoShare source). A path of one hop there is also
+the data relay for pairs that cannot be punched, which §16 had reserved.
 
-Two details are worth keeping in mind if a data relay is ever specified:
+Two details of NeoKad that the extension does not use, because its links are QUIC exchanges:
 
 - NeoKad acknowledges a frame hop by hop at once and end to end later, so a slow last hop does
   not hold the first hop's window.

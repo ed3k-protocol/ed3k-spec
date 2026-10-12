@@ -83,6 +83,8 @@ Every participant is a **node**. A node announces what it does with capability b
 | 11 | `LIVE` | Optional extension: takes part in live streams ([`extensions/live.md`](extensions/live.md)) |
 | 12 | `PUBSUB` | Optional extension: passes on new records of things it follows ([`extensions/pubsub.md`](extensions/pubsub.md)) |
 | 13 | `LAN` | Optional extension: answers nodes of its local network ([`extensions/lan-discovery.md`](extensions/lan-discovery.md)) |
+| 14 | `ANON` | Optional extension: accepts sessions that arrive through a path of other nodes ([`extensions/hops.md`](extensions/hops.md)) |
+| 15 | `HOP` | Optional extension: forwards for the paths of others ([`extensions/hops.md`](extensions/hops.md) §5) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected.
@@ -320,6 +322,7 @@ Types 1–63 keep the tag at one byte.
 | 23 | `TopicState` | both | optional, §13.1 |
 | 24 | `LanQuery` | request | optional, §13.1 |
 | 25 | `LanAnswer` | answer | optional, §13.1 |
+| 26–34 | `HopCreate`, `HopCreated`, `HopExtend`, `HopGate`, `HopLookup`, `HopLookupAnswer`, `HopStream`, `HopConnect`, `HopJoin` | between the nodes of a path | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -813,7 +816,9 @@ useless as a proxy. The consequence is that a pair whose punch fails cannot tran
 **Alternatives considered:** a rate-limited data relay as a last resort (connects every pair, but
 relays pay bandwidth for strangers and need quota and abuse rules); a multi-port "birthday" probe
 for symmetric NATs (hundreds of probe packets per attempt, which trips router session limits and
-looks like a scan). Both can be added later as capabilities without changing §9.5.
+looks like a scan). Both can be added later as capabilities without changing §9.5. A path of one hop
+([`extensions/hops.md`](extensions/hops.md)) carries data for such a pair, at the cost and under
+the limits of that extension.
 
 ### 9.5 Hole punching
 
@@ -879,6 +884,8 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `HIDDEN` | `H("ed3k v1 hidden head target", base ‖ period(8))[0..16)`, with a value made from the key of the set and the number of the day ([`extensions/hidden-set.md`](extensions/hidden-set.md) §2) |
 | `PART` | `H("ed3k v1 parts", key ‖ id ‖ issuer key)[0..16)`, with the owner key and the `id` of the set and the key of the issuer whose certificate the record carries, or no issuer key ([`extensions/multi-author-set.md`](extensions/multi-author-set.md) §3.4) |
 | `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from the keys of two friends, or from a friend link, and the number of the day ([`extensions/friend.md`](extensions/friend.md) §4). A request to become a friend has a target of its own (§3 there) |
+| `ANON` | `root[0..16)`, as `SOURCE`: a source that is reached through other nodes and has no address ([`extensions/hops.md`](extensions/hops.md) §4.3) |
+| `GATE` | `H("ed3k v1 gate", node ID)[0..16)`, with the node ID of such a source (§4.3 there) |
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
@@ -957,7 +964,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -986,6 +993,7 @@ message Store {
   // fields 5 to 7 belong to the optional file set extension (§13.1)
   bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record (§10.4); at most 256
   // field 9 belongs to the optional extension for finding a known node (§13.1)
+  // field 10 belongs to the optional extension for anonymous paths (§13.1)
 }
 
 message Note {
@@ -1009,6 +1017,7 @@ message KadAnswer {
   // field 13 belongs to the optional HTTP source extension (§13.1)
   // field 14 belongs to the optional file set extension (§13.1)
   // field 15 belongs to the optional extension for finding a known node (§13.1)
+  // fields 16 and 17 belong to the optional extension for anonymous paths (§13.1)
 }
 
 enum StoreResult {
@@ -1059,6 +1068,13 @@ Rules:
   another to become its friend. It
   is stored and returned like `SOURCE`, but its content is a sealed byte string that the storing
   node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §4).
+- **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
+  nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
+  which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the `ANON`
+  records of the target. A `Store` of kind `KEYWORD`, `NOTE`, `ANON` or `GATE` MAY carry
+  `signer`; the record is then checked under that key in place of the key of the connection.
+  Every `ROUTER` MUST do all of this, whether or not it sets `ANON`
+  ([`extensions/hops.md`](extensions/hops.md) §4).
 - A node that does not know the `kind` of a request answers as a node that is not responsible.
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data.
@@ -1077,7 +1093,7 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE` and `FRIEND` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
+- Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
   7 days. Republish before expiry.
 - Flood limits are per source address and per `kind`.
 - **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
@@ -1130,6 +1146,16 @@ the final set are further restricted by [`extensions/ip-diversity.md`](extension
   of files. The estimate and the comparison with IPFS, where the method comes from, are in
   [`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md) §2.1.
 
+**Searching sources for many files.** There is no batch for searches; every target is looked
+up. A client that has many targets to search SHOULD take them in sorted order, and SHOULD add
+the closest set of the lookup just ended to the candidates of the next one (step 1). Where two
+targets share their closest nodes, the second lookup then ends after one round on connections
+that are still open. Each target is still a request of its own and counts against the limits
+of the answering node on its own. Why a batch was left out is in
+[`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md) §4.8. For the members of
+a set a client asks the sources of the manifest first
+([`extensions/file-set.md`](extensions/file-set.md) §3).
+
 ### 10.5 What a lookup costs over QUIC, and what bounds it
 
 A new QUIC connection costs about 2.5 KB (both Initial flights are padded to 1200 bytes) and one
@@ -1145,7 +1171,7 @@ other cost off that number:
 | 16 contacts per answer instead of 11 | Fewer hops. A contact costs 22 bytes, a hop costs a handshake |
 | No speculative queries | A candidate is queried only if it is among the α closest known. Every wasted query costs 2.5 KB, so α stays small and is not raised to hide timeouts |
 | First hop is warm | Connections to routing-table contacts stay open while idle (30 s) and resume with 0-RTT afterwards, which saves the round trip though not the padded Initial |
-| One connection per node, many exchanges | Lookups for different targets that pass through the same node share its connection; a client publishing many files orders them by target so neighbouring walks overlap |
+| One connection per node, many exchanges | Lookups for different targets that pass through the same node share its connection; a client publishing or searching many files orders them by target so neighbouring walks overlap (§10.4) |
 | Keyword records batched per node | All files sharing a keyword go in one `Store` |
 | Source records batched per region | Targets that share their closest nodes go in one `Store` per node (§10.4) |
 | Index nodes | A node logged in to an index node (§11) publishes and searches there over one connection and needs Kad for keywords only as a fallback |
@@ -1182,6 +1208,7 @@ message Record {
   // field 6 belongs to the optional publish and subscribe extension (§13.1)
   // field 7 belongs to the optional hidden set extension (§13.1)
   // fields 8 and 9 belong to the optional extension for sets with several authors (§13.1)
+  // field 10 belongs to the optional extension for anonymous paths (§13.1)
 }
 
 message Signature {
@@ -1539,6 +1566,7 @@ Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, pub
 each with a capability bit and need not implement any of them. Hidden sets, sets with
 several authors, shared filter lists, first contact and finding a known node are optional
 too. They add file formats, links and three record kinds, and have no bit of their own.
+Anonymous paths, which put other nodes between a node and its peers, are optional as well.
 
 | Extension | Capability | Wire elements | Document |
 |---|---|---|---|
@@ -1549,6 +1577,7 @@ too. They add file formats, links and three record kinds, and have no bit of the
 | Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; a channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
 | Publish and subscribe | bit 12, `PUBSUB` | message types 22 and 23; record kind 7; a field in `Record` | [`extensions/pubsub.md`](extensions/pubsub.md) |
 | Finding nodes in the local network | bit 13, `LAN` | message types 24 and 25; a multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
+| Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34; record kinds 11 and 12; a field in `Record` and `Store`, two in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
 | Hidden sets | none (`SETS`) | record kind 8; a field in `Record` and in a manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
 | Sets with several authors | none (`SETS`) | record kind 9; two fields in `Record`; fields in a manifest | [`extensions/multi-author-set.md`](extensions/multi-author-set.md) |
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
@@ -1763,7 +1792,7 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Diversity: new node ID per host group | 1 per hour |
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
-| Record lifetimes: source and friend, keyword, note, member, live, subscriber, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, up to 7 days |
+| Record lifetimes: source (also anonymous) and friend, keyword, note, member, live, subscriber, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, up to 7 days |
 | Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
@@ -1785,6 +1814,9 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | New connections accepted per minute: per node ID, per host address | 10, 30 |
 | Ban after exceeding the connection budget: node ID, host address | 24 h, 1 h |
 | Source exchange freshness | 1 h |
+| Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
+| Anonymous paths, a hop: paths per neighbour, streams per path, held per stream and direction, base rate, lookups per path | 8, 64, 256 KiB, 16 KiB/s, 20 per minute |
+| Anonymous paths: `ANON` records per target, `GATE` lifetime and renewal, session idle time | 64, 1 h and 45 min, 10 min |
 
 ## Appendix B — open points
 

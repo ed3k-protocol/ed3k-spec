@@ -18,7 +18,7 @@ was run. Earlier notes already compare parts of IPFS:
 
 **Result:** two things were taken over, both into the core: storing source records by region
 of the keyspace (IPFS), and a network name that separates networks (IPFS). Most of the rest
-ed3k has in its own form (section 3). Seven ideas were looked at and left (section 4).
+ed3k has in its own form (section 3). Eight ideas were looked at and left (section 4).
 
 ## 1. Overview
 
@@ -35,6 +35,7 @@ ed3k has in its own form (section 3). Seven ideas were looked at and left (secti
 | Lookups that hide what is searched | IPFS, a draft | looked at, not taken now | 4.5 |
 | The hash function named in the identifier | IPFS | looked at, not taken now | 4.6 |
 | Lookups done by a server over HTTP | IPFS | looked at, not taken now | 4.7 |
+| A batch for searching sources, the mirror of 2.1 | ed3k's own | looked at, not taken now; a note for clients instead | 4.8 |
 | Anonymous routing, a store that forgets, blocks shared between files | both | not taken | 5 |
 
 ## 2. Taken over
@@ -82,7 +83,7 @@ from there the number of lookups no longer grows. In a small network it begins e
 |---|---|---|
 | **A batch field in the core request** | the number of lookups is bounded by the network | a new field and a new result in the one Kad message; every router has to handle it |
 | **The storing node decides per target** | a publisher with a wrong picture of the region cannot put records on the wrong nodes | answers of `FAR` cost a second attempt |
-| **Source records only** | they are the records a node has many of. Keyword records are batched per keyword already | a downloader of many files still searches each one |
+| **Source records only** | they are the records a node has many of. Keyword records are batched per keyword already | a downloader of many files still searches each one (section 4.8) |
 | **An even pass instead of a burst** | no load peak every 5 h, at the publisher or at storing nodes | a record is up to 4 h old when it is renewed |
 
 IPFS also has a client that crawls the whole DHT every hour and then stores without walking.
@@ -237,6 +238,53 @@ In ed3k an index node (§11) answers searches for every target, over the ed3k tr
 |---|---|
 | a client in a browser, or on a network where UDP is blocked, could take part | the server sees every request of its clients. It is a second transport, which [`transport-bindings.md`](transport-bindings.md) treats |
 
+### 4.8 A batch for searching sources
+
+The mirror of section 2.1: a search of kind `SOURCE` that names further targets, answered per
+target, with `FAR` for a target outside the zone of the answering node. This is not from IPFS
+or Freenet; it is the question the batch store leaves.
+
+**What it would save.** A batch saves lookups only where several targets lie in the span of
+one closest set. For a search that span is about R / N of the keyspace with R = 4. A
+downloader of F files has about F · R / N further targets per lookup. An estimate, not a
+measurement:
+
+| Files wanted | Routers in the network | Further targets per lookup |
+|---|---|---|
+| 1,000 | 100,000 | 0.04 |
+| 10,000 | 100,000 | 0.4 |
+| 100,000 | 100,000 | 4 |
+| 1,000 | 10,000 | 0.4 |
+
+A sharer reaches the dense case because it holds its files for as long as it runs and renews
+every record each 4 h. A downloader seldom wants that many files at once, and searches each
+once and then at long intervals. Who does want thousands of files at once is, as a rule,
+downloading a set: one lookup finds the sources of the manifest, and the member bitmap tells
+which members each of them holds ([`file-set.md`](../extensions/file-set.md) §3 and §4.1).
+
+**What it would open.**
+
+| Risk | Weight |
+|---|---|
+| Collecting who shares what: one request asks a node for the sources of 256 files | the real one. A crawler can send 256 requests on one connection today, so a batch adds nothing only if every target counts against the flood limit on its own |
+| A small request and a large answer | QUIC has checked the address, so nobody else is hit. The answer would still need a limit per target and in total |
+| One node learns the whole list of a downloader | none, if only the targets inside the span are sent: those nodes see the same searches anyway. A client that sends its whole list to one node gives it away, so the rule would have to be a MUST |
+| Finding the edges of a node's zone from `FAR` | already there with the batch store |
+
+One difference from the batch store stays. A source record is bound to the connection, so a
+node can store only itself and a batch cannot be turned against anyone else. A search may name
+any target, and the limits are all that protects.
+
+| Pro | Con |
+|---|---|
+| in a small or closed network even 1,000 files are dense | in a large network it saves nothing |
+| one field in `Query` and the `FAR` that exists | a second way to ask, with limits of its own to get right, for the node that answers and for the client that must not send too much |
+
+**What ed3k does instead** (`Protocol.md` §10.4): a client takes its targets in sorted order
+and adds the closest set of the last lookup to the candidates of the next. Where two targets
+share their closest nodes, the second lookup ends after one round on open connections. Nothing
+changes on the wire, and every target stays a request that is counted alone.
+
 ## 5. Not taken, or does not apply
 
 | System | Subject | Why |
@@ -256,7 +304,8 @@ In ed3k an index node (§11) answers searches for every target, over the ed3k tr
 ## 6. Open points
 
 - The estimate of section 2.1 needs a measurement, and with it the 4 h and the 256.
-- A batch for *searching* sources of many files, the mirror of the batch store.
+- A batch for *searching* sources of many files (section 4.8), if a measurement in a small
+  network shows that the note for clients is not enough.
 - Whether a closed network should get a real gate in the handshake, in place of the
   obfuscation key.
 - The ideas of section 4.
