@@ -41,6 +41,7 @@ message SetFile {
   bytes  body = 1;            // a serialised FileSet
   bytes  key = 2;             // optional: 32 B Ed25519 key of the author
   repeated Signature sigs = 3;  // optional: over body (§2.4)
+  // fields 4 to 6 belong to the optional extension for several authors (multi-author-set.md)
 }
 
 message FileSet {
@@ -51,6 +52,7 @@ message FileSet {
   uint64 created = 5;         // Unix time in seconds; 0 = not told
   bytes  id = 6;              // optional: 1 to 32 B, names a set that changes (§5)
   uint64 seq = 7;             // with `id`: version number, higher = newer
+  // field 8 belongs to the optional extension for several authors (multi-author-set.md §3.1)
 }
 
 message Member {
@@ -62,6 +64,8 @@ message Member {
   bool   set = 6;             // this member is the manifest of an inner set (§2.5)
   uint32 set_files = 7;       // with `set`: number of files in the inner set, its inner sets included
   uint64 set_size = 8;        // with `set`: sum of their sizes
+  // field 9 belongs to the optional hidden set extension (hidden-set.md §4.2)
+  // field 10 belongs to the optional extension for several authors (multi-author-set.md §2)
 }
 ```
 
@@ -132,6 +136,8 @@ with the key in `key`. The rules for `sigs` are those of §10.7. The author's no
 - A signed manifest with a signature that does not verify MUST be refused.
 - The signature says who made the list. It says nothing about the files.
 - An unsigned manifest is valid. Most sets need no author.
+- A set has one author. [`multi-author-set.md`](multi-author-set.md) adds co-owners, a
+  directory handed to another author, and parts that anyone may add under the owner's rules.
 
 ### 2.5 Sets inside sets
 
@@ -324,6 +330,8 @@ The record is a `Signed` (§10.7) of kind `HEAD`, signed by the author's key.
 
 - A client checks a set it follows at most once per hour and SHOULD check once per 6 h
   *(initial)*.
+- A client with the publish and subscribe extension also receives a new head from other
+  followers within seconds ([`pubsub.md`](pubsub.md)). It still checks as above.
 - What it does with new members is the user's choice, made per set: ask, or download.
 - A client MUST NOT delete or overwrite a file because a newer manifest leaves it out or names
   another root for its path. It keeps the old file until the user decides.
@@ -347,6 +355,8 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
   nothing, and the client says so.
 - A client without this extension ignores `path` and downloads the manifest as a file. It does
   not know `ed3k:set`.
+- An `ed3k:set` link with `s` in place of `id` names a hidden set
+  ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
 
 ## 6. From a member to its sets
 
@@ -497,7 +507,8 @@ The comparison with NeoShare's multi-file hash is in
 ## 10. Open points
 
 - Whether a head should be able to name a successor key, for an author whose key is lost or
-  taken.
+  taken. Two variants are weighed in
+  [`docs/i2p-zeronet-comparison.md`](../docs/i2p-zeronet-comparison.md) §4.1.
 - Whether the limits on `MEMBER` records (4 sets per file and publisher, 64 per target) hold
   for files that are in very many sets.
 - Whether a search should be able to filter on `set_size`.

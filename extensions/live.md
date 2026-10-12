@@ -1,7 +1,7 @@
 # Extension: live streams (`live`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12 and §13. Section numbers (§) refer to that document.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12 and §13. A section number (§) that exists in this document refers to this document; `Protocol.md` is named where its section of the same number is meant. §7.2 and §9 are sections of `Protocol.md`.
 **Capability:** bit 11, `LIVE`. Message types 19 to 21. Record kind 6.
 **Required of every `ROUTER`:** storing and returning the record kind `LIVE` (§5). The rest is optional.
 
@@ -16,7 +16,8 @@ The extension adds little of its own:
 - The broadcaster signs one small **segment record** per segment. Peers forward it unchanged.
 - A channel is described by a small **channel file**, shared and searched like any file.
 - Peers of a stream are found through one new record kind.
-- NAT traversal (§9), compression (§12.3) and the bad-block rule (§12.3) apply unchanged.
+- NAT traversal (§9), compression and the bad-block rule (both `Protocol.md` §12.3) apply
+  unchanged.
 
 The media is opaque to the protocol. Encoding and playing are the application's business.
 
@@ -35,7 +36,7 @@ stream = H("ed3k v1 live", key ‖ id)[0..16)
 
 `stream` is the Kad target of the channel (§5) and names it in every message.
 
-- The channel key SHOULD be a key of its own, not the node's identity key (§6.1). The channel
+- The channel key SHOULD be a key of its own, not the node's identity key ([`Protocol.md`](../Protocol.md) §6.1). The channel
   then outlasts the node, can be broadcast from another node, and does not name the
   broadcaster's node ID in its link.
 - A channel has at most one **broadcast** at a time. A broadcast is named by its `start`: the
@@ -71,7 +72,7 @@ message Channel {
 - The signature is over `"ed3k v1 live channel" ‖ body` and is REQUIRED. A reader checks it
   against `key` and refuses the file when it fails.
 - A channel file MUST NOT exceed 64 KiB.
-- It is shared, published under its keywords and downloaded like any file (§10, §12). A search
+- It is shared, published under its keywords and downloaded like any file ([`Protocol.md`](../Protocol.md) §10 and §12). A search
   finds channels as it finds files; the suggested name ends in `.ed3klive`.
 - It describes the channel, not a broadcast. It changes only when the description does.
   A reader that holds two files for one `stream` uses the one with the later `created`.
@@ -143,6 +144,31 @@ and is made with the channel key.
 - A record carries no wall-clock time of the segment. `seq` gives the order, and a time stamp
   would only expose the broadcaster's clock.
 
+### 2.3 Formats
+
+The protocol carries any format. Two clients can still follow it and fail to play each other's
+channels, so there is a baseline.
+
+| | Baseline |
+|---|---|
+| Container | fragmented MP4 (CMAF, ISO/IEC 23000-19), `media` = `video/mp4` or `audio/mp4` |
+| Video | H.264 (AVC), High profile, up to level 4.1 (1080p at 30 frames per second) |
+| Audio | AAC-LC or Opus |
+| Init data | the initialisation segment (`ftyp` and `moov`) |
+| Segment | one or more fragments (`moof` and `mdat`), starting with a key frame |
+
+- A viewer SHOULD be able to play the baseline. A broadcaster SHOULD use it unless it knows its
+  audience can play something else.
+- **Audio only** is a channel like any other, with `media` = `audio/mp4` and no video track.
+- Other formats are allowed and named in `media` and `codecs`: MPEG transport stream segments
+  (`video/mp2t`, no init data), WebM, or newer codecs such as H.265 and AV1 inside MP4.
+- A viewer that cannot play what `media` and `codecs` name says so, and does not join.
+- How segments are produced and played is not part of the protocol. No particular encoder or
+  tool is required.
+
+The baseline is what browsers, phones and common players decode without added software, and it
+is the segment form that HLS and DASH share.
+
 ---
 
 ## 3. Between two peers
@@ -157,6 +183,7 @@ message LiveJoin {
   bool   want_channel = 3;    // send `media` and `codecs`
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 5;         // n × 34 B
+  bytes  proof = 6;           // private channel: 16 B (§10.3)
 }
 
 message LiveState {
@@ -168,6 +195,7 @@ message LiveState {
   string media = 6;           // answer to want_channel
   string codecs = 7;
   Refusal refusal = 8;        // set: I do not take you as a neighbour
+  bytes  proof = 9;           // private channel: 16 B, in the first answer (§10.3)
 }
 
 enum Refusal { NONE = 0; FULL = 1; LEFT = 2; BLOCKED = 3; }
@@ -201,7 +229,7 @@ message LiveGet {
 Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 
 - The node opens a **new exchange per segment** and sends `LiveGet`. It then uses
-  `BlockRequest`, `Block`, `HashRequest` and `HashAnswer` exactly as §12.2 to §12.4, with
+  `BlockRequest`, `Block`, `HashRequest` and `HashAnswer` exactly as `Protocol.md` §12.2 to §12.4, with
   offsets inside the segment. There is no queue and no `rank`: a neighbour serves at once or
   answers `Error{BUSY}`.
 - `LiveGet` is accepted only from a neighbour, that is while a live exchange with that node is
@@ -258,7 +286,7 @@ A node that is in a stream, the broadcaster included, publishes a record of kind
 under the target `stream`.
 
 - It is a source record in everything but its lifetime. It is sent in `Store.source`, bound to
-  the connection, not signed, and returned in `KadAnswer.sources` (§10.3).
+  the connection, not signed, and returned in `KadAnswer.sources` ([`Protocol.md`](../Protocol.md) §10.3).
 - **Lifetime 10 min** *(initial)*; stored again every 5 min while the node is in the stream. A
   node that leaves lets it run out.
 - The limits per target are those of `SOURCE` records
@@ -336,7 +364,7 @@ All numbers are *(initial)*.
   neither lowers a rank nor ends a neighbour for the next 2 min. A network fault looks like
   many peers failing at once, and punishing through it would take the mesh apart.
 - **A returning neighbour** within 30 min starts at the rank it had, less one. Ranks are kept
-  per node ID, which a peer cannot change with its address (§6.1).
+  per node ID, which a peer cannot change with its address ([`Protocol.md`](../Protocol.md) §6.1).
 - The broadcaster ranks its neighbours in the same way. It has nothing to ask them for, so it
   rates them by probes alone.
 
@@ -421,14 +449,140 @@ pushing data, and discovery through tagged keyword entries.
 
 ---
 
-## 10. Open points
+## 10. Private channels
+
+A private channel can be watched only by those who were given its link. The link carries a
+**secret**; everything that sets a private channel apart is derived from it.
+
+```
+ed3k:live?key=<channel key>&id=<id>&s=<secret, 32 bytes, base32>[&dn=<url-encoded title>]
+```
+
+A private channel has no channel file and is never published under keywords. `media` and
+`codecs` come from the first neighbour (§3.1), the title from the link.
+
+**The link is the credential.** A client MUST NOT write the secret to a log or show it in an
+error message, and SHOULD mark such a link as private wherever it shows it.
+
+### 10.1 Keys
+
+```
+k       = H("ed3k v1 live private", secret ‖ key ‖ id)                    32 bytes
+stream  = H("ed3k v1 live private stream", k)[0..16)
+k_data  = H("ed3k v1 live private data", k)                               32 bytes
+target  = H("ed3k v1 live private target", k ‖ period(8))[0..16)          period = Unix time / 3600, rounded down
+```
+
+`stream` replaces the value of §1.1 in every message and in the signature of a segment record
+(§2.2). Records are signed with the channel key as before, so a viewer cannot forge a segment.
+
+### 10.2 What is encrypted
+
+Every segment and every init data is encrypted before it is hashed:
+
+```
+stored bytes = nonce(12) ‖ ChaCha20(k_data, nonce, plain bytes)          RFC 8439 cipher, counter from 0
+```
+
+- `nonce` is random for every segment and every init data.
+- `root` and `size` in a segment record are those of the stored bytes. Peers verify, keep and
+  pass on blocks exactly as in an open channel, and need no key to do so.
+- There is no authentication tag. The signed root already fixes every byte.
+- The limits of §2.1 apply to the stored bytes.
+- Encrypted data does not compress; the rule of [`Protocol.md`](../Protocol.md) §12.3 then sends it as it is.
+
+A segment record itself is not encrypted. It travels only between neighbours, and those have
+shown that they hold the secret (§10.3).
+
+### 10.3 Neighbours prove the secret
+
+A node that only knows `stream`, for example one that stores the `LIVE` records, must not be
+able to join.
+
+```
+LiveJoin.proof   = H("ed3k v1 live private join",   k ‖ joiner's node ID ‖ peer's node ID)[0..16)
+LiveState.proof  = H("ed3k v1 live private answer", k ‖ joiner's node ID ‖ peer's node ID)[0..16)
+```
+
+- Both node IDs are those of the authenticated connection ([`Protocol.md`](../Protocol.md) §6.2), so a proof is of no use to
+  a third node and cannot be replayed on another connection.
+- A peer answers a `LiveJoin` without a valid proof with `refusal = LEFT`, the answer of a
+  node that is not in the stream. It sends nothing else.
+- A joiner closes the exchange when the first `LiveState` has no valid proof.
+- `peers`, records and segments go only to neighbours that passed this.
+
+### 10.4 Finding peers
+
+Peers publish and look up their `LIVE` records under `target` (§10.1), not under `stream`.
+
+- The target changes every hour. The nodes that store the records of one hour are not those of
+  the next, so no set of nodes sees who watches over a long time.
+- A peer stores under the target of the current hour. In the first 10 min *(initial)* of an
+  hour a viewer that finds nothing also looks under the target of the hour before.
+- A storing node sees a target it cannot tie to a channel, and the addresses of the peers that
+  publish there. It cannot join (§10.3).
+
+### 10.5 What it does and does not give
+
+| | |
+|---|---|
+| Someone without the link | cannot find the channel, join it, or read a segment |
+| A node that stores the `LIVE` records | learns that some peers share something for an hour, and their addresses |
+| A viewer | sees the addresses of its neighbours, as in any stream |
+| A viewer who passes the link on | gives full access. Viewers are not told apart |
+| Taking access away | not possible. A new secret is a new channel, and every viewer needs the new link |
+| A secret that leaks later | opens every recorded segment of that channel. There is no forward secrecy |
+| The broadcaster | is known to its neighbours as the node with the newest segments, not by name |
+
+### 10.6 Alternatives considered
+
+| Alternative | Why not |
+|---|---|
+| **Encrypting the transport only** | It is encrypted already. That keeps observers out, not peers: anyone who finds the stream could join |
+| **A key per viewer**, so one viewer can be removed | The broadcaster would wrap a content key for every viewer and change it on every removal. A group key scheme of its own; left for later |
+| **Hash first, then encrypt per neighbour** | Peers could not verify or pass on blocks without decrypting; every hop would encrypt again |
+| **An authenticated cipher** | Adds 16 bytes and a second check of what the signed root already fixes |
+| **A fixed Kad target** | Simpler. The same few nodes would then see every viewer for as long as the channel exists |
+| **A password typed by the user** in place of a random secret | Can be guessed off line by anyone who recorded a segment |
+
+---
+
+## 11. Under consideration: listing channels that are on air
+
+Not part of this draft. A `LIVE` record shows that a channel is on air, but only to someone who
+knows the channel. Today a search with `Query.ext` = `ed3klive` finds channel files, and
+whether each one runs is a lookup of its own. The name ending is the extension of the name
+([`Protocol.md`](../Protocol.md) §10.1), not a keyword, so channel files do not share a keyword target.
+
+Four ways to list running channels are considered for the next version of this extension. They
+can be combined.
+
+Options 1, 3 and 4 rest on an **on-air statement**: the channel key signs `stream`, `start` and
+a time until which it holds, at most 15 min ahead, renewed every 5 min. It is about 110 bytes.
+Without it anyone could mark any channel as on air. The statement exists already: it is the
+on-air notice of [`pubsub.md`](pubsub.md) §4.2, which is pushed to the nodes that follow a
+channel. What is open here is storing and searching it.
+
+| | Option | Pro | Con |
+|---|---|---|---|
+| 1 | **Statement in keyword records.** The keyword records of the channel file carry the statement while the channel runs. `Query` gets a flag for "on air only". A storing node drops the statement when it runs out and keeps the record | uses the keyword search that exists; the claim is checked by the storing node and by the searcher; no new hot spot | finds channels by a word, not all channels; a field in the signed record and a filter that every `ROUTER` must apply |
+| 2 | **One well-known target**, or one per language. Every running channel stores a record there | a full list in one lookup | the few nodes nearest the target carry every channel and are the place to attack or flood; the limit per target ([`Protocol.md`](../Protocol.md) §10.8) caps the list |
+| 3 | **Index nodes** ([`Protocol.md`](../Protocol.md) §11). An index node holds records for every target and can answer "all channels on air", sorted and in pages | complete and fast; fits what a server is | as complete as that index node; optional and central |
+| 4 | **Passing statements on.** Neighbours send each other statements of other channels they know, in `LiveState` | no Kad load | reaches only nodes that already watch a channel; never complete |
+
+Current preference: 1 together with 3. Option 1 gives every node a search for running channels
+about a subject, and the statement keeps an index node from inventing channels. Option 2
+recreates a central point inside Kad without the capacity of a server.
+
+---
+
+## 12. Open points
 
 - Every number is *(initial)* and none is measured. The ranks in §6.2 most of all.
-- There is no list of channels that are on air. A search finds channel files; whether a channel
-  runs is one lookup each.
+- There is no list of channels that are on air (§11).
 - Several qualities of one channel (bit rates) are not described. They can be several channels
   today.
 - A successor for a lost or stolen channel key, as for a set head
   ([`file-set.md`](file-set.md) §10).
 - Whether a viewer that cannot upload at all (no free upstream) should be able to say so.
-- Private channels: segments encrypted to a key from the link.
+- A private channel cannot take a viewer's access away (§10.5).

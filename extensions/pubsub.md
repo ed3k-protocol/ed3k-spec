@@ -1,0 +1,289 @@
+# Extension: publish and subscribe (`pubsub`)
+
+**Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.3 and §13, [`file-set.md`](file-set.md) §5 and [`live.md`](live.md). Section numbers (§) refer to this document unless a document is named.
+**Capability:** bit 12, `PUBSUB`. Message types 22 and 23. Record kind 7.
+**Required of every `ROUTER`:** storing and returning the record kind `SUB` (§5). The rest is optional.
+
+A set that changes is followed by polling: a follower searches the head record every few hours
+([`file-set.md`](file-set.md) §5.3). This extension adds the push. The nodes that follow the
+same thing find each other, keep a few connections among themselves, and pass a new signed
+record on as soon as one of them has it. A new version then reaches its followers in seconds.
+
+- **Nothing new is signed for a set.** What is pushed is the `HEAD` record that the author
+  stores in Kad anyway.
+- **Polling stays.** The push is an optimisation on top of it. A subscriber that the push does
+  not reach learns the new version at its next poll, so the mesh may be thin and need not be
+  complete.
+- **A node forwards only what it has verified.** Every subscriber knows the key of the topic,
+  so every hop checks the signature.
+
+The idea is BitTorrent's BEP 50. The shape is not: BEP 50 builds a routing table per topic,
+ed3k uses the neighbour mesh of its live extension. The reasons are in
+[`docs/bittorrent-comparison.md`](../docs/bittorrent-comparison.md) §2.1.
+
+---
+
+## 1. Topics
+
+A topic has a type, a key and an `id`. They are those of the thing that is followed.
+
+```
+topic = H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)
+```
+
+`topic` is the Kad target under which subscribers find each other (§5) and names the topic in
+`TopicJoin`.
+
+```protobuf
+enum TopicType {
+  TOPIC_NONE = 0;
+  SET_HEAD = 1;               // key and id of a set that changes (file-set.md §5.1)
+  ON_AIR = 2;                 // key and id of a live channel (live.md §1.1)
+}
+```
+
+An **item** is one signed record of a topic. Every item has an **order number**, and an item is
+*newer* than another of the same topic when its order number is higher. A node holds at most
+one item per topic: the newest it has verified.
+
+| Type | Item | Order number | Signed by |
+|---|---|---|---|
+| `SET_HEAD` | the `HEAD` record of the set ([`file-set.md`](file-set.md) §5.2) | `Head.seq` | the author's key |
+| `ON_AIR` | an on-air notice of the channel (§4.2) | `OnAir.issued` | the channel key |
+
+- There is no topic for free data. A type is defined by a specification, with the checks that a
+  forwarding node makes.
+- A node takes part only in topics of a type it knows, because it could not verify the others.
+
+---
+
+## 2. Between two subscribers
+
+Two subscribers that exchange a topic are **neighbours**. One of them opened the **topic
+exchange**; after that both sides are equal.
+
+```protobuf
+message TopicJoin {
+  bytes     topic = 1;        // 16 B
+  TopicType type = 2;
+  uint64    held = 3;         // order number of the item I hold, 0 = none
+  uint32    want_peers = 4;   // max number of peers wanted, 0 = none
+  bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
+  bytes     relays6 = 6;      // n × 34 B
+}
+
+message TopicState {
+  TopicItem item = 1;
+  repeated Peer peers = 2;    // other subscribers of this topic
+  TopicRefusal refusal = 3;   // set: I do not take you as a neighbour
+}
+
+message TopicItem {
+  Signed head = 1;            // SET_HEAD: `key` absent
+  Signed on_air = 2;          // ON_AIR: `key` absent
+}
+
+enum TopicRefusal { TOPIC_OK = 0; TOPIC_FULL = 1; TOPIC_LEFT = 2; }
+```
+
+`Signed` and `Peer` are the types of [`Protocol.md`](../Protocol.md) §10.7 and §5.4. The key is
+never sent: both sides know it, or they could not have computed `topic`.
+
+### 2.1 The topic exchange
+
+- A subscriber opens an exchange and sends `TopicJoin`. The peer answers with `TopicState`: its
+  item if that is newer than `held`, and peers if asked.
+- A peer that does not take the subscriber answers with `refusal` set and closes. With
+  `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
+  to the topic, or does not know the type, answers `TOPIC_LEFT`.
+- After the first answer **both sides send `TopicState`** when they have verified a newer item.
+  They send it to every neighbour that has not shown this item or a newer one. Nothing else is
+  sent on the exchange.
+- The exchange stays open, and the connection is kept alive as for a file stream
+  ([`Protocol.md`](../Protocol.md) §4.1). A neighbour is gone when the exchange or the
+  connection closes. Either side leaves by closing the exchange.
+- Several topics shared by two nodes use one connection, with one exchange per topic.
+- `peers` MUST be peers the sender has itself had as neighbours of this topic within the last
+  hour *(initial)*.
+
+### 2.2 Receiving an item
+
+A node checks an item before it does anything else with it (§4). Then:
+
+| Item | The node |
+|---|---|
+| valid and newer than the one held | keeps it, passes it on (§2.1) and acts on it (§4) |
+| valid, not newer | drops it. This is normal: an item arrives over several neighbours |
+| fails a check | drops it, closes the exchange and does not take that node as a neighbour of any topic for 24 h *(initial)* |
+
+- **At most one item per topic is passed on per 10 s** *(initial)*. An item that arrives
+  earlier waits, and only the newest one that waited is sent. An author who signs a thousand
+  versions in a minute then costs each subscriber six messages per neighbour.
+- A subscriber that learns a newer item in another way, by polling Kad or because it is the
+  author, passes it on in the same way. This is how an item enters the mesh, and how two parts
+  of a mesh that lost each other meet again.
+
+### 2.3 Neighbours
+
+- A node aims at 3 neighbours per topic and keeps between 2 and 4 *(initial)*. When it falls
+  below 2 it looks for more (§5).
+- Neighbours are subject to the diversity limits of a bucket: at most 2 per site and 4 per
+  block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
+- **A node subscribes to at most 16 topics** *(initial)* in this way. Further things it follows
+  are polled only. Which ones get the push is local choice; the ones that changed last are a
+  good default.
+
+---
+
+## 3. Publishing
+
+There is no publisher role on the wire. The author of a set, or the broadcaster of a channel:
+
+1. stores the record in Kad as before, where that applies (§4.1);
+2. subscribes to its own topic as any node does;
+3. sends the new item to its neighbours.
+
+An author that cannot stay online hands the item to any subscriber, or only stores it in Kad:
+the first subscriber that polls brings it into the mesh.
+
+---
+
+## 4. Item types
+
+### 4.1 `SET_HEAD`
+
+The item is the `Signed` record of kind `HEAD`, byte for byte as it is stored in Kad.
+
+| Check | |
+|---|---|
+| Signature | valid under the key of the topic, computed as [`Protocol.md`](../Protocol.md) §10.7 with kind `HEAD` and the head target ([`file-set.md`](file-set.md) §5.1) |
+| `head.id` | the `id` of the topic |
+| `expires` | later than now minus 1 h |
+| Content | `head` and nothing else |
+
+These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node that accepts
+the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
+with the same key, the same `id` and the `seq` of the head.
+
+- A head with the same `seq` and a later `expires` is not newer and is not passed on. It only
+  renews the record in Kad.
+- A subscriber stores the head in Kad as a follower does (once per 24 h). The push changes
+  nothing in that.
+
+### 4.2 `ON_AIR`
+
+A node that follows a channel wants to know when a broadcast starts, without looking up the
+`LIVE` records of every channel it follows every few minutes. The broadcaster signs a notice:
+
+```protobuf
+// in Record (Protocol.md §10.7):
+OnAir on_air = 6;
+
+message OnAir {
+  bytes  id = 1;              // channel id
+  uint64 start = 2;           // the broadcast (live.md §1.1)
+  uint64 issued = 3;          // Unix time in seconds when this notice was signed
+  bool   end = 4;             // the broadcast is over
+}
+```
+
+The item is a `Signed` whose body is a `Record` with `expires` and `on_air`. It is signed with
+the channel key over the bytes of [`Protocol.md`](../Protocol.md) §10.7, with kind `LIVE` and
+the channel's `stream` as the target.
+
+| Check | |
+|---|---|
+| Signature | valid under the key of the topic, with kind `LIVE` and target `stream` |
+| `on_air.id` | the `id` of the topic |
+| `issued` | at most 1 h ahead of now |
+| `expires` | later than now, and at most 15 min *(initial)* after `issued` |
+| Content | `on_air` and nothing else |
+
+- The broadcaster sends a notice when a broadcast starts, every 5 min *(initial)* while it
+  runs, and one with `end` when it is over.
+- A notice says that a broadcast runs. The peers are still found through the `LIVE` records
+  ([`live.md`](live.md) §5), and a notice is no proof that any peer can be reached.
+- A notice that has run out is no longer held, and not given to a node that joins.
+- **In this version the notice is not stored in Kad.** It is built as a signed record so that
+  the options for listing channels ([`live.md`](live.md) §11) can use the same bytes later.
+- A private channel ([`live.md`](live.md) §10) has no topic, and neither has a hidden set
+  ([`hidden-set.md`](hidden-set.md)).
+
+---
+
+## 5. Finding subscribers
+
+A subscriber publishes a record of kind `SUB` (7) under the target `topic`.
+
+- It is a source record in everything but its lifetime. It is sent in `Store.source`, bound to
+  the connection, not signed, and returned in `KadAnswer.sources`
+  ([`Protocol.md`](../Protocol.md) §10.3).
+- **Lifetime 60 min** *(initial)*; stored again every 30 min while the node is subscribed.
+- The limits per target are those of `SOURCE` records
+  ([`ip-diversity.md`](ip-diversity.md) §2.4).
+- Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
+  `PUBSUB`. It needs to know nothing about topics for that.
+
+**Joining.** The subscriber looks up `SUB` records under `topic`, sends `TopicJoin` to peers
+from the answer and to peers named in `TopicState.peers` until it has its neighbours, and
+publishes its own record. Failed dials count under the limits of
+[`ip-diversity.md`](ip-diversity.md) §2.5. A subscriber that finds nobody publishes its record
+and waits to be found.
+
+---
+
+## 6. What an attacker can do
+
+| Attack | Result |
+|---|---|
+| **Invent an item** | Not possible without the key. Every hop verifies |
+| **Show an old item again** | It is not newer than the one held and is dropped |
+| **Surround a subscriber** with nodes that pass nothing on | The push does not arrive. The poll does, and so the delay is that of a node without this extension. The diversity limits (§2.3) raise the cost |
+| **Fill the target** with records of nodes that are not subscribed | Wasted dials, limited as for false sources ([`ip-diversity.md`](ip-diversity.md) §2.5) |
+| **Send bad items** | One per attacker node; that node is then refused for 24 h (§2.2) |
+| **An author that signs without pause** | One message per neighbour and 10 s (§2.2) |
+
+**What a subscriber shows.** Its `SUB` record tells anyone who computes the topic that this
+node follows it, as a `SOURCE` record tells who shares a file. Polling shows the same only to
+the storing nodes. A user who does not want to be listed follows by polling.
+
+---
+
+## 7. Cost
+
+| | Size |
+|---|---|
+| Item | a head record of about 150 B or a notice of about 110 B, to each neighbour once |
+| Connections | about 3 per topic, held open; at most 48 for 16 topics |
+| Keeping them alive | one packet of about 70 B each way per connection and 20 s |
+| `SUB` record | one store per 30 min, on about 8 nodes |
+
+A node with 16 topics spends on the order of 300 B/s on idle connections. That is the price of
+the push, and the reason for the limit of 16.
+
+---
+
+## 8. Alternatives considered
+
+| Alternative | Pro | Con |
+|---|---|---|
+| **A Kademlia overlay per topic** (BEP 50 as written) | fan-out per node is bounded by the routing table; matches the BEP | a routing table and its upkeep per topic; with one contact per bucket a single node that leaves cuts a path; costly over connections |
+| **Storing nodes notify** the nodes that registered with them | no mesh; one message type | every subscriber of a popular topic sits on the same 8 nodes; a subscriber behind a NAT must hold that connection; storing nodes change |
+| **Polling only, made cheaper** | nothing new | the delay stays at minutes at best, and the load on the storing nodes grows with the followers |
+| **Any signed value as an item** (BEP 44) | new uses without a new specification | nodes carry and pass on bytes they cannot judge |
+| **Using the live exchange** for all of it | one mesh design | `LiveState` carries a window and segment records; a topic has neither |
+| **The sources of the current manifest as the mesh** | no record kind | sources hold no lasting connections to each other, and a follower need not share the manifest |
+
+---
+
+## 9. Open points
+
+- Every number is *(initial)* and none is measured.
+- Whether a subscriber with neighbours may poll less often than
+  [`file-set.md`](file-set.md) §5.3 asks.
+- A very large topic puts as many `SUB` records on its storing nodes as a popular file puts
+  `SOURCE` records. Whether subscribers that found enough peers should leave their own record
+  out.
+- Topics for other signed records: notes of one author, the files of one publisher.
+- Whether the live extension should send its segment records over this exchange.

@@ -57,6 +57,8 @@ alternatives that were rejected.
 | D12 | Keyword and note records are signed by their publisher; source records are not, they are proven by dialling | §10.3, §10.7 |
 | D13 | Every signed object carries a list of signatures, so algorithms can be added | §10.7 |
 | D14 | A keyword target includes a level, and a store is answered per record, so crowded keywords can spill to further levels later without a wire change | §10.1, §10.8 |
+| D15 | One Kad request may store source records for many targets, so that publishing costs lookups by the size of the network and not by the number of files | §10.3, §10.4 |
+| D16 | A network other than the public one has a name that enters the obfuscation key; nodes of two networks cannot read each other's datagrams | §4.3 |
 
 ---
 
@@ -79,6 +81,8 @@ Every participant is a **node**. A node announces what it does with capability b
 | 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
 | 10 | `SETS` | Optional extension: understands file sets ([`extensions/file-set.md`](extensions/file-set.md)) |
 | 11 | `LIVE` | Optional extension: takes part in live streams ([`extensions/live.md`](extensions/live.md)) |
+| 12 | `PUBSUB` | Optional extension: passes on new records of things it follows ([`extensions/pubsub.md`](extensions/pubsub.md)) |
+| 13 | `LAN` | Optional extension: answers nodes of its local network ([`extensions/lan-discovery.md`](extensions/lan-discovery.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected.
@@ -187,13 +191,28 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ body )
 
 ```
 obf_id   = NodeID[0..12)                    of the node that ACCEPTED the connection
-key      = H("ed3k v1 obfs", obf_id ‖ dir ‖ salt)          dir = 0x00 to that node, 0x01 from it
+net_id   = H("ed3k v1 net", name)[0..16)                   empty in the public network
+key      = H("ed3k v1 obfs", net_id ‖ obf_id ‖ dir ‖ salt) dir = 0x00 to that node, 0x01 from it
 stream   = BLAKE3 keyed XOF (key), as many bytes as masked
 mask(x)  = x XOR stream
 ```
 
 `obf_id` is 12 bytes, not 16, so that it can be learned from an eD2K user hash (§14.2). A `PROBE`
 is always keyed to its receiver with `dir = 0x00`.
+
+**Networks.** The public network has no name, and `net_id` is empty there. Any other network
+has a `name` of 1 to 32 bytes that all its nodes are configured with.
+
+- A datagram from a node of another network does not unmask to the `magic` and is dropped
+  like any stray datagram (§4.5). The two networks never exchange a message, a contact or a
+  record.
+- A **test network** uses a name that is published.
+- A **closed network** uses 32 random bytes that only its members know. Whoever has the name
+  is a member; there is no way to remove one except a new name. A client MUST NOT write such a
+  name to a log or show it in an error message.
+- A node is in one network per UDP port. Node lists and their sources
+  ([`extensions/bootstrap.md`](extensions/bootstrap.md)) belong to one network.
+- The reasoning is in [`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md) §2.2.
 
 For `HANDSHAKE`, `FRAGMENT` and `PROBE` the whole datagram after the salt is masked. For `DATA`
 only the header, the padding and the first 64 bytes of the QUIC packet are masked: that covers the
@@ -297,6 +316,10 @@ Types 1–63 keep the tag at one byte.
 | 19 | `LiveJoin` | viewer → peer | optional, §13.1 |
 | 20 | `LiveState` | both | optional, §13.1 |
 | 21 | `LiveGet` | request | optional, §13.1 |
+| 22 | `TopicJoin` | subscriber → peer | optional, §13.1 |
+| 23 | `TopicState` | both | optional, §13.1 |
+| 24 | `LanQuery` | request | optional, §13.1 |
+| 25 | `LanAnswer` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -683,6 +706,8 @@ many node IDs. A report is therefore counted only when all of this holds:
   ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1). Peers are never told apart
   by node ID.
 - It is at most 60 min *(initial)* old.
+- It names a public address. A report of a private, loopback, link-local or unique-local
+  address, or from a peer reached at one, is not counted.
 
 **The lead.** An endpoint has the lead when at least 3 *(initial)* counted reports name it, and
 at least twice as many as name any other endpoint. Only an endpoint with the lead is adopted as
@@ -850,7 +875,11 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 |---|---|
 | `SOURCE`, `NOTE`, `MEMBER` | `root[0..16)` |
 | `HEAD` | `H("ed3k v1 set head", key ‖ id)[0..16)`, with the author's key and the `id` of the set ([`extensions/file-set.md`](extensions/file-set.md) §5.1) |
-| `LIVE` | `H("ed3k v1 live", key ‖ id)[0..16)`, with the key and the `id` of the channel ([`extensions/live.md`](extensions/live.md) §1.1) |
+| `LIVE` | `H("ed3k v1 live", key ‖ id)[0..16)`, with the key and the `id` of the channel ([`extensions/live.md`](extensions/live.md) §1.1). A private channel uses a target that changes every hour (§10.4 there) |
+| `HIDDEN` | `H("ed3k v1 hidden head target", base ‖ period(8))[0..16)`, with a value made from the key of the set and the number of the day ([`extensions/hidden-set.md`](extensions/hidden-set.md) §2) |
+| `PART` | `H("ed3k v1 parts", key ‖ id ‖ issuer key)[0..16)`, with the owner key and the `id` of the set and the key of the issuer whose certificate the record carries, or no issuer key ([`extensions/multi-author-set.md`](extensions/multi-author-set.md) §3.4) |
+| `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from a friend link and the number of the day ([`extensions/friend.md`](extensions/friend.md) §2) |
+| `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
@@ -928,7 +957,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -955,6 +984,8 @@ message Store {
   Signed   note = 3;          // NOTE (§10.7)
   // field 4 belongs to the optional HTTP source extension (§13.1)
   // fields 5 to 7 belong to the optional file set extension (§13.1)
+  bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record (§10.4); at most 256
+  // field 9 belongs to the optional extension for finding a known node (§13.1)
 }
 
 message Note {
@@ -977,6 +1008,7 @@ message KadAnswer {
   repeated uint32   sites = 12;       // one per entry of `files`: publisher sites counted; 0 = not counted
   // field 13 belongs to the optional HTTP source extension (§13.1)
   // field 14 belongs to the optional file set extension (§13.1)
+  // field 15 belongs to the optional extension for finding a known node (§13.1)
 }
 
 enum StoreResult {
@@ -984,11 +1016,13 @@ enum StoreResult {
   FULL = 1;                   // no room under this target (§10.8)
   BUSY = 2;                   // no room on this node; says nothing about the target
   REJECTED = 3;               // failed a check (§10.7) or a flood limit
+  FAR = 4;                    // a target of `also` this node is not responsible for
 }
 ```
 
 This one pair replaces 12 Kad2 opcodes: `REQ`/`RES`, three search requests and their answer, three
-publish requests with answer and acknowledgement, and bootstrap (a `KadRequest` for one's own ID).
+publish requests with answer and acknowledgement, and bootstrap (a `KadRequest` for one's own ID;
+where the first address comes from is in [`extensions/bootstrap.md`](extensions/bootstrap.md)).
 `Hello` (§5.5) replaces the Kad hello pair, ping/pong and the firewall check packets; §9 replaces
 the buddy packets.
 
@@ -1012,6 +1046,18 @@ Rules:
 - **`LIVE`** is the record kind for the peers of a live stream. It is stored and returned like
   `SOURCE`, with a shorter lifetime. Every `ROUTER` MUST store and return it, whether or not it
   sets `LIVE` ([`extensions/live.md`](extensions/live.md) §5).
+- **`SUB`** is the record kind for the subscribers of a topic. It is stored and returned like
+  `SOURCE`, with a shorter lifetime. Every `ROUTER` MUST store and return it, whether or not it
+  sets `PUBSUB` ([`extensions/pubsub.md`](extensions/pubsub.md) §5).
+- **`HIDDEN`** is the record kind for the head of a hidden set: a head that the storing node
+  verifies but cannot read. Every `ROUTER` MUST store and return it, whether or not it sets
+  `SETS`. Its content and checks are in [`extensions/hidden-set.md`](extensions/hidden-set.md) §3.
+- **`PART`** is the record kind for the parts that other authors add to a set, and a `HEAD` may
+  be a joint head, signed by several keys under a grant of the owner. Every `ROUTER` MUST store,
+  check and return both, whether or not it sets `SETS` ([`extensions/multi-author-set.md`](extensions/multi-author-set.md) §1.3 and §3.4).
+- **`FRIEND`** is the record kind by which a node is found by those it gave a friend link. It
+  is stored and returned like `SOURCE`, but its content is a sealed byte string that the storing
+  node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §3).
 - A node that does not know the `kind` of a request answers as a node that is not responsible.
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data.
@@ -1030,13 +1076,20 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `HEAD` up to
+- Lifetimes *(initial)*: `SOURCE` and `FRIEND` 5 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
   7 days. Republish before expiry.
 - Flood limits are per source address and per `kind`.
 - **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
   It derives the target from one of them that is a keyword, and sends the others in `all`. A
   word in `all` or `none` matches a name when it equals one of the name's words; there is no
   substring match. A search text without a keyword cannot be searched.
+- **Source records for many targets.** A `store` of kind `SOURCE` MAY name further targets in
+  `also`. The node treats each as a store of the same record under that target: it checks its
+  responsibility and its limits per target, and answers in `results` with one entry for the
+  target of the request followed by one per target of `also`. A target it is not responsible
+  for is answered `FAR`, and every target after the 256th *(initial)* `REJECTED`. `nodes4` and
+  `nodes6` refer to the target of the request. Fields that belong to one file, such as HTTP
+  sources, apply to the target of the request only. How a publisher uses this is in §10.4.
 - A `store` is answered per record in `results`. What a keyword target holds, and what a
   publisher does when it is full, is in §10.8.
 
@@ -1058,6 +1111,24 @@ Which returned contacts become candidates, which candidates are queried and whic
 the final set are further restricted by [`extensions/ip-diversity.md`](extensions/ip-diversity.md)
 §2.2 and §2.3.
 
+**Storing many source records.** A node that shares many files does not look up every root.
+
+1. It sorts its targets.
+2. It looks up the first target that is due, with the store in the request as always. The
+   lookup ends with a closest set.
+3. To each node of that set it sends one more request for the same target, with the following
+   targets in `also`: those whose distance to the target is smaller than the distance from the
+   target to the furthest node of the set.
+4. A target that fewer than 4 *(initial)* nodes answered `STORED` gets a lookup of its own.
+   Otherwise the node goes on with the first target behind the batch.
+
+- One pass over all targets takes 4 h *(initial)* and is spread evenly over that time, so that
+  every record is renewed before its 5 h end without a burst.
+- A file that is new is stored at once and joins the pass afterwards.
+- The number of lookups per pass is then bounded by the size of the network, not by the number
+  of files. The estimate and the comparison with IPFS, where the method comes from, are in
+  [`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md) §2.1.
+
 ### 10.5 What a lookup costs over QUIC, and what bounds it
 
 A new QUIC connection costs about 2.5 KB (both Initial flights are padded to 1200 bytes) and one
@@ -1075,6 +1146,7 @@ other cost off that number:
 | First hop is warm | Connections to routing-table contacts stay open while idle (30 s) and resume with 0-RTT afterwards, which saves the round trip though not the padded Initial |
 | One connection per node, many exchanges | Lookups for different targets that pass through the same node share its connection; a client publishing many files orders them by target so neighbouring walks overlap |
 | Keyword records batched per node | All files sharing a keyword go in one `Store` |
+| Source records batched per region | Targets that share their closest nodes go in one `Store` per node (§10.4) |
 | Index nodes | A node logged in to an index node (§11) publishes and searches there over one connection and needs Kad for keywords only as a fallback |
 | Long record lifetimes | Publishing is the dominant Kad load; it happens every 5 h and 24 h, not per search |
 
@@ -1106,6 +1178,9 @@ message Record {
   FileInfo file = 2;          // KEYWORD
   Note     note = 3;          // NOTE
   // fields 4 and 5 belong to the optional file set extension (§13.1)
+  // field 6 belongs to the optional publish and subscribe extension (§13.1)
+  // field 7 belongs to the optional hidden set extension (§13.1)
+  // fields 8 and 9 belong to the optional extension for sets with several authors (§13.1)
 }
 
 message Signature {
@@ -1459,8 +1534,10 @@ The comparison with eMule's reask and with the alternatives is in
 
 ### 13.1 Optional messages
 
-Browsing a peer's shared files, chat, HTTP sources, file sets and live streams are optional extensions. A node announces
-each with a capability bit and need not implement any of them.
+Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
+each with a capability bit and need not implement any of them. Hidden sets, sets with
+several authors, shared filter lists, first contact and finding a known node are optional
+too. They add file formats, links and three record kinds, and have no bit of their own.
 
 | Extension | Capability | Wire elements | Document |
 |---|---|---|---|
@@ -1469,6 +1546,13 @@ each with a capability bit and need not implement any of them.
 | HTTP sources | bit 9, `HTTP` | fields in `FileRequest`, `FileStatus`, `Store` and `KadAnswer`; `ws` and `wh` in links; `ed3k:cache` links | [`extensions/http-source.md`](extensions/http-source.md) |
 | File sets | bit 10, `SETS` | a manifest file format; record kinds 4 and 5; fields in `FileInfo`, `FileRequest`, `FileStatus`, `Record`, `Store` and `KadAnswer`; `path` in links; `ed3k:set` links | [`extensions/file-set.md`](extensions/file-set.md) |
 | Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; a channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
+| Publish and subscribe | bit 12, `PUBSUB` | message types 22 and 23; record kind 7; a field in `Record` | [`extensions/pubsub.md`](extensions/pubsub.md) |
+| Finding nodes in the local network | bit 13, `LAN` | message types 24 and 25; a multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
+| Hidden sets | none (`SETS`) | record kind 8; a field in `Record` and in a manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
+| Sets with several authors | none (`SETS`) | record kind 9; two fields in `Record`; fields in a manifest | [`extensions/multi-author-set.md`](extensions/multi-author-set.md) |
+| Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
+| First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
+| Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16).
@@ -1483,7 +1567,9 @@ ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 `ws` names an HTTP source for the whole file and may occur several times. `wh` names a URL of
 the file's hash tree. A client without the HTTP source extension ignores both. That extension
 also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
-`ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`.
+`ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
+set extension adds `s` to `ed3k:set`, the first contact extension defines `ed3k:nodes`, and the
+extension for finding a known node defines `ed3k:friend`.
 
 ### 13.3 Not carried over
 
@@ -1670,12 +1756,13 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
 | Kad: dialled-in contacts per bucket | 5 |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
+| Source records: targets per request, pass over all targets, nodes that must store before a target needs its own lookup | 256, 4 h, 4 |
 | Diversity, per host / site / block: bucket, answer, lookup | 1 / 2 / 4 |
 | Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
 | Diversity: new node ID per host group | 1 per hour |
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
-| Record lifetimes: source, keyword, note, member, live, head | 5 h, 24 h, 24 h, 24 h, 10 min, up to 7 days |
+| Record lifetimes: source and friend, keyword, note, member, live, subscriber, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, up to 7 days |
 | Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
@@ -1717,7 +1804,22 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 - [BLAKE3 specification](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf) and
   the [Bao verified-streaming specification](https://github.com/oconnor663/bao/blob/master/docs/spec.md)
 - [BEP 42](https://www.bittorrent.org/beps/bep_0042.html), *DHT Security Extension*;
-  [BEP 32](https://www.bittorrent.org/beps/bep_0032.html), *IPv6 extension for DHT*
+  [BEP 32](https://www.bittorrent.org/beps/bep_0032.html), *IPv6 extension for DHT*;
+  [BEP 44](https://www.bittorrent.org/beps/bep_0044.html), *Storing arbitrary data in the DHT*;
+  [BEP 50](https://www.bittorrent.org/beps/bep_0050.html), *Publish/Subscribe Protocol*;
+  [BEP 14](https://www.bittorrent.org/beps/bep_0014.html), *Local Service Discovery*.
+  The BEPs as a whole are compared in [`docs/bittorrent-comparison.md`](docs/bittorrent-comparison.md)
+- [I2P](https://geti2p.net/) and [ZeroNet](https://github.com/HelloZeroNet/ZeroNet); compared in
+  [`docs/i2p-zeronet-comparison.md`](docs/i2p-zeronet-comparison.md).
+  [RFC 8439](https://www.rfc-editor.org/rfc/rfc8439) (ChaCha20), used by private channels and hidden sets
+- [IPFS specifications](https://specs.ipfs.tech/), the
+  [Kubo configuration reference](https://github.com/ipfs/kubo/blob/master/docs/config.md) and the
+  [Hyphanet wiki](https://github.com/hyphanet/wiki/wiki) (Freenet); compared in
+  [`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md)
+- GNUnet: [the GNU Name System](https://lsd.gnunet.org/lsd0001/) and
+  [the R5N distributed hash table](https://lsd.gnunet.org/lsd0004/);
+  [RetroShare](https://retroshare.cc/); compared in
+  [`docs/gnunet-retroshare-comparison.md`](docs/gnunet-retroshare-comparison.md)
 - [Node Discovery Protocol v5](https://github.com/ethereum/devp2p/blob/master/discv5/discv5.md)
   (discv5); compared in [`docs/discv5-comparison.md`](docs/discv5-comparison.md)
 - Baumgart, Mies:

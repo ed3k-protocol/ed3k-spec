@@ -32,6 +32,8 @@ message ChatAck { }
 - There are no captchas. The sender is an authenticated key, which the receiver can block, and
   the connection budget of §4.6 limits how fast a node can open connections to send.
 - Delivery needs a connection to the receiver. There is no storage for nodes that are offline.
+  How a node finds a peer it knows after that peer's address changed is in
+  [`friend.md`](friend.md).
 - **Rate limit.** A receiver MAY limit the messages it takes from one sender, counted per node
   ID and per host address (IPv4 /32, IPv6 /64). A message over the limit is answered with
   `Error{BUSY}` and a `retry_after` in seconds. The limit itself is local policy; 20 messages
