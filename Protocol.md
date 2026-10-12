@@ -878,7 +878,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `LIVE` | `H("ed3k v1 live", key ‖ id)[0..16)`, with the key and the `id` of the channel ([`extensions/live.md`](extensions/live.md) §1.1). A private channel uses a target that changes every hour (§10.4 there) |
 | `HIDDEN` | `H("ed3k v1 hidden head target", base ‖ period(8))[0..16)`, with a value made from the key of the set and the number of the day ([`extensions/hidden-set.md`](extensions/hidden-set.md) §2) |
 | `PART` | `H("ed3k v1 parts", key ‖ id ‖ issuer key)[0..16)`, with the owner key and the `id` of the set and the key of the issuer whose certificate the record carries, or no issuer key ([`extensions/multi-author-set.md`](extensions/multi-author-set.md) §3.4) |
-| `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from a friend link and the number of the day ([`extensions/friend.md`](extensions/friend.md) §2) |
+| `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from the keys of two friends, or from a friend link, and the number of the day ([`extensions/friend.md`](extensions/friend.md) §4). A request to become a friend has a target of its own (§3 there) |
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
@@ -1055,9 +1055,10 @@ Rules:
 - **`PART`** is the record kind for the parts that other authors add to a set, and a `HEAD` may
   be a joint head, signed by several keys under a grant of the owner. Every `ROUTER` MUST store,
   check and return both, whether or not it sets `SETS` ([`extensions/multi-author-set.md`](extensions/multi-author-set.md) §1.3 and §3.4).
-- **`FRIEND`** is the record kind by which a node is found by those it gave a friend link. It
+- **`FRIEND`** is the record kind by which a node is found by its friends, and by which a node asks
+  another to become its friend. It
   is stored and returned like `SOURCE`, but its content is a sealed byte string that the storing
-  node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §3).
+  node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §4).
 - A node that does not know the `kind` of a request answers as a node that is not responsible.
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data.
@@ -1820,6 +1821,15 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
   [the R5N distributed hash table](https://lsd.gnunet.org/lsd0004/);
   [RetroShare](https://retroshare.cc/); compared in
   [`docs/gnunet-retroshare-comparison.md`](docs/gnunet-retroshare-comparison.md)
+- The [Tox protocol specification](https://toktok.ltd/spec.html) and Briar's
+  [rendezvous protocol](https://code.briarproject.org/briar/briar-spec/-/blob/master/protocols/BRP.md);
+  compared in [`docs/tox-briar-comparison.md`](docs/tox-briar-comparison.md)
+- The [Scuttlebutt protocol guide](https://ssbc.github.io/scuttlebutt-protocol-guide/) and the
+  [Nostr NIPs](https://github.com/nostr-protocol/nips); compared in
+  [`docs/scuttlebutt-nostr-comparison.md`](docs/scuttlebutt-nostr-comparison.md)
+- The [Hypercore documentation](https://docs.pears.com/building-blocks/hypercore) and Syncthing's
+  [Block Exchange Protocol](https://docs.syncthing.net/specs/bep-v1.html); compared in
+  [`docs/hypercore-syncthing-comparison.md`](docs/hypercore-syncthing-comparison.md)
 - [Node Discovery Protocol v5](https://github.com/ethereum/devp2p/blob/master/discv5/discv5.md)
   (discv5); compared in [`docs/discv5-comparison.md`](docs/discv5-comparison.md)
 - Baumgart, Mies:

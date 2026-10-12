@@ -306,9 +306,14 @@ The record is a `Signed` (§10.7) of kind `HEAD`, signed by the author's key.
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
 | Target | `H("ed3k v1 set head", signing key ‖ head.id)[0..16)` is the target of the request | the same, with the key and `id` it searched for |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| `seq` | not lower than the one held | the highest of all answers wins |
-| Count | one record per target; a higher `seq` replaces it; an equal `seq` replaces it only with the same `root` and a later `expires` | |
+| `seq` | not lower than the one held | the highest of all answers wins; among equal ones the lower `root` |
+| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `root`; and by one with the same `seq` and `root` and a later `expires` | |
 
+- **Two heads with one `seq`.** An author who publishes from two machines, or two co-owners,
+  can sign two versions with the same `seq`. The one with the lower `root`, compared as a byte
+  string, wins on every storing node and for every follower, so the network agrees on one
+  instead of keeping whichever arrived first. A client that has seen both MAY tell its user.
+  The reasoning is in [`docs/hypercore-syncthing-comparison.md`](../docs/hypercore-syncthing-comparison.md) §2.1.
 - **Only the author can make a head**, because the target contains the key.
 - **Anyone can store it again.** A node that follows a set SHOULD store the head it holds once
   per 24 h *(initial)* on the closest nodes, with `signer` set. The record then outlives the
@@ -323,7 +328,8 @@ The record is a `Signed` (§10.7) of kind `HEAD`, signed by the author's key.
 ### 5.3 Following a set
 
 1. Search `HEAD` at the target. No answer means that the version held is the newest known.
-2. For a head with a higher `seq` than the manifest held, download the manifest `root`.
+2. For a head with a higher `seq` than the manifest held, or with the same `seq` and a lower
+   `root`, download the manifest `root`.
 3. Accept it only when it is signed by the same key and carries the same `id` and the `seq` of
    the head. Otherwise ignore the head and keep the old version.
 4. Compare the two lists by path.

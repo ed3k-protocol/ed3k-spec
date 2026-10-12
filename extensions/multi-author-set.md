@@ -93,7 +93,7 @@ stored again with a new `expires`; what counts are the `cosigs`.
 | Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request | the same |
 | Record signature | by a key of the grant | the same |
 | `cosigs` | at least `required` different keys of the grant, each valid | the same |
-| Order | by `Grant.number`, then by `Head.seq`. A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires` | the highest in this order wins |
+| Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires` | the highest in this order wins |
 | `expires` | as for any head | as for any head |
 
 - Once a storing node holds a joint head, a head signed by the owner key alone no longer
@@ -257,7 +257,7 @@ travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search i
 | Target | the one above, from the fields of the record | the one it searched |
 | Certificate | when present: valid under `cert.issuer` for the signing key, and not expired | the same, and the issuer is one of the rules |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| Count | one record per author under a target; a higher `seq` replaces it; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author |
+| Count | one record per author under a target; a higher `seq` replaces it, and so does the same `seq` with a lower `root`; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
 
 - **With an issuer, the storing node keeps the door.** The target contains the issuer's key,
   and the node checks the certificate against it. A key without a certificate of that issuer

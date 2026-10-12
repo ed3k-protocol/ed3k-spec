@@ -53,7 +53,9 @@ verifies the record without learning either.
 looked up by its ID while its address stays the same; a leaf cannot.
 
 **What ed3k takes** ([`friend.md`](../extensions/friend.md)): the address record, but one that
-only holders of a link can find and read.
+only holders of a link can find and read. This is the *open link* of that extension. The form
+for two friends, with keys agreed between their node keys, was added afterwards
+([`tox-briar-comparison.md`](tox-briar-comparison.md) §2.1).
 
 | | RetroShare | GNUnet | ed3k |
 |---|---|---|---|

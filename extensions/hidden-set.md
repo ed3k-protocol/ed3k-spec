@@ -93,7 +93,7 @@ message Sealed {
 | Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | `seq` | not lower than the one held | the highest of all answers wins |
-| Count | one record per target; a higher `seq` replaces it; an equal `seq` only with the same `data` and a later `expires` | |
+| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires` | among equal `seq` the lower `data`, as on the storing node |
 | Content | `sealed` and nothing else | `data` opens to a `Head` whose `seq` is the one outside |
 
 - A storing node deletes the record at `expires`, and at the latest 48 h after the day of its

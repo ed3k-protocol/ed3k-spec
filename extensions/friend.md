@@ -1,63 +1,134 @@
 # Extension: finding a known node (`friend`)
 
-**Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §9, §10.1, §10.3 and §13.2. Section numbers (§) refer to that document unless this one is named.
 **Capability:** none. Record kind 10. One field in `Store`, one in `KadAnswer`, one link.
-**Required of every `ROUTER`:** storing and returning the record kind `FRIEND` (§3). The rest is optional.
+**Required of every `ROUTER`:** storing and returning the record kind `FRIEND` (§4). The rest is optional.
 
 A node is found through what it shares: its source records. A node that a user *knows*, a
 friend, cannot be found at all once its address has changed. Chat
 ([`chat.md`](chat.md)) and browsing ([`browse.md`](browse.md)) need a connection, and a node
 behind a NAT is in no routing table.
 
-- A node that wants to be found gives a **friend link** to those who may find it.
-- It stores a small **record** of its addresses and relays in Kad, encrypted with a key from
-  the link, at a place that follows from the link and **changes every day**.
-- Whoever has the link finds the record, reads it and dials. Nobody else can find or read it.
+A node that wants to be found stores a small **record** of its addresses and relays in Kad. The
+record is encrypted, and its place **changes every day**. Who can find and read it depends on
+the form:
 
-RetroShare uses a DHT for exactly this, and GNUnet stores an address record per peer
-([`docs/gnunet-retroshare-comparison.md`](../docs/gnunet-retroshare-comparison.md) §2.1).
+| Form | Who finds the node | What the link holds | Section |
+|---|---|---|---|
+| **Friends** | one other node, which it has added and which has added it | the node key | 1 |
+| **Open link** | everyone the link was given to | the node key and a secret | 2 |
+| **Request** | nobody yet: a node asks another to become its friend | the node key and a request value | 3 |
+
+The forms differ only in how a key `k` is made. The record and its handling (§4) are the same.
+
+RetroShare and GNUnet find known nodes through a DHT
+([`docs/gnunet-retroshare-comparison.md`](../docs/gnunet-retroshare-comparison.md) §2.1). The
+pairwise keys are Briar's, the request is Tox's
+([`docs/tox-briar-comparison.md`](../docs/tox-briar-comparison.md) §2).
 
 ---
 
-## 1. The link
+## 1. Friends
 
 ```
-ed3k:friend?key=<node key, base32 lower case, no padding>&s=<secret, 32 bytes, base32>[&dn=<url-encoded name>]
+ed3k:friend?key=<node key, base32 lower case, no padding>[&r=<request value>][&dn=<url-encoded name>]
 ```
 
-- `key` is the Ed25519 key of the node (§6.1). Its node ID follows from it.
-- `secret` is 32 random bytes.
-- A node MAY make one link for all its friends, or a link per friend. A link per friend can be
-  taken back alone (§4). A node has at most 32 *(initial)* links in use.
-- A link works in one direction. For two nodes to find each other, each gives the other a
-  link.
+Two nodes are friends when each has added the key of the other. Nothing else is exchanged.
 
-**The link is the credential.** A client MUST NOT write the secret to a log or show it in an
+```
+ss  = X25519(my private key, the friend's public key)
+k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the reading node)       32 bytes
+```
+
+- The Ed25519 node keys are used for X25519 through the conversion of
+  [`kad-datagram.md`](kad-datagram.md) §3.1. A node MUST refuse an `ss` that is all zero.
+- Both nodes compute the same `ss`. Each direction has a `k` of its own: one for the record A
+  stores for B, one for the record B stores for A.
+- **The link is not a secret.** Whoever has a node's key and was not added by that node can
+  compute nothing.
+- **Dropping a friend** is removing its key. The node stops storing the record for it. Nobody
+  else is affected.
+- A node stores records for at most 64 *(initial)* friends.
+- A link that was changed on its way leads to another node. That the key is the right one is
+  for the two users to check; ed3k has no means for it.
+
+---
+
+## 2. Open link
+
+```
+ed3k:friend?key=<node key>&s=<secret, 32 bytes, base32>[&dn=<url-encoded name>]
+```
+
+```
+k   = H("ed3k v1 friend", secret ‖ key)                                   32 bytes
+```
+
+- Everyone who has the link finds the node. The node need not know who they are.
+- It works in one direction.
+- A node has at most 4 *(initial)* open links in use. It takes one back by no longer storing
+  under it, and everyone who should still find it needs a new link.
+- A holder of the link can store false records at the place (§4). Each costs the others one
+  failed dial.
+
+**This link is a credential.** A client MUST NOT write the secret to a log or show it in an
 error message, and SHOULD mark such a link as private wherever it shows it.
 
 ---
 
-## 2. Keys
+## 3. Request
+
+A friend link MAY carry a **request value** `r`: 8 random bytes in base32. With it, a node that
+was given the link can ask to be added, without a second link going back by hand.
 
 ```
-k       = H("ed3k v1 friend", secret ‖ key)                               32 bytes
-k_rec   = H("ed3k v1 friend record", k)                                   32 bytes
-target  = H("ed3k v1 friend target", k ‖ period(8))[0..16)                period = Unix time / 86400, rounded down, big-endian
+target = H("ed3k v1 friend request target", key ‖ r ‖ period(8))[0..16)       key and r of the node that is asked
+
+sealed = e(32) ‖ nonce(12) ‖ ChaCha20(k_req, nonce, serialised FriendRequest)
+k_req  = H("ed3k v1 friend request", X25519(e's private key, the asked node's public key) ‖ e ‖ key)
 ```
 
-Everything follows from the link. A storing node can compute none of it.
+```protobuf
+message FriendRequest {
+  bytes  key = 1;             // 32 B node key of the asking node
+  string text = 2;            // at most 96 B
+  uint64 issued = 3;          // Unix time in seconds
+  repeated Signature sigs = 4;  // by the asking node, over "ed3k v1 friend request" ‖ asked key(32) ‖ issued(8) ‖ text
+}
+```
+
+`e` is an X25519 key made for this one record. Only the asked node can open it.
+
+**The asking node** adds the key of the link first, and then stores the request under the
+target of the current day. It stores it again every 4 h *(initial)*, until it finds the other
+node's record for it (§1) or 7 days *(initial)* have passed.
+
+**The asked node** searches its request place when it starts and then once per 30 min
+*(initial)*: the target of the current day, and of the day before.
+
+- It drops a request that does not open, whose signature does not verify under `key`, or whose
+  `issued` is more than 7 days old.
+- It shows the rest to the user, each key once. A request is never accepted without the user.
+- When the user accepts, the node adds the key. Both are then friends by §1.
+- When the user declines, nothing is sent.
+
+**The request value keeps strangers out.** Without `r` the place cannot be computed. A node
+that gets unwanted requests makes a new `r`: links with the old one can no longer ask.
+Friends are not affected, because `r` is in none of their keys. A link without `r` cannot be
+used to ask at all.
 
 ---
 
-## 3. The record
+## 4. The record
 
 ```protobuf
 // in enum Kind (§10.3):
 FRIEND = 10;
 
 // in Store (§10.3):
-bytes sealed = 9;             // FRIEND: at most 256 B
+bytes sealed = 9;             // FRIEND: at most 384 B
 
 // in KadAnswer (§10.3):
 repeated bytes friends = 15;  // answer to a search of kind FRIEND
@@ -68,27 +139,33 @@ message FriendRecord {
 }
 ```
 
+For §1 and §2:
+
 ```
-sealed = nonce(12) ‖ ChaCha20(k_rec, nonce, serialised FriendRecord)      RFC 8439 cipher, counter from 0
+k_rec   = H("ed3k v1 friend record", k)                                   32 bytes
+target  = H("ed3k v1 friend target", k ‖ period(8))[0..16)                period = Unix time / 86400, rounded down, big-endian
+sealed  = nonce(12) ‖ ChaCha20(k_rec, nonce, serialised FriendRecord)     RFC 8439 cipher, counter from 0
 ```
 
-**The storing node** treats the record like a source record (§10.3):
+A request (§3) has its own target and its own `sealed`, and travels in the same fields.
+
+**The storing node** treats every `FRIEND` record like a source record (§10.3):
 
 - It is bound to the connection: one record per publishing node under a target, and a new one
   replaces the old.
 - It holds at most 8 *(initial)* records under one target and answers `FULL` after that.
 - The lifetime is 5 h *(initial)*.
-- It checks the size and nothing else. It cannot read the record, and it returns the records
-  of a target without saying who stored them.
+- It checks the size and nothing else. It cannot read the record or tell the three forms
+  apart, and it returns the records of a target without saying who stored them.
 
 **The node that wants to be found**
 
-- stores a record for each link in use, under the target of the current day: when it starts,
-  when its addresses or relays change, and every 4 h *(initial)*;
+- stores a record for each friend and each open link, under the target of the current day:
+  when it starts, when its addresses or relays change, and every 4 h *(initial)*;
 - names in `peer` what it would put into a source record: its endpoints, or its relays when it
   is a leaf (§9.4).
 
-**The friend**
+**The node that looks**
 
 1. Searches `FRIEND` at the target of the current day. If nothing is found, it searches the
    day before.
@@ -99,20 +176,10 @@ sealed = nonce(12) ‖ ChaCha20(k_rec, nonce, serialised FriendRecord)      RFC 
    is not signed for the same reason a source record is not: no signature can prove an
    address, and dialling does.
 
-- A friend searches when its user wants to reach the node, and otherwise at most once per
-  30 min *(initial)*.
+- A node looks when its user wants to reach the other, and otherwise at most once per 30 min
+  *(initial)*.
 - Once connected, the two nodes are ordinary peers. What a friend is allowed, in chat, in
   browsing or in the upload queue, is local policy.
-
----
-
-## 4. Taking a link back
-
-- A node stops storing under a link. After 5 h the record is gone, and the holder of the link
-  finds nothing.
-- With one link for everyone, taking it back from one friend means a new link for all others.
-- A friend that was dropped still knows the node's key and its last address. It can dial that
-  address as long as it is valid; whether the node answers it is local policy.
 
 ---
 
@@ -120,15 +187,13 @@ sealed = nonce(12) ‖ ChaCha20(k_rec, nonce, serialised FriendRecord)      RFC 
 
 | To whom | What |
 |---|---|
-| A holder of the link | the node's addresses and relays whenever it is online, and so when it is online |
-| A node that stores the record | the node ID and address of the publisher, as for any record, and that it publishes a friend record. Not for whom |
+| A friend, or a holder of an open link | the node's addresses and relays whenever it is online, and so when it is online |
+| A node that stores a record | the node ID and address of the publisher, as for any record, and that it publishes a `FRIEND` record. Not for whom, and not which form |
 | The same node | the addresses of those who search that target. It can conclude that they know the publisher. The target moves every day, so no node sees this for long |
-| Anyone else | nothing. The target cannot be computed without the link |
-| Someone who gets the link later | the node's current address. There is no forward secrecy |
-
-**What a bad friend can do.** A holder of the link can store false records under the target.
-Each costs the other friends one failed dial, and 8 records per target bound it. With a link
-per friend there are no other friends at that target.
+| Someone who has a node's key only | nothing |
+| Someone who has a link with `r` | can leave requests. Cannot read the requests of others |
+| Someone who gets an open link later | the node's current address. There is no forward secrecy |
+| Someone who takes a node's private key | every place of that node, past and future |
 
 ---
 
@@ -137,19 +202,22 @@ per friend there are no other friends at that target.
 | Alternative | Pro | Con |
 |---|---|---|
 | **An open record under the node ID** | any node ID seen anywhere can be reached; no link | anyone can follow a node from address to address for as long as it exists |
+| **Only the open link** (draft 0.1) | one derivation | the link is a secret that many hold; one friend cannot be dropped alone; friends can plant false records for each other |
+| **Only pairwise keys** | no secret anywhere | no way to let many people find a node with one link |
 | **A target a storing node can check**, made from the node key as for a hidden set ([`hidden-set.md`](hidden-set.md) §2) | one record per target, no false records | every peer the node ever connected to knows its key, so each could watch the place |
-| **A signed record** | a false record is seen without dialling | the handshake proves more than a signature could, and a signature in a sealed record guards only against friends |
+| **A signed record** | a false record is seen without dialling | the handshake proves more than a signature could |
 | **A fixed target** | nothing to store again at midnight | the same nodes see who looks for whom, for years |
-| **Asking common friends** for the address | no Kad record | needs a friend that is online and knows both; this is how a network of friends works, and ed3k is not one |
-| **Being in the routing table is enough** | nothing to add | only for a `ROUTER` whose address did not change |
+| **A request sealed with a key from `r`** | no key agreement per request | every holder of the link reads who else asked |
+| **A request sent on a connection**, as a message | no stored request | the asking node has to find the other first, which is what it cannot do |
+| **Keys that move forward every day**, the old ones deleted | a key taken later opens no earlier place | both sides have to keep step; a record only holds the current address anyway |
 
 ---
 
 ## 7. Open points
 
-- A list of friends is not part of the protocol: there is no message to ask for friendship
-  and none to tell that one is online.
-- Whether a node should say in `Hello` that the peer may ask it for a link.
+- A list of friends is not part of the protocol: there is no message that tells a friend one
+  is online, and friends are not kept connected.
+- An introduction: one node passing the keys of two of its friends to each other.
 - A friend that is a leaf behind a symmetric NAT can be reached only as far as §9.5 reaches
   it.
 - All numbers are first values.

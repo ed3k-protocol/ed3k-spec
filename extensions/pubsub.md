@@ -44,8 +44,9 @@ enum TopicType {
 ```
 
 An **item** is one signed record of a topic. Every item has an **order number**, and an item is
-*newer* than another of the same topic when its order number is higher. A node holds at most
-one item per topic: the newest it has verified.
+*newer* than another of the same topic when its order number is higher. Of two set heads with
+the same `seq` the one with the lower `root` is the newer ([`file-set.md`](file-set.md) §5.2).
+A node holds at most one item per topic: the newest it has verified.
 
 | Type | Item | Order number | Signed by |
 |---|---|---|---|
@@ -166,7 +167,7 @@ These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node
 the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
 with the same key, the same `id` and the `seq` of the head.
 
-- A head with the same `seq` and a later `expires` is not newer and is not passed on. It only
+- A head with the same `seq`, the same `root` and a later `expires` is not newer and is not passed on. It only
   renews the record in Kad.
 - A subscriber stores the head in Kad as a follower does (once per 24 h). The push changes
   nothing in that.
