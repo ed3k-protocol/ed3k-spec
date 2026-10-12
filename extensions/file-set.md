@@ -54,6 +54,7 @@ message FileSet {
   uint64 seq = 7;             // with `id`: version number, higher = newer
   // field 8 belongs to the optional extension for several authors (multi-author-set.md §3.1)
   // field 9 belongs to the optional torrent extension (torrent.md §1)
+  // field 10 belongs to the optional Usenet extension (usenet.md §3)
 }
 
 message Member {
@@ -67,6 +68,7 @@ message Member {
   uint64 set_size = 8;        // with `set`: sum of their sizes
   // field 9 belongs to the optional hidden set extension (hidden-set.md §4.2)
   // field 10 belongs to the optional extension for several authors (multi-author-set.md §2)
+  // field 11 belongs to the optional extension for links at file hosters (hoster.md §5)
 }
 ```
 

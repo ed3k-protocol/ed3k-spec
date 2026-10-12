@@ -98,7 +98,8 @@ message HttpResult {
 }
 ```
 
-  The codes and their numbers are those of HTTP Cache. After 3 *(initial)* results of 5, 6 or 7
+  The codes and their numbers are those of HTTP Cache. Codes 8 to 10 belong to the extension
+  for links at file hosters ([`hoster.md`](hoster.md) §2). After 3 *(initial)* results of 5, 6 or 7
   from different downloaders, an uploader stops handing out that source.
 
 ### 2.2 In Kad

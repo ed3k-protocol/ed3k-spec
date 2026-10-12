@@ -10,6 +10,9 @@ download. This note records what ed3k can take from it and where the two differ.
 
 **Result:**
 
+- Two further extensions followed from it on 2026-10-12: other names of a file, and links at
+  file hosters (§2.2, §9).
+
 - One feature was adopted: multi-file sets, as [`extensions/file-set.md`](../extensions/file-set.md),
   built differently from NeoShare's (§2).
 - Three small gaps in ed3k showed up in the comparison. They are closed as listed in §9.
@@ -34,7 +37,7 @@ places; where this note differs from it, the code was followed.
 | Peers find each other | by identity and a rendezvous area in the DHT; data runs through relay nodes | by address; relays carry signalling only (§9.4) |
 | File hash | SHA-256 tree, 256 KB leaves, top 12 levels kept | BLAKE3 tree, 256 KiB blocks, all levels (§7) |
 | Multi-file | cross hash over a set, list fetched from peers or the DHT | manifest file (extension) |
-| Other networks | eD2K, BitTorrent, hosters in one download | eD2K optional (§14), HTTP sources and torrents (extensions) |
+| Other networks | eD2K, BitTorrent, hosters in one download | eD2K optional (§14); HTTP sources, torrents and hoster links as extensions, all under one root ([`extensions/alias.md`](../extensions/alias.md) §5) |
 
 ## 2. Multi-file sets
 
@@ -109,7 +112,7 @@ NeoLoader downloads a torrent from BitTorrent peers and NeoShare peers at once. 
 | One hash for a torrent | `SHA256(MetaHash ‖ TreeRoot)` over the joined data | the root of a manifest in a fixed form, which every node computes alike |
 | Commits to the infohash | no; the link is an alias record | yes, a field of the manifest |
 | Commits to names and paths | no | yes |
-| From the infohash to that hash | alias record, unsigned | `TORRENT` record, signed, ordered by publisher sites |
+| From the infohash to that hash | alias record, unsigned | `ALIAS` record, signed, ordered by publisher sites |
 | A false link between the two | found by a hash conflict, the added hash is dropped | the same test (`torrent.md` §4.2) |
 | Who decides | the hash the download started with | the same: BLAKE3 for a start from an ed3k link, the torrent for a start from a magnet link |
 | Hashing | every byte twice | once per file |
@@ -117,6 +120,57 @@ NeoLoader downloads a torrent from BitTorrent peers and NeoShare peers at once. 
 
 What was taken: the master hash, the conflict test, and sub-files as normal files. What was
 not: the tree over the joined data, for the reasons above, and aliases that nobody signs.
+
+### 2.2 Links at file hosters
+
+NeoLoader downloads from file hosters next to its peers. Read on 2026-10-12 at commit
+`34d847a4`, *by reading*; paths below `FileTransfer/HosterTransfer/` are given by file name.
+
+**How NeoLoader does it**
+
+- **A link is turned into bytes by a script.** One JavaScript file per site names URL patterns
+  and the entry points `Check`, `Decrypt` and `Download` (`Scripts/*.js`). Nearly all of them
+  are three-line stubs that call into one 12.7 MB script, which is a Java download manager's
+  plugin collection compiled to JavaScript (`JLoader/`, `Scripts/jLoader.js`).
+- **The script does not hand over an address.** The plugin's own HTTP session performs the
+  transfer, and the host writes the reply into the file (`HosterTask.cpp`,
+  `JLoader/src/jd/plugins/BrowserAdapter.java:66-71`). One connection per link; resuming where
+  the site allows it.
+- **Two kinds of link** (`HosterLink.cpp`):
+  - A *range link* holds ranges of the file itself, written behind the URL as
+    `\Range: … \Crypto: <cipher>:<key>` (`HosterLink.cpp:924-934`). Its bytes are verified
+    like bytes from a peer, under the master hash.
+  - An *archive link* is a volume of a 7z or RAR archive. Volumes are grouped by their file
+    name, not by content. Nothing verifies a volume; a failed extraction is the only check.
+    The files that come out are hashed and matched to the download
+    (`ArchiveDownloader.cpp:82-111`).
+- **A link with no hash at all** gives a file that is completed "without hashing"
+  (`HashInspector.cpp:166-175`) and hashed afterwards.
+- **Links are found in the DHT** under the file hash, by a script on the storing node that
+  returns every list it was given (`Resources/KadScripts/LinkSafe.js`). Links are hidden from
+  the user interface by a cipher with a key that is fixed in the source
+  (`HosterLink.cpp:1065-1091`).
+- **Uploading to hosters** as a cache exists in the code: ranges of up to 100 MB, encrypted
+  with a key per link that travels in the link, at most 3 copies of a range
+  (`NeoCore.cpp:820`, `:854-858`). It is off by default, and no script in the tree can upload.
+- **Scripts are signed,** but the check does not gate loading, and updating them over the
+  network is switched off.
+
+| | NeoLoader | ed3k ([`extensions/hoster.md`](../extensions/hoster.md)) |
+|---|---|---|
+| What turns a link into bytes | scripts, named in the protocol's own tree | a resolver outside the protocol; never code from a peer |
+| A link to the file's own bytes | range link, verified under the master hash | the same: an `HttpSource` in a field of its own, every block under the root |
+| A range at a hoster, encrypted | key in the link | a sealed chunk, with a digest of the ciphertext |
+| A volume of an archive | a part of an archive set, named by file name, unverified | an ordinary file with a root; a manifest lists the volumes |
+| From the archive to the file | by hashing what comes out | a signed `PACKED` record, checked by unpacking |
+| From a link to the file | not possible; links hang under a hash | an `ALIAS` record under a hash of the link |
+| A link with no known hash | accepted unverified | downloaded, then it is an ordinary file under the root it gives |
+| Where links are found | DHT record under the file hash, unsigned by default | fields next to the `SOURCE` record, and in a manifest |
+| Hiding links | a fixed key | none claimed: a link that is passed on is known to who receives it |
+
+What was taken: a link as a source of exact bytes, ranges at hosters, and archives as a second
+way to a file. What was not: scripts as part of the network, volumes that nothing verifies,
+and completing a file without a hash.
 
 ## 3. File hash and verification
 
@@ -289,17 +343,23 @@ All three were applied on 2026-10-11.
 | 2 | Nothing says what a downloader does with the sender of a block that fails verification | The sender is known exactly (§7.2). One bad block: not used for that file for 4 h. A bad block in a second file, or 2 in total, within 24 h: not used at all for 24 h. Credits stay local policy. NeoShare's 40 % rule exists only because it cannot tell who sent the bad bytes | §12.3, Appendix A |
 | 3 | The HTTP source extension does not limit how many sealed chunks of one range exist | A node SHOULD NOT publish a chunk for a range while it knows 2 live sealed sources for it, and publishes the second only on a server with another host name or IP address. NeoLoader's hoster cache stops at 3 | [`extensions/http-source.md`](../extensions/http-source.md) §4 |
 
+Added on 2026-10-12:
+
+| # | Gap | What was added | Where |
+|---|---|---|---|
+| 4 | A name from another network led to a root in two special ways: a field for eD2K and a record kind for torrents | One record kind, `ALIAS`, signed and ordered by publisher sites, with the kind of name as a string. NeoKad has such records too, unsigned and first come | [`extensions/alias.md`](../extensions/alias.md) |
+| 5 | Links at file hosters had no place | Links as sources, archives as sets, and a record from a file to an archive that holds it (section 2.2) | [`extensions/hoster.md`](../extensions/hoster.md) |
+
 Considered and not adopted:
 
 | Idea in NeoLoader | Why not |
 |---|---|
 | A keyword `topfiles<year>cw<week>` that lists popular files without a search word | One target that everybody publishes to and everybody reads. It is the most crowded keyword by design and the first place for spam |
 | File requests by any hash type (eD2K, BitTorrent) | §7.4 keeps every ed3k request on `root`, so that there is one identity to verify against |
-| Alias records in the DHT that link the hashes of a file | Unsigned and first come in NeoKad. In ed3k the pairing travels in keyword records and file status, and is checked against data (§14.4), which is the same conflict test NeoLoader runs |
 | Source records under an eD2K hash that also name the ed3k node | Covered by the Kad tag in [`ed2k-tags.md`](ed2k-tags.md) |
 | Availability bitmap that halves its resolution until it fits in 1 KB | A 100 GiB file is 3.2 KiB of bitmap at 4 MiB pieces, and bodies are compressed (§5.3) |
 | Lookup tracing (each hop adds its ID) | A diagnostic aid; it would add a field to `KadAnswer` for no protocol use |
-| A typed list of alias hashes instead of the single `ed2k` field | The field is expected to be dropped (§7.4). BitTorrent is joined through a set, not through an alias (section 2.1) |
+| A typed list of alias hashes in every file record, instead of the single `ed2k` field | The field is expected to be dropped (§7.4). Other names are looked up, not carried along ([`extensions/alias.md`](../extensions/alias.md) §7) |
 
 ## 10. Open points
 

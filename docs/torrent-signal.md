@@ -32,10 +32,10 @@ A bit `BT` in `Hello.caps` was weighed for the torrent extension and left out.
 | | Pro | Con |
 |---|---|---|
 | **No bit** | nothing in `Hello` that tells every ed3k peer the node also runs BitTorrent; one bit less to explain | none while no message depends on it |
-| **A bit** | free on the wire: bit 16 fits the 3 bytes that bits 14 and 15 already cost | says something about the user and gives nothing back |
+| **A bit** | free on the wire: one more bit fits the 3 bytes that the bits above 13 already cost | says something about the user and gives nothing back |
 
 Between two ed3k nodes the torrent extension changes nothing on the wire: one field in a
-manifest, one record kind in Kad, one parameter in a link. There is no behaviour for a bit to
+manifest, two schemes of the `ALIAS` record in Kad, one parameter in a link. There is no behaviour for a bit to
 announce.
 
 ## 2. From BitTorrent to ed3k: a BEP
@@ -67,7 +67,7 @@ that both sides send once per connection. Keys a client does not know are ignore
   with the user hash of §14.2.
 - **The sign is a claim.** It is proven by the ed3k connection: QUIC authenticates the node
   ID (§6.2). A peer that names a node ID it does not hold gains nothing.
-- **`ed3k_root` is a claim too,** of the same weight as a `TORRENT` record
+- **`ed3k_root` is a claim too,** of the same weight as an `ALIAS` record
   (`torrent.md` §4.2). It saves the Kad lookup, and it comes from a peer that provably has
   the torrent.
 - **Private torrents:** a client MUST NOT send either key on a connection for a torrent that
@@ -104,7 +104,7 @@ network (§4.3).
 | **A sign in the peer ID**: some of its 20 bytes derived from the node ID | needs no extension; seen before the handshake, also from a tracker | the peer ID carries the client's name and version by convention, and trackers and peers read it. 12 bytes of it would have to be taken |
 | **The port rule of §14.1**, with the BitTorrent port in place of the eD2K port | no byte on the wire | says nothing about the node ID, so nothing can be dialled obfuscated; BitTorrent ports are often random per session |
 | **An extension message** after the handshake, sent only to peers that named the extension | the node ID goes only to peers that know ed3k | the name of the extension in the handshake is the same open sign |
-| **Nothing in BitTorrent**; the `TORRENT` record and `SOURCE` records in Kad only | ed3k stays hidden from the swarm | two ed3k clients in a swarm meet only if both published, and then by a detour |
+| **Nothing in BitTorrent**; the `ALIAS` record and `SOURCE` records in Kad only | ed3k stays hidden from the swarm | two ed3k clients in a swarm meet only if both published, and then by a detour |
 
 ## 3. From ed3k to BitTorrent: peers in the file stream
 
@@ -122,7 +122,7 @@ peers of that torrent and could pass them on.
 | closes the gap that the missing trackers leave | an address list from a stranger is a way to make clients dial a victim. The limits of failed dials apply ([`ip-diversity.md`](../extensions/ip-diversity.md) §2.5) |
 
 **This is where a capability bit would belong.** It would say whom to ask and to whom such a
-list is worth sending. If the field is added, the bit (16, `BT`) is added in the same step.
+list is worth sending. If the field is added, a bit `BT` is added in the same step.
 
 ## 4. Why the BEP is the better half
 

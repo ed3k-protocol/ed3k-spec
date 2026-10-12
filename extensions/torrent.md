@@ -1,9 +1,9 @@
 # Extension: torrents as file sets (`torrent`)
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
-**Extends:** [`file-set.md`](file-set.md) §1, §3 and §6, and [`Protocol.md`](../Protocol.md) §7.4, §10.3, §13.2 and §14.4. Section numbers (§) refer to this document unless a document is named.
-**Capability:** none of its own; a node that uses it sets `SETS`. Record kind 13. One field in a manifest, one parameter in `ed3k:file` links.
-**Required of every `ROUTER`:** storing and returning the record kind `TORRENT` (§5). The rest is optional.
+**Extends:** [`file-set.md`](file-set.md) §1 and §3, [`alias.md`](alias.md) §2, and [`Protocol.md`](../Protocol.md) §7.4, §13.2 and §14.4. Section numbers (§) refer to this document unless a document is named.
+**Capability:** none of its own; a node that uses it sets `SETS`. Two schemes of the `ALIAS` record. One field in a manifest, one parameter in `ed3k:file` links.
+**Required of every `ROUTER`:** nothing beyond the `ALIAS` record of [`alias.md`](alias.md).
 
 A BitTorrent torrent is a list of files with SHA-1 or SHA-256 piece hashes. This extension
 gives a torrent **one BLAKE3 root**, so that a client can download it from BitTorrent peers and
@@ -13,7 +13,7 @@ from ed3k nodes at once and verify every byte under the ed3k hash.
   the torrent's files with their BLAKE3 roots and names the torrent.
 - The manifest has a **canonical form** (§2). Everyone who has the complete torrent computes
   the same manifest, byte for byte. Its root is the **torrent root**.
-- A record in Kad leads from the infohash to the torrent root (§5).
+- An `ALIAS` record in Kad leads from the infohash to the torrent root (§5).
 - Every file of the torrent stays an ordinary ed3k file. It has its own root and its own
   sources, also outside the torrent.
 
@@ -146,7 +146,7 @@ BLAKE3 without a single ed3k source.
 The user gave a `.torrent` file or a magnet link without an ed3k link in it. **The hashes of
 the torrent are the judge**, and a manifest found in Kad is a claim.
 
-1. The client searches `TORRENT` records for the infohash (§5), in parallel with the
+1. The client searches `ALIAS` records for the infohash (§5), in parallel with the
    BitTorrent download.
 2. For a set it finds, it downloads the manifest and makes the checks of §3. It tries at most
    3 *(initial)* sets per torrent, those named by the most publisher sites first.
@@ -176,20 +176,17 @@ that moment, before the rest of the torrent is done.
 
 ## 5. From an infohash to the torrent root
 
-```protobuf
-// in enum Kind (§10.3 of Protocol.md):
-TORRENT = 13;
-```
+An `ALIAS` record ([`alias.md`](alias.md)) leads from the infohash to the manifest.
 
-```
-target = H("ed3k v1 torrent", infohash)[0..16)       infohash: btih (20 B) or btih2 (32 B)
-```
+| Field | Value |
+|---|---|
+| `scheme` | `btih` for the 20 B infohash, `btmh` for the 32 B infohash |
+| `id` | the infohash |
+| `rel` | `SET` |
+| `root`, `size`, `name`, `set_files`, `set_size` | the manifest |
 
-- The content is a `SetRef` ([`file-set.md`](file-set.md) §6) that names the manifest. The
-  record travels in the fields of a `MEMBER` record: `Record.member`, `Store.members` and
-  `KadAnswer.sets`.
-- It is signed by its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h
-  *(initial)*.
+- Target, signature, lifetime and the rules of a storing node are those of
+  [`alias.md`](alias.md) §1 and §3. A storing node needs to know nothing about torrents.
 - A hybrid torrent has two infohashes and so two targets. The publisher stores under both.
 
 **Publisher**
@@ -198,13 +195,6 @@ target = H("ed3k v1 torrent", infohash)[0..16)       infohash: btih (20 B) or bt
   manifest from complete data (§4.2 step 5) or verified every member of it under BLAKE3
   (§4.1).
 - It MUST NOT publish one for a private torrent.
-
-**Storing node**
-
-- The rules of a `MEMBER` record: one record per publisher and set, at most 64 *(initial)*
-  sets per target, and up to 16 *(initial)* in an answer, the sets named by the most publisher
-  sites first.
-- It cannot check the claim.
 
 Because the manifest is canonical, all honest publishers of a torrent name the same root, and
 that root collects their sites.
@@ -241,7 +231,7 @@ torrent root finds BitTorrent peers through the DHT of BitTorrent.
 A torrent whose info dictionary is marked private asks that its data stay with the peers its
 tracker names.
 
-- A client MUST NOT search or publish a `TORRENT` record for it, and MUST NOT take ed3k
+- A client MUST NOT search or publish an `ALIAS` record for it, and MUST NOT take ed3k
   sources for it.
 - It MUST NOT share the info dictionary on ed3k.
 - Whether a user shares the downloaded files on ed3k as ordinary files is the user's choice, as
@@ -273,8 +263,8 @@ magnet:?xt=urn:btih:<infohash>[&xs=<url-encoded ed3k:file link of the manifest>]
 | A block from an ed3k source fails under the member's root | that source (`Protocol.md` §12.3) |
 | §4.1: a block from a BitTorrent peer fails under the member's root | that peer, by the rules of the client for BitTorrent |
 | §4.1: a complete member passes under the torrent and fails under the manifest | nobody. The link was wrong, and the client tells the user |
-| §4.2: a piece fails under the torrent while its blocks pass under the manifest | the publisher of the `TORRENT` record. The ed3k sources are not blamed: they sent the file they were asked for |
-| A `TORRENT` record whose manifest fails §3 | the publisher of the record |
+| §4.2: a piece fails under the torrent while its blocks pass under the manifest | the publisher of the `ALIAS` record. The ed3k sources are not blamed: they sent the file they were asked for |
+| An `ALIAS` record whose manifest fails §3 | the publisher of the record |
 
 ---
 
@@ -286,7 +276,7 @@ magnet:?xt=urn:btih:<infohash>[&xs=<url-encoded ed3k:file link of the manifest>]
 | Two versions under one infohash | SHA-1 collisions can be made. Two data sets that pass the same pieces have two torrent roots; a link with a torrent root names one of them |
 | Hashing | every member is hashed with BLAKE3 once, which a node does for any file it shares |
 | Storage | the manifest, about 80 B per file, and the info dictionary, 20 B per piece |
-| Kad | one `TORRENT` record per infohash, next to the `SOURCE` records of the manifest, the info dictionary and the members |
+| Kad | one `ALIAS` record per infohash, next to the `SOURCE` records of the manifest, the info dictionary and the members |
 | What a storing node learns | that a node has a torrent. The target is a hash of the infohash, so the node can test infohashes it knows |
 | What BitTorrent peers learn | nothing about ed3k |
 
@@ -300,6 +290,7 @@ magnet:?xt=urn:btih:<infohash>[&xs=<url-encoded ed3k:file link of the manifest>]
 | **An alias per file**, like `ed2k` in `FileInfo`: infohash and offset | no manifest; works for a single file | a file of a torrent has no hash of its own in version 1, so the alias cannot be checked without the neighbours. No single root for the torrent |
 | **A manifest signed by whoever made it**, no canonical form | simpler to write; the maker is known | every maker gets another root. Sources of the manifest are split, and no root collects the publishers in Kad |
 | **The info dictionary inside the manifest** | one file to fetch | the piece hashes of a large torrent are tens of MiB; a manifest is at most 4 MiB |
+| **A record kind of its own for torrents** | a storing node could apply rules that fit torrents | every further network would need a kind too, and every `ROUTER` an upgrade ([`alias.md`](alias.md) §7) |
 | **The mapping stored whole in the Kad record** | no manifest fetch | a record is a few hundred bytes; a torrent has thousands of files |
 | **File requests by infohash and piece on ed3k** | an ed3k node could serve a torrent it has not hashed with BLAKE3 | a second identity on the wire, and data that cannot be verified under the root (`Protocol.md` §7.4) |
 | **The SHA-256 file roots of a version 2 torrent as the ed3k identity of a member** | no second hashing for version 2 torrents | another tree, with 16 KiB leaves and another padding rule; version 1 torrents have none |

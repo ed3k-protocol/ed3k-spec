@@ -88,6 +88,8 @@ Every participant is a **node**. A node announces what it does with capability b
 | 13 | `LAN` | Optional extension: answers nodes of its local network ([`extensions/lan-discovery.md`](extensions/lan-discovery.md)) |
 | 14 | `ANON` | Optional extension: accepts sessions that arrive through a path of other nodes ([`extensions/hops.md`](extensions/hops.md)) |
 | 15 | `HOP` | Optional extension: forwards for the paths of others ([`extensions/hops.md`](extensions/hops.md) §5) |
+| 16 | `CREDIT` | Optional extension: signs receipts for what it downloads and understands bids for upload slots ([`extensions/credit.md`](extensions/credit.md)) |
+| 17 | `LINKS` | Optional extension: understands links at file hosters as sources ([`extensions/hoster.md`](extensions/hoster.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected.
@@ -326,6 +328,9 @@ Types 1–63 keep the tag at one byte.
 | 24 | `LanQuery` | request | optional, §13.1 |
 | 25 | `LanAnswer` | answer | optional, §13.1 |
 | 26–34 | `HopCreate`, `HopCreated`, `HopExtend`, `HopGate`, `HopLookup`, `HopLookupAnswer`, `HopStream`, `HopConnect`, `HopJoin` | between the nodes of a path | optional, §13.1 |
+| 35 | `Receipt` | downloader → uploader | optional, §13.1 |
+| 36 | `CreditRelay` | request | optional, §13.1 |
+| 37 | `CreditRelayAnswer` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -635,6 +640,10 @@ download one file from both networks at once.
 - The pairing (`root`, `ed2k`) in a record is a **claim** until the receiver has verified data
   under both hashes. See §14.4.
 
+A node MAY also publish the pairing as an `ALIAS` record of the scheme `ed2k`
+([`extensions/alias.md`](extensions/alias.md) §2), so that an eD2K link is resolved without a
+keyword search.
+
 **The alias is expected to be dropped.** Nothing in ed3k depends on it: it is one optional field.
 A later revision turns the MUST above into a MAY, and field 4 is then left reserved.
 
@@ -889,6 +898,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from the keys of two friends, or from a friend link, and the number of the day ([`extensions/friend.md`](extensions/friend.md) §4). A request to become a friend has a target of its own (§3 there) |
 | `ANON` | `root[0..16)`, as `SOURCE`: a source that is reached through other nodes and has no address ([`extensions/hops.md`](extensions/hops.md) §4.3) |
 | `GATE` | `H("ed3k v1 gate", node ID)[0..16)`, with the node ID of such a source (§4.3 there) |
+| `ALIAS` | `H("ed3k v1 alias", len(scheme) ‖ scheme ‖ id)[0..16)`, with the kind of name and the name ([`extensions/alias.md`](extensions/alias.md) §1) |
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
@@ -967,7 +977,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; TORRENT = 13; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; ALIAS = 13; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -997,6 +1007,8 @@ message Store {
   bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record (§10.4); at most 256
   // field 9 belongs to the optional extension for finding a known node (§13.1)
   // field 10 belongs to the optional extension for anonymous paths (§13.1)
+  // field 11 belongs to the optional extension for other names of a file (§13.1)
+  // field 12 belongs to the optional extension for links at file hosters (§13.1)
 }
 
 message Note {
@@ -1021,6 +1033,8 @@ message KadAnswer {
   // field 14 belongs to the optional file set extension (§13.1)
   // field 15 belongs to the optional extension for finding a known node (§13.1)
   // fields 16 and 17 belong to the optional extension for anonymous paths (§13.1)
+  // field 18 belongs to the optional extension for other names of a file (§13.1)
+  // field 19 belongs to the optional extension for links at file hosters (§13.1)
 }
 
 enum StoreResult {
@@ -1071,9 +1085,12 @@ Rules:
   another to become its friend. It
   is stored and returned like `SOURCE`, but its content is a sealed byte string that the storing
   node cannot read. Every `ROUTER` MUST store and return it ([`extensions/friend.md`](extensions/friend.md) §4).
-- **`TORRENT`** is the record kind that leads from the infohash of a BitTorrent torrent to the
-  file set that describes it. It is stored and returned like `MEMBER`. Every `ROUTER` MUST store
-  and return it, whether or not it sets `SETS` ([`extensions/torrent.md`](extensions/torrent.md) §5).
+- **`ALIAS`** is the record kind that leads from another name of a file to its root: an eD2K
+  hash, the infohash of a torrent, a link at a file hoster, the articles of a Usenet post, a
+  hash from a magnet link. The kind
+  of name is a string in the record, so that a network joined later needs no new record kind.
+  Every `ROUTER` MUST store and return it, for names of every kind
+  ([`extensions/alias.md`](extensions/alias.md) §3).
 - **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
   which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the `ANON`
@@ -1099,7 +1116,7 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
+- Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` and `ALIAS` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
   7 days. Republish before expiry.
 - Flood limits are per source address and per `kind`.
 - **Keyword search.** The searcher splits its search text into words as in §10.1 (steps 1 to 3).
@@ -1215,6 +1232,7 @@ message Record {
   // field 7 belongs to the optional hidden set extension (§13.1)
   // fields 8 and 9 belong to the optional extension for sets with several authors (§13.1)
   // field 10 belongs to the optional extension for anonymous paths (§13.1)
+  // field 11 belongs to the optional extension for other names of a file (§13.1)
 }
 
 message Signature {
@@ -1354,6 +1372,7 @@ message FileRequest {
   bool   brief = 6;           // I know size, name, ed2k and note; leave them out
   // field 7 belongs to the optional HTTP source extension (§13.1)
   // field 8 belongs to the optional file set extension (§13.1)
+  // field 9 belongs to the optional credit extension (§13.1)
 }
 
 message FileStatus {
@@ -1367,6 +1386,8 @@ message FileStatus {
   uint32 recheck = 8;         // queued: 0 = stay connected, else ask again after this many seconds (§12.5)
   // field 9 belongs to the optional HTTP source extension (§13.1)
   // field 10 belongs to the optional file set extension (§13.1)
+  // field 11 belongs to the optional credit extension (§13.1)
+  // field 12 belongs to the optional extension for links at file hosters (§13.1)
 }
 
 message SlotOffer {
@@ -1389,7 +1410,8 @@ These two messages replace `OP_HELLO`'s file fields, `OP_REQUESTFILENAME`, `OP_S
 There is no large-file variant; every offset is 64 bits.
 
 Queueing, scoring and credits are local policy as in eMule. Credits are keyed by node ID. How
-long a slot lasts and how many there are is in §12.5.
+long a slot lasts and how many there are is in §12.5. Credits that count at every uploader,
+and bids for a slot, are an optional extension (§13.1).
 
 ### 12.2 `BlockRequest`
 
@@ -1570,10 +1592,16 @@ The comparison with eMule's reask and with the alternatives is in
 
 Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
 each with a capability bit and need not implement any of them. Hidden sets, sets with
-several authors, torrents as file sets, shared filter lists, first contact and finding a known
-node are optional too. They add file formats, links and four record kinds, and have no bit of
-their own.
+several authors, other names of a file, torrents and Usenet posts as file sets, shared filter lists, first
+contact and finding a known node are optional too. They add file formats, links and four record
+kinds, and have no bit of their own. Links at file hosters are a further kind of source, with
+a bit of their own.
+
+**Other networks and data sources are joined under the root, never beside it.** A name from
+outside leads to a root through one record kind, `ALIAS`, and the rules that every such
+extension follows are in [`extensions/alias.md`](extensions/alias.md) §5.
 Anonymous paths, which put other nodes between a node and its peers, are optional as well.
+So are credits that count at every uploader; they need a ledger outside ed3k.
 
 | Extension | Capability | Wire elements | Document |
 |---|---|---|---|
@@ -1585,9 +1613,13 @@ Anonymous paths, which put other nodes between a node and its peers, are optiona
 | Publish and subscribe | bit 12, `PUBSUB` | message types 22 and 23; record kind 7; a field in `Record` | [`extensions/pubsub.md`](extensions/pubsub.md) |
 | Finding nodes in the local network | bit 13, `LAN` | message types 24 and 25; a multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
 | Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34; record kinds 11 and 12; a field in `Record` and `Store`, two in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
+| Credits | bit 16, `CREDIT` | message types 35 to 37; a field in `FileRequest` and in `FileStatus`; a ledger on a chain of its own, reached by RPC | [`extensions/credit.md`](extensions/credit.md) |
 | Hidden sets | none (`SETS`) | record kind 8; a field in `Record` and in a manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
 | Sets with several authors | none (`SETS`) | record kind 9; two fields in `Record`; fields in a manifest | [`extensions/multi-author-set.md`](extensions/multi-author-set.md) |
-| Torrents as file sets | none (`SETS`) | record kind 13; a field in a manifest; `bt` in `ed3k:file` links | [`extensions/torrent.md`](extensions/torrent.md) |
+| Links at file hosters | bit 17, `LINKS` | a field in `FileStatus`, `Store` and `KadAnswer`; three result codes; a field in a manifest; `hl` in `ed3k:file` links; two schemes of `ALIAS` | [`extensions/hoster.md`](extensions/hoster.md) |
+| Other names of a file | none | record kind 13; a field in `Record`, `Store` and `KadAnswer` | [`extensions/alias.md`](extensions/alias.md) |
+| Torrents as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; `bt` in `ed3k:file` links | [`extensions/torrent.md`](extensions/torrent.md) |
+| Usenet posts as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; an article list file format | [`extensions/usenet.md`](extensions/usenet.md) |
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
 | First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
@@ -1598,7 +1630,7 @@ ignores the fields (§16).
 ### 13.2 Links
 
 ```
-ed3k:file?b3=<root, base32 lower case, no padding>&sz=<size>&dn=<url-encoded name>[&ed2k=<32 hex>][&ws=<url-encoded URL>][&wh=<url-encoded URL>]
+ed3k:file?b3=<root, base32 lower case, no padding>&sz=<size>&dn=<url-encoded name>[&ed2k=<32 hex>][&ws=<url-encoded URL>][&wh=<url-encoded URL>][&hl=<url-encoded link>]
 ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 ```
 
@@ -1606,7 +1638,7 @@ ed3k:node?id=<node ID, 32 hex>&ep=<ip:port>[&ep=<[ip6]:port>]
 the file's hash tree. A client without the HTTP source extension ignores both. That extension
 also defines `ed3k:cache`, a link to a cache server. The file set extension adds `path` to
 `ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
-set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
+set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the extension for links at file hosters adds `hl` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
 extension for finding a known node defines `ed3k:friend`.
 
 ### 13.3 Not carried over
@@ -1829,6 +1861,12 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
 | Anonymous paths, a hop: paths per neighbour, streams per path, held per stream and direction, base rate, lookups per path | 8, 64, 256 KiB, 16 KiB/s, 20 per minute |
 | Anonymous paths: `ANON` records per target, `GATE` lifetime and renewal, session idle time | 64, 1 h and 45 min, 10 min |
+| Other names: records per root and scheme, roots per target, records per answer, roots tried per name | 4, 64, 16, 3 |
+| Usenet: article list at most, sets tried per NZB, `nzb-file` records per post | 32 MiB, 3, 256 |
+| Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
+| Credits: tranche, priority slots at most, time for a payment, bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
+| Credits: a bid ends a turn that has more left than, rate measured over; uploader's share of a payment | 60 s, 10 s; 10 % |
+| Credits, ledger: grace, decay, floor, burned on transfer, settle within | 3 days, 10 % per day, 10 credits, 10 %, 48 h |
 
 ## Appendix B — open points
 
