@@ -210,8 +210,8 @@ message Cert {
 A part is a signed manifest (`file-set.md` §2.4) by the author's key, with
 
 ```
-id  = H("ed3k v1 part", owner key ‖ id of the set)[0..16)
-seq = its version number
+part id = H("ed3k v1 part", owner key ‖ id of the set)[0..16)        the `id` of the part's manifest
+seq     = its version number
 ```
 
 ```protobuf
@@ -275,8 +275,8 @@ A part is shown when all of this holds:
 
 1. Its record passes the checks above.
 2. The author is not `banned`, and `seq` is not `below` the value of a change for it.
-3. Its manifest has the root of the record, is signed by the author, carries the `id` of §3.3
-   and the `seq` of the record, and holds files only.
+3. Its manifest has the root of the record, is signed by the author, carries the part id of
+   §3.3 as its `id` and the `seq` of the record, and holds files only.
 4. It is inside the limits: those of a change for this author, else those of its issuer, else
    those of `open`.
 

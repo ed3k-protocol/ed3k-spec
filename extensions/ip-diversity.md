@@ -2,7 +2,7 @@
 
 **Status:** draft 0.2 (2026-10-13). Not implemented. **Required in version 1.**
 **Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2 and §10.4. Section numbers (§) refer to that document.
-**Capability:** none. The limits are local policy; nothing on the wire changes.
+**Capability:** none. Each node applies the limits to what it accepts; nothing on the wire changes.
 
 The routing ID of §6.3 ties a node's position to its address, but an address block still buys
 positions: an IPv4 /16 or an IPv6 /29 reaches 131,072 of the 2²¹ prefixes, enough to sit next to

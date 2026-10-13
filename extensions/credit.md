@@ -52,7 +52,7 @@ received, and the uploader earns credits for it.
 | **issuer** | the downloader that signs a receipt |
 | **holder** | the uploader a receipt is signed for |
 | **µ** | 10⁻⁶ credit, the unit of every amount on the wire and in the ledger |
-| **tranche** | each 4 MiB of verified file data of a turn, counted from the start of the turn (one piece, `Protocol.md` §7.2); the last tranche of a turn can be shorter |
+| **tranche** | each 4 MiB of verified file data of a turn, counted from the start of the turn (the size of a piece, `Protocol.md` §7.2, not aligned to one); the last tranche of a turn can be shorter |
 | **day** | `floor(unix_time / 86400)` |
 | **mature** | an account whose receipts mint credits (§6.3) |
 

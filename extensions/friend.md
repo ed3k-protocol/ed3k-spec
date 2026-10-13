@@ -20,7 +20,8 @@ the form:
 | **Open link** | everyone the link was given to | the node key and a secret | 2 |
 | **Request** | nobody yet: a node asks another to become its friend | the node key and a request value | 3 |
 
-The forms differ only in how a key `k` is made. The record and its handling (§4) are the same.
+The forms differ only in how a key `k` is made. The record and its handling (§4 of this
+document) are the same.
 
 RetroShare and GNUnet find known nodes through a DHT
 ([`docs/gnunet-retroshare-comparison.md`](../docs/gnunet-retroshare-comparison.md) §2.1). The
@@ -70,8 +71,8 @@ k   = H("ed3k v1 friend", secret ‖ key)                                   32 b
 - It works in one direction.
 - A node has at most 4 *(initial)* open links in use. It takes one back by no longer storing
   under it, and everyone who should still find it needs a new link.
-- A holder of the link can store false records at the place (§4). Each costs the others one
-  failed dial.
+- A holder of the link can store false records at the place (§4 of this document). Each costs
+  the others one failed dial.
 
 **This link is a credential.** A client MUST NOT write the secret to a log or show it in an
 error message, and SHOULD mark such a link as private wherever it shows it.
@@ -103,7 +104,7 @@ message FriendRequest {
 
 **The asking node** adds the key of the link first, and then stores the request under the
 target of the current day. It stores it again every 4 h *(initial)*, until it finds the other
-node's record for it (§1) or 7 days *(initial)* have passed.
+node's record for it (§1 of this document) or 7 days *(initial)* have passed.
 
 **The asked node** searches its request place when it starts and then once per 30 min
 *(initial)*: the targets of the day before, the current day and the day after, so that an
@@ -112,7 +113,7 @@ asking node whose clock is ahead is found.
 - It drops a request whose tag fails, whose signature does not verify under `key`, or whose
   `issued` is more than 7 days old.
 - It shows the rest to the user, each key once. A request is never accepted without the user.
-- When the user accepts, the node adds the key. Both are then friends by §1.
+- When the user accepts, the node adds the key. Both are then friends by §1 of this document.
 - When the user declines, nothing is sent.
 
 **The request value keeps strangers out.** Without `r` the place cannot be computed. A node
@@ -148,7 +149,8 @@ target  = H("ed3k v1 friend target", k ‖ period(8))[0..16)                peri
 sealed  = nonce(12) ‖ ChaCha20-Poly1305(k_rec, nonce, serialised FriendRecord)     RFC 8439, 16-byte tag
 ```
 
-A request (§3) has its own target and its own `sealed`, and travels in the same fields.
+A request (§3 of this document) has its own target and its own `sealed`, and travels in the
+same fields.
 
 **The storing node** treats every `FRIEND` record like a source record (§10.3):
 
@@ -188,7 +190,7 @@ A request (§3) has its own target and its own `sealed`, and travels in the same
 
 | To whom | What |
 |---|---|
-| A friend, or a holder of an open link | the node's addresses and relays whenever it is online, and so when it is online |
+| A friend, or a holder of an open link | the node's addresses and relays whenever it is online, and so whether it is online |
 | A node that stores a record | the node ID and address of the publisher, as for any record, and that it publishes a `FRIEND` record. Not for whom, and not which form |
 | The same node | the addresses of those who search that target. It can conclude that they know the publisher. The target moves every day, so no node sees this for long |
 | Someone who has a node's key only | nothing |

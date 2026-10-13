@@ -92,7 +92,7 @@ message Sealed {
 | Signature | valid under `signer`, with `base` computed from `signer` | valid under the key of the link |
 | Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| `seq` | not lower than the one held | the highest of all answers wins |
+| `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins |
 | Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires`; a valid record that does not replace it is answered `OLDER` | among equal `seq` the lower `data`, as on the storing node |
 | Content | `sealed` and nothing else | `data` opens to a `Head` whose `seq` is the one outside |
 

@@ -200,7 +200,10 @@ trigger its fully-encrypted-traffic heuristic, which is limited to TCP. The obfu
 therefore has two jobs: remove every fixed byte, and blur the 1200-byte handshake size.
 
 This is obfuscation, not secrecy. The key is derived from the receiver's node ID, which is public
-to anyone who takes part in the network. Confidentiality comes from TLS.
+to anyone who takes part in the network. Confidentiality comes from TLS. Unmasking only
+demultiplexes: that a datagram unmasks proves nothing about who sent it. Evidence about a peer,
+such as its reachability (§9), rests on what a datagram carries and on the transport (T1, T3),
+never on the mask.
 
 ### 4.3 Datagram format
 
@@ -212,7 +215,7 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ body )
 
 | Field | Meaning |
 |---|---|
-| `salt` | 8 random bytes, sent in clear. `salt[0]` MUST NOT be `0xE3`, `0xE4`, `0xE5`, `0xC5`, `0xD4`, `0xA3` or `0xB2` (re-roll). These are the plaintext headers of eD2K/eMule UDP; the rule keeps a stray ed3k datagram from being parsed as one by a legacy node at a stale address |
+| `salt` | 8 random bytes, sent in clear, fresh for every datagram: a datagram that is sent again is masked again under a new salt. `salt[0]` MUST NOT be `0xE3`, `0xE4`, `0xE5`, `0xC5`, `0xD4`, `0xA3` or `0xB2` (re-roll). These are the plaintext headers of eD2K/eMule UDP; the rule keeps a stray ed3k datagram from being parsed as one by a legacy node at a stale address |
 | `magic` | `0x65 0x33 0x6B 0x01` (`"e3k"`, version 1). Checked after unmasking |
 | `kp` | bits 7-6 `kind`, bits 5-0 `pad_len` (0–63) |
 | `pad` | `pad_len` random bytes |
@@ -618,6 +621,8 @@ node ID. The diversity limits exempt them too ([`extensions/ip-diversity.md`](ex
 | 65.23.51.170 | 6 | `a5d4344a` | `14ba86` |
 | 2001:db8:1234:5678::1 | 3 | `32b2d72e` | `06565a` |
 
+The IPv6 row uses a documentation prefix that §8.2 (7) rejects; only its CRC is a vector.
+
 **Limits, stated plainly**
 
 - The position moves when the address changes. The identity does not: credits, source records
@@ -639,8 +644,8 @@ node ID. The diversity limits exempt them too ([`extensions/ip-diversity.md`](ex
 [`extensions/ip-diversity.md`](extensions/ip-diversity.md) wherever it builds a set of contacts:
 per bucket, in the whole routing table, per answer, per lookup, in the closest set, and among
 the publishers of a record. Contacts are counted in three groups per family: address, /24 and
-/16 for IPv4; /64, /48 and /32 for IPv6. The limits are local policy and need no wire change,
-which is why they can be required from the first version.
+/16 for IPv4; /64, /48 and /32 for IPv6. Each node applies the limits to what it accepts, so
+they need no wire change, which is why they can be required from the first version.
 
 **Extension reserved for a network upgrade.** Not part of version 1.
 
@@ -688,7 +693,8 @@ identity. The root is what the standard `b3sum` tool prints.
 ### 7.2 Verification
 
 BLAKE3 is a Merkle tree over 1 KiB chunks. Any aligned range of 2ᵏ chunks is a subtree with its
-own 32-byte chaining value, so parts of a file can be verified against the root without the rest.
+own 32-byte chaining value, and so is a range that starts aligned and is cut short by the end of
+the file. Parts of a file can therefore be verified against the root without the rest.
 
 - **Block:** 256 KiB (2⁸ chunks). The unit of verification and of hash exchange.
 - **Piece:** 4 MiB (16 blocks). The unit of availability bitmaps.
@@ -802,7 +808,7 @@ these reports per local socket:
 
 | Class | Evidence |
 |---|---|
-| `open` (1) | a `ReachTest` (§9.3) arrived from a node it had never sent to, or unasked connections arrived (below) |
+| `open` (1) | the `PROBE` of a `ReachTest` the node asked for arrived (§9.3), or unasked connections arrived (below) |
 | `cone` (2) | one endpoint has the lead (below), and there is no evidence for `open` |
 | `symmetric` (3) | at least 3 *(initial)* reports name the same address, and no port has the lead |
 | `unknown` (0) | anything else: too few reports, or reports that name different addresses |
@@ -857,7 +863,7 @@ message ReachTest {
    family to test. `nonce` is random and chosen by the asker, so that it can recognise the
    `PROBE`.
 2. A picks a `ROUTER` contact B of its routing table in that family that is not the asker and
-   that A believes has no connection with it, and forwards the request to B on a new exchange
+   that A believes has no connection with the asker, and forwards the request to B on a new exchange
    with `target_id`, `target_ep` and the asker's `nonce`. `target_ep` MUST be the asker's
    observed endpoint as A sees it, never a value from the asker. A request that arrives with
    `target_id` set is never forwarded again.
@@ -871,6 +877,10 @@ message ReachTest {
    not ask for is ignored.
 
 A and B rate-limit these to 1 per asker address per minute *(initial)*.
+
+B cannot check that `target_ep` is the asker's endpoint; a false A can name any global unicast
+address. That is accepted: a `PROBE` is small and is never answered (§4.4), and the limit above
+bounds how many one A can cause.
 
 ### 9.4 Relays
 
@@ -945,7 +955,7 @@ the limits of that extension.
 
 ```protobuf
 message Punch {
-  bytes  peer_id = 1;         // to relay: the target. to target: the initiator
+  bytes  peer_id = 1;         // to the relay: the target; to the target: the initiator; in the target's answer: the initiator
   bytes  ep4 = 2;             // sender's observed endpoints
   bytes  ep6 = 3;
   uint32 nat = 4;             // sender's class, §9.2
@@ -1007,7 +1017,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `FRIEND` | `H("ed3k v1 friend target", k ‖ period(8))[0..16)`, with a value made from the keys of two friends, or from a friend link, and the number of the day ([`extensions/friend.md`](extensions/friend.md) §4). A request to become a friend has a target of its own (§3 there) |
 | `ANON` | `root[0..16)`, as `SOURCE`: a source that is reached through other nodes and has no address ([`extensions/hops.md`](extensions/hops.md) §4.3) |
 | `GATE` | `H("ed3k v1 gate", node ID)[0..16)`, with the node ID of such a source (§4.3 there) |
-| `ALIAS` | `H("ed3k v1 alias", len(scheme) ‖ scheme ‖ id)[0..16)`, with the kind of name and the name ([`extensions/alias.md`](extensions/alias.md) §1) |
+| `ALIAS` | `H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)`, with the kind of name and the name ([`extensions/alias.md`](extensions/alias.md) §1) |
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
@@ -1114,7 +1124,7 @@ message Query {
 }
 
 message Store {
-  Peer     source = 1;        // SOURCE: my endpoints and relays; `id` MUST be empty
+  Peer     source = 1;        // SOURCE, and the kinds stored like it (LIVE, SUB): my endpoints and relays; `id` MUST be empty
   repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword (§10.7)
   Signed   note = 3;          // NOTE (§10.7)
   // field 4 belongs to the optional HTTP source extension (§13.1)
@@ -1142,7 +1152,7 @@ message KadAnswer {
   repeated Signed   notes = 7;  // §10.7
   bool   more = 8;            // further results exist; ask again with `offset`
   repeated bytes    keys = 9; // 32 B publisher keys, referenced by Signed.key
-  repeated StoreResult results = 10;  // one per record of the Store, in order; absent = all stored
+  repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
   repeated uint32   sites = 12;       // one per entry of `files`: publisher sites counted; 0 = not counted
   // field 13 belongs to the optional HTTP source extension (§13.1)
@@ -1523,7 +1533,7 @@ decides whether it stays open (§12.5).
 ```protobuf
 message FileRequest {
   bytes  root = 1;            // 32 B; only in the first FileRequest of the stream
-  optional bytes have = 2;    // my piece bitmap, LSB first; absent = unchanged (first message: not told); missing bits are 0
+  optional bytes have = 2;    // my piece bitmap, LSB first; missing bits are 0, so an empty bitmap holds no piece (the opposite of FileStatus.have); absent = unchanged (first message: not told)
   uint32 want_sources = 3;    // max number of sources wanted, 0 = none
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf (§12.5)
   bytes  relays6 = 5;         // n × 34 B
@@ -1689,9 +1699,10 @@ message HashAnswer {
 }
 ```
 
-`cvs` are the BLAKE3 chaining values of the 256 KiB subtrees (blocks) `first .. first+count−1`,
-in order. `count` is at most 32,768 *(initial)*; a downloader asks for more in several
-requests. `proof` holds the sibling values needed to recompute the root from that range.
+`cvs` are the BLAKE3 chaining values of the blocks `first .. first+count−1`, in order; a block
+is 256 KiB, except the last of the file, which may be shorter. `count` is at most 32,768
+*(initial)*; a downloader asks for more in several requests. `proof` holds the sibling values
+needed to recompute the root from that range.
 
 **The tree.** Let n = ceil(size / 256 KiB) be the number of blocks. Level 0 holds their n
 chaining values. Each level above halves the count:
@@ -1858,7 +1869,7 @@ A node without the capability answers the message types with `Error{UNSUPPORTED}
 ignores the fields (§16), with one exception that §10.3 states: a `ROUTER` stores, checks and
 returns the records of every kind in this table, and the fields of `Store` that belong to a
 source record (HTTP sources, links at hosters), whether or not it sets the bit. The record
-kinds of version 1 are therefore 0 to 13, and the documents above define their checks.
+kinds of version 1 are therefore 1 to 13, and the documents above define their checks.
 
 ### 13.2 Links
 
@@ -1968,6 +1979,9 @@ older 13/110. Other clients mark their hashes with bytes of their own in the sam
 - The user hash changes once when a client adopts this. Other peers key credits by user hash, so
   credits earned at them are lost. An implementation SHOULD tell the user before switching.
 - The eD2K and ed3k identities become linkable by anyone. That is the purpose.
+- The same marks tell an eD2K server or peer, before any ed3k message, that the client speaks
+  ed3k, and it may refuse the client for that. A client that must not be recognised as an ed3k
+  node on eD2K keeps a user hash that is not derived.
 - 96 of 112 free bits remain random-looking; nothing in eD2K depends on more.
 
 ### 14.3 Other signals

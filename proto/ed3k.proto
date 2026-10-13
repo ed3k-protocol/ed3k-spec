@@ -23,7 +23,7 @@
 //  25 LanAnswer       26 HopCreate       27 HopCreated      28 HopExtend
 //  29 HopGate         30 HopLookup       31 HopLookupAnswer 32 HopStream
 //  33 HopConnect      34 HopJoin         35 Receipt         36 CreditRelay
-//  37 CreditRelayAnswer                  48–63 reserved (Protocol.md §10.6)
+//  37 CreditRelayAnswer 38 BadBlock      48–63 reserved (Protocol.md §10.6)
 //
 // Messages without a type are file formats or sub-messages carried inside another message.
 
@@ -109,7 +109,7 @@ message Relay {               // type 12
 }
 
 message Punch {               // type 11
-  bytes   peer_id = 1;        // to relay: the target. to target: the initiator   Protocol.md §9.5
+  bytes   peer_id = 1;        // to the relay: the target; to the target: the initiator; in the target's answer: the initiator   Protocol.md §9.5
   bytes   ep4 = 2;            // sender's observed endpoints
   bytes   ep6 = 3;
   uint32  nat = 4;            // sender's class                                 Protocol.md §9.2
@@ -157,7 +157,7 @@ message Query {
 }
 
 message Store {
-  Peer     source = 1;        // SOURCE: my endpoints and relays; `id` MUST be empty   Protocol.md §10.3
+  Peer     source = 1;        // SOURCE, and the kinds stored like it (LIVE, SUB): my endpoints and relays; `id` MUST be empty   Protocol.md §10.3
   repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword   Protocol.md §10.7
   Signed   note = 3;          // NOTE                                          Protocol.md §10.7
   repeated HttpSource http = 4;   // SOURCE: HTTP sources of the file; 3 per publisher and file   http-source.md §2
@@ -186,7 +186,7 @@ message KadAnswer {           // type 4
   repeated Signed notes = 7;  // Protocol.md §10.7
   bool   more = 8;            // further results exist; ask again with `offset`
   repeated bytes  keys = 9;   // 32 B publisher keys, referenced by Signed.key
-  repeated StoreResult results = 10;  // one per record of the Store, in order; absent = all stored
+  repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
   repeated uint32 sites = 12; // one per entry of `files`: publisher sites counted; 0 = not counted
   repeated HttpSource http = 13;  // SOURCE search: HTTP sources; 16 per answer   http-source.md §2
@@ -243,7 +243,7 @@ message Signed {
 
 message FileRequest {         // type 5
   bytes  root = 1;            // 32 B; only in the first FileRequest of the stream   Protocol.md §12.1
-  optional bytes have = 2;    // my piece bitmap, LSB first; empty = nothing; absent = unchanged / not told
+  optional bytes have = 2;    // my piece bitmap, LSB first; missing bits are 0, so an empty bitmap holds no piece (the opposite of FileStatus.have); absent = unchanged (first message: not told)
   uint32 want_sources = 3;    // max number of sources wanted, 0 = none
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf   Protocol.md §12.5
   bytes  relays6 = 5;         // n × 34 B
@@ -294,6 +294,10 @@ message HashAnswer {          // type 10
   bytes proof = 2;            // n × 32 B sibling values linking the range to the root
 }
 
+message BadBlock {            // type 38, downloader → uploader, on the file stream; not answered
+  uint64 offset = 1;          // start of the block that failed, in the file of the stream   Protocol.md §12.3
+}
+
 // ---------------------------------------------------------------------------------------
 // Browse (browse.md), Chat (chat.md)
 // ---------------------------------------------------------------------------------------
@@ -326,11 +330,11 @@ message HttpSource {
   uint64 offset = 2;          // position in the file of the first byte this source holds
   uint64 length = 3;          // number of file bytes it holds; 0 = up to the end of the file
   uint64 expires = 4;         // Unix time after which the URL may be gone; 0 = unknown
-  SealedChunk sealed = 5;     // absent = plain source                         http-source.md §1.2
+  SealedChunk sealed = 5;     // absent = plain source                         http-source.md §1
   string hashes = 6;          // optional: URL of the file's hash body         http-source.md §3.1
 }
 
-message SealedChunk {         // http-source.md §1.2 (not `Sealed`, the record of hidden-set.md)
+message SealedChunk {         // http-source.md §1 (not `Sealed`, the record of hidden-set.md)
   uint32 alg = 1;             // 1 = AES-256-CBC with PKCS#7 padding, SHA-256 over the ciphertext
   bytes  key = 2;             // 32 B
   bytes  iv = 3;              // 16 B
@@ -352,7 +356,7 @@ message HttpResult {
     SIZE_MISMATCH = 6;        // the server sent another length than described
     CORRUPT = 7;              // digest, padding or BLAKE3 verification failed
     NO_RESOLVER = 8;          // this client has no resolver for the hoster   hoster.md §2
-    NEEDS_USER = 9;           // a wait, a puzzle, a login or a quota stands in the way   hoster.md §2
+    NEEDS_USER = 9;           // a wait, a puzzle, a login or a quota stands in the way; not tried further for now   hoster.md §2
     GONE = 10;                // the hoster says the file was removed          hoster.md §2
   }
 }
@@ -476,7 +480,7 @@ message Change {
 }
 
 message Cert {
-  bytes  issuer = 1;          // 32 B key of the issuer                        multi-author-set.md §3.3
+  bytes  issuer = 1;          // 32 B key of the issuer                        multi-author-set.md §3.2
   string name = 2;            // at most 64 B
   uint64 expires = 3;         // Unix time in seconds; 0 = never
   repeated Signature sigs = 4;    // by the issuer, over "ed3k v1 part cert" ‖ author key(32) ‖ expires(8) ‖ name
@@ -504,7 +508,7 @@ message Usenet {
   uint32 list_size = 3;       // its size in bytes
 }
 
-// The article list file (usenet.md §2).
+// The article list file is "ed3knzb" ‖ 0x01 ‖ ArticleList (usenet.md §2).
 message ArticleList {
   repeated Post files = 1;    // in ascending order of their file ids          usenet.md §1
 }
@@ -818,6 +822,7 @@ message NodeList {
 // Shared filter lists (filter-list.md)
 // ---------------------------------------------------------------------------------------
 
+// The list file is "ed3kflt" ‖ 0x01 ‖ FilterList (filter-list.md §1).
 message FilterList {
   string title = 1;           // filter-list.md §1
   string comment = 2;
