@@ -2,7 +2,7 @@
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1. **The key agreement and the ciphers of §2.3 and §3.2 are a first design and need a review by people who do this for a living before anyone relies on them.**
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §9.4, §10.1, §10.3 and §10.7. Section numbers (§) refer to this document unless a document is named.
-**Capability:** bit 14 `ANON`, bit 15 `HOP`. Message types 26 to 34. Record kinds 11 and 12. One field in `Record`, one in `Store`, two in `KadAnswer`.
+**Capability:** bit 14 `ANON`, bit 15 `HOP`. Message types 26 to 34 and 39. Record kinds 11 and 12. One field in `Record`, one in `Store`, two in `KadAnswer`.
 **Required of every `ROUTER`:** storing and returning the record kinds `ANON` and `GATE`, and accepting `signer` in a `Store` (§4). The rest is optional.
 
 In ed3k every peer sees the address of the peer it talks to, and every storing node sees who
@@ -118,17 +118,33 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
    `HopCreated`, or `Error{BUSY}`. The exchange stays open. It is the **control stream** of the
    path on this link, and its stream number is 0 (§2.4).
 2. To add a hop, the owner sends `HopExtend` on the control stream. The last hop connects to
-   `node` as to any node (it MUST be a global unicast address, `Protocol.md` §8.2 (7); else
-   `Error{MALFORMED}`), opens an exchange, sends `HopCreate` with a `path` of its own, and
+   `node` as to any node, opens an exchange, sends `HopCreate` with a `path` of its own, and
    passes the `HopCreated` back to the owner as a frame on the control stream, inside the
    layers of the hops before it. From then on it forwards. A path MUST NOT be extended while
    it carries a stream other than the control stream: a hop added later has no layer on those
    streams. The owner closes them first, or builds a new path.
 3. The owner checks `proof` (§2.3). A wrong proof means that the new hop is not the node the
-   owner chose; the owner closes the path.
+   owner chose; the owner closes the path. The owner knows its first hop by the key of the
+   connection (`Protocol.md` §4.1), and checks its `proof` all the same.
 
+- **`node`**, here and in `HopConnect` (§3.1), MUST be a global unicast address on the public
+  network (`Protocol.md` §8.2 (7)). A private address is a dial target only in a named
+  network (`net_id` not empty, `Protocol.md` §4.3). Any other `node` is answered
+  `Error{MALFORMED}` and is not dialled.
 - A hop that cannot reach `node` within 10 s *(initial)* answers `Error{NOT_FOUND}`.
 - Everything on the control stream after `HopCreated` is in layers (§2.3).
+- **The control stream is a sequence of requests and answers.** The owner sends one request
+  frame (`HopExtend`, `HopGate`) and waits for its answer before it sends the next. An `Error`
+  on the control stream does not close it: the path stays as it was, and the hop that
+  answered is still the last hop. When the new hop answers the `HopCreate` of a `HopExtend`
+  with an `Error`, the last hop closes that exchange and passes the `Error` back as the
+  answer. An `Error` that answers the first `HopCreate` ends the exchange: there is no path.
+- A `HopCreate` whose `path` is not 8 B or is in use on that connection, or whose `e` is not
+  32 B, and a `HopExtend` while the path carries a stream other than the control stream, are
+  answered `Error{MALFORMED}`.
+- **Keeping a path alive.** Both neighbours of a link of a path send a QUIC PING every 20 s
+  *(initial)* while the control stream is open (`Protocol.md` §4.1: `max_idle_timeout` is
+  30 s, and whoever wants a connection kept sends the PING). A gate lives as long as its path.
 - A path ends when its control stream is closed, or when the connection to a neighbour is
   lost. A hop then closes the control stream and every stream of the path on its other side.
   The owner builds another.
@@ -139,7 +155,7 @@ For each hop the owner makes a fresh X25519 pair `(x, e)`. The hop makes `(y, f)
 node key is used for X25519 through the conversion of `Protocol.md` §6.4.
 
 ```
-ss1   = X25519(x, node key of the hop)        the hop computes X25519(its node key, e)
+ss1   = X25519(x, converted node key of the hop)        the hop computes X25519(its converted node key, e)
 ss2   = X25519(x, f)                          the hop computes X25519(y, e)
 k     = H("ed3k v1 hop", ss1 ‖ ss2 ‖ e ‖ f ‖ node key of the hop)        32 bytes
 proof = H("ed3k v1 hop proof", k)
@@ -147,6 +163,8 @@ k_out = H("ed3k v1 hop out", k)               for bytes that move away from the 
 k_in  = H("ed3k v1 hop in", k)                for bytes that move towards the owner
 ```
 
+- The node key of the hop in the derivation of `k` is the Ed25519 key as it is sent in the
+  handshake (32 B), not the converted one. The converted key is used for `ss1` alone.
 - Both sides MUST refuse an `ss1` or `ss2` that is all zero.
 - `ss1` proves that the hop holds the key the owner chose. `ss2` makes `k` safe when that key
   is taken later. The hop learns nothing about the owner.
@@ -161,7 +179,8 @@ ChaCha20(key = k_out or k_in of the hop, nonce = 0x00000000 ‖ stream number(8,
 The key stream runs on over the whole stream in that direction. On the control stream the
 stream number is 0, and the layer of a hop starts, with its counter at 0, at the first byte
 after that hop's `HopCreated`; on any other stream a layer starts at the first byte after
-`HopStream`.
+`HopStream` in the direction of the opener, and at the first byte after the status frame of
+the link (§2.4) in the other direction.
 
 - Away from the owner: the owner applies the layer of the last hop first and the layer of the
   first hop last. Each hop removes its own.
@@ -179,20 +198,33 @@ A stream of a path is one exchange on each link, joined end to end by the hops.
 ```protobuf
 message HopStream {           // type 32. First frame of an exchange between two neighbours
   bytes  path = 1;            // as in HopCreate, for this connection
-  uint64 number = 2;          // never 0 (the control stream); greater than every number the opener used before on this path. Even: opened by the owner. Odd: opened at the last hop
+  uint64 number = 2;          // never 0 (the control stream); the opener counts up, and a number is never used twice on a path. Even: opened by the owner. Odd: opened at the last hop
 }
+
+message HopOk {}              // type 39. Status frame: accepted, raw bytes follow
 ```
 
 - After `HopStream` the exchange carries bytes without frames, in layers, until it is closed.
   It is, with `Block`, a message that is followed by raw bytes.
-- A hop that receives `HopStream` opens an exchange on the other side of the path with its
-  own `path` value and the same `number`, and copies in both directions. A half-close and a
-  reset are passed on. **Numbers never repeat on a path:** each opener MUST use a number
-  greater than every number it used before on the path, so that a layer's key stream is never
-  used twice. A `HopStream` with `number = 0`, or with a number not greater than every number
-  the hop has seen from that side, is answered `Error{MALFORMED}`. That `Error` is sent without
-  a layer by the hop that refuses; a hop that receives an `Error` or a reset on one side of a
-  stream resets the other side.
+- **Status frame.** The first thing in the other direction of an exchange that starts with
+  `HopStream` is one frame, before any raw byte: `HopOk`, or an `Error`. The neighbour that
+  received the `HopStream` sends it, without a layer, as soon as it has accepted or refused
+  for itself; it does not wait for the next link. The neighbour that opened the exchange
+  reads it and does not pass it on. After `HopOk` come the bytes of the stream, in layers.
+- A hop that receives `HopStream` opens an exchange on the other side of the path with the
+  `path` value of that link and the same `number`, and copies in both directions. A
+  half-close and a reset are passed on. A hop that receives an `Error` as status frame, or a
+  reset, on one side of a stream resets the other side.
+- An unknown `path` is answered `Error{NOT_FOUND}`.
+- **Numbers never repeat on a path**, so that a layer's key stream is never used twice. Each
+  opener MUST use a number greater than every number it used before on the path. The
+  exchanges of a link arrive in any order, so the receiver does not ask for that order. A
+  hop, and the owner for the streams that reach it, accepts a number that it has not seen
+  before on that path from that side, and that is above the highest number it has seen from
+  that side minus 1,024 *(initial)*. A `HopStream` with `number = 0`, with a number seen
+  before, or with one that is not above that bound is answered `Error{MALFORMED}`.
+- **Parity.** An odd number from the owner side, or an even number from the far side, is
+  answered `Error{MALFORMED}`, or the exchange is reset. The nonce of a layer rests on it.
 - **A hop keeps little.** It holds at most 256 KiB *(initial)* per stream and direction. When
   the next link does not take data, it stops reading from the link before. The flow control of
   the exchanges carries this back to the sender. Nothing is acknowledged twice and nothing is
@@ -228,13 +260,15 @@ message HopGate {             // type 29. Request and answer on the control stre
 ```
 
 **Outwards.** The owner opens a stream and sends `HopConnect`. The last hop connects to
-`node` (a global unicast address, `Protocol.md` §8.2 (7); else `Error{MALFORMED}`), opens an
-exchange, sends `HopJoin` with the same `gate`, and copies in both directions. The dials that
-`HopExtend` and `HopConnect` cause are limited per path and per neighbour (§5). A node that hides behind 0 hops sends `HopJoin` itself.
+`node` (an address as §2.2 asks; else `Error{MALFORMED}`), opens an exchange, sends `HopJoin`
+with the same `gate`, and copies in both directions. The dials that `HopExtend` and
+`HopConnect` cause are limited per path and per neighbour (§5). A node that hides behind 0
+hops sends `HopJoin` itself.
 
 **Inwards.** An owner that wants to be reached sends `HopGate` on the control stream of a
 path. The last hop answers with a gate value and is from then on a **gate** of the owner. A
-`HopExtend` on a path that has a gate is answered `Error{MALFORMED}`: the gate is the last hop.
+second `HopGate` on a path is answered with the same gate value. A `HopExtend` on a path
+that has a gate is answered `Error{MALFORMED}`: the gate is the last hop.
 
 - A node that receives `HopJoin` with a gate value it gave opens a stream with an odd number
   on that path and copies. With an unknown value it answers `Error{NOT_FOUND}`.
@@ -244,8 +278,19 @@ path. The last hop answers with a gate value and is from then on a **gate** of t
 - A gate accepts at most 10 *(initial)* `HopJoin` per minute from one host and answers
   `Error{BUSY}` above that.
 
-After `HopConnect` or `HopJoin` the two ends speak to each other. The hops and gates in
-between copy bytes.
+**Status frame.** As after `HopStream` (§2.4), the first thing in the other direction after
+`HopConnect` and after `HopJoin` is one frame, `HopOk` or an `Error`, before any raw byte.
+Both are, like `HopStream`, followed by raw bytes.
+
+| After | Sent by | `HopOk` when | `Error` |
+|---|---|---|---|
+| `HopStream` | the neighbour that received it, on that link, without a layer | it accepted the stream for itself | §2.4 |
+| `HopConnect` | the last hop, on the stream towards the owner. The frame is in the layers of the path, as every byte of that stream | `node` answered its `HopJoin` with `HopOk` | `NOT_FOUND` when `node` cannot be reached within 10 s *(initial)*; `MALFORMED` for a `node` that §2.2 refuses; `BUSY` above a dial limit (§5); else the `Error` that `node` gave |
+| `HopJoin` | the node that received it, without a layer | with a gate value: its neighbour on the path answered the `HopStream` with `HopOk`. Without one: at once | `NOT_FOUND` for an unknown gate value; `BUSY` above the limit; a failed stream on the path is a reset |
+
+The last hop reads the status frame of the `HopJoin` it sent and does not copy it: the owner
+gets the one of `HopConnect`. After `HopOk` the two ends speak to each other. The hops and
+gates in between copy bytes.
 
 ### 3.2 Opening a session
 
@@ -282,6 +327,15 @@ and need no signature. They MAY use another path than the first. **A session the
 outlives a path**: when a path breaks, its streams end, and the session goes on over the next
 path.
 
+- Each side MUST use a number greater than every number it used before in the session.
+- The receiver resets a stream whose number it has already seen from that side in the
+  session, whose number is not above the highest it has seen from that side minus 1,024
+  *(initial)*, or whose number has the parity of the receiver's own side. A gate or a last
+  hop that sends a stream a second time is refused so.
+- A stream with an unknown `sid`, or whose first byte is neither 0x01 nor 0x02, is reset. An
+  opener whose further stream is reset before a record came back on it drops the session and
+  opens a new one with the three messages above.
+
 ### 3.3 What a stream of a session carries
 
 ```
@@ -308,9 +362,8 @@ first stream has the number 0, and its records follow the three messages of §3.
   `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys.
 - A node MUST limit the sessions of one node ID as it limits connections (`Protocol.md`
   §4.6). What it counts per address, it counts per gate or per node that sent the `HopJoin`.
-- B can open a stream to A only while a stream of the session is open, or through a gate of
-  A. An uploader that offers a slot later (`Protocol.md` §12.5) looks up the `GATE` record of
-  the downloader.
+- B can open a stream to A only through a gate of A. An uploader that offers a slot later
+  (`Protocol.md` §12.5) looks up the `GATE` record of the downloader.
 
 ---
 
@@ -352,8 +405,9 @@ connection.
 - A `Store` of any signed kind MAY carry `signer` (`Protocol.md` §10.7). The storing node then
   checks the signature under `signer`, and counts the record for that key.
 - Its limits per address ([`ip-diversity.md`](ip-diversity.md) §2.4) count the address the
-  request came from. Many nodes that store through one last hop share its allowance, so an
-  owner uses several paths.
+  request came from. For `ANON` records that is 4 per host and 8 per site for each target
+  *(initial)*; a record beyond a limit is answered `REJECTED`. Many nodes that store through
+  one last hop share its allowance, so an owner uses several paths.
 
 ### 4.3 The two records
 
@@ -389,8 +443,22 @@ Signed gate = 17;             // GATE search
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |
-| Count | one per key and target; at most 64 *(initial)* per target, a further one answered `FULL` | one per target; replaced by a later `issued`, else answered `OLDER` |
+| Count | one per key and target; at most 64 *(initial)* per target, a further one answered `FULL`; at most 4 per host and 8 per site *(initial)* (§4.2), a further one answered `REJECTED` | one per target; replaced by a later `issued`, else answered `OLDER` |
 | Returned | in `anon`, with every search of kind `SOURCE` at that target | in `gate`, with the key in `keys` |
+
+**Checks**, in addition to those of `Protocol.md` §10.7
+
+| | Storing node, on `Store` | Searcher, on `KadAnswer` |
+|---|---|---|
+| `signer` | `Store.anon` carries `signer`, and the signature is valid under it | `gate` is valid under `keys[key]`, and that key gives the node ID that was looked up |
+| Target | `GATE`: follows from `signer` | the same |
+| Content | `ANON`: `expires` and nothing else. `GATE`: `expires` and `gates`, nothing else | the same for `gate` |
+| `gates` | at most 4 entries | the same |
+| `Gate.node` | 22 or 34 B, and an address that §2.2 accepts as `node` | the same |
+| `Gate.gate` | 8 B | the same |
+
+A record that fails a check is answered `REJECTED` by the storing node and dropped by the
+searcher.
 
 - **Two steps on purpose.** Gates change whenever a path breaks. A node with 10,000 files
   then stores one `GATE` record again, and its 10,000 `ANON` records stay as they are.
@@ -400,6 +468,7 @@ Signed gate = 17;             // GATE search
   gives the node ID, picks a gate at random, and opens a session through it. It makes at most
   4 *(initial)* failed `GATE` lookups or session attempts per file and hour, as
   [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
+  One session attempt is one gate dialled.
 - An owner stores its `GATE` record again after 45 min *(initial)*, and at once when a gate
   was lost.
 - The batch of `Protocol.md` §10.4 does not carry `ANON` records: each is signed for its
@@ -418,6 +487,7 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Paths from one neighbour | 8 |
 | Paths in total, and the share of its upload | the user's choice. A client SHOULD offer the share as a setting and start with a quarter |
 | Streams per path | 64 |
+| Exchanges on the connection to one neighbour | 64 opened by the peer (`Protocol.md` §4.1), and 65 more for each path accepted from that neighbour: its 64 streams and the control stream |
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
 | Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |

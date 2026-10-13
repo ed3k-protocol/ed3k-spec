@@ -28,7 +28,8 @@ channels ([`live.md`](live.md) §10) use the same construction for a stream.
 ed3k:set?key=<set key, base32 lower case, no padding>&s=<secret, 32 bytes, base32>[&dn=<url-encoded name>][&path=<url-encoded path>]
 ```
 
-- A link with `s` names a hidden set. It has no `id` parameter.
+- A link with `s` names a hidden set. It has no `id` parameter; a link with both `id` and `s`
+  is refused.
 - **`key` is made for this set.** The author MUST NOT use its node key or the key of another
   set. One key is one hidden set.
 - `secret` is 32 random bytes.
@@ -82,13 +83,13 @@ message Sealed {
 
 - The record is a `Signed` of kind `HIDDEN`, signed with the set key. In the signature the
   place of `target` is taken by **`base`**, which does not change with the day. The author
-  therefore signs once, and others can store the record on later days.
+  therefore signs once, and others can store the record on later days, until its `expires`.
 - It travels in the fields of a `HEAD` record: `Store.head` with `Store.signer`, and
   `KadAnswer.sets`. `signer` is always present; a `Store` of kind `HIDDEN` without it is
   answered `REJECTED`.
 - In the sealed `Head`, `id` and `seq` are those of the manifest, `root` and `size` those of
   the sealed manifest (§4.1), and `name` is empty.
-- `data` is at most 256 bytes.
+- `data` is 12 to 256 bytes: the nonce and the sealed `Head`.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
@@ -97,7 +98,8 @@ message Sealed {
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins |
 | Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires`; a valid record that does not replace it is answered `OLDER` | among equal `seq` the lower `data`, as on the storing node |
-| Content | `sealed` and nothing else | `data` opens to a `Head` whose `seq` is the one outside |
+| Content | `sealed` and nothing else; else `REJECTED` | `data` opens to a `Head` whose `seq` is the one outside and whose `root` is 32 B |
+| Size | `data` 12 to 256 B; else `REJECTED` | the same |
 
 - A storing node deletes the record at `expires`, and at the latest 48 h after the day of its
   target began.
@@ -120,8 +122,8 @@ message Sealed {
    is still under yesterday's target.
 2. Take the record with the highest `seq` and open `data`.
 3. Download the sealed manifest by its `root`, open it (§4.1), and accept it by the rules of
-   [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` of the head, and
-   with the `id` of the version held before, if there is one.
+   [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` and the `id` of
+   the opened `Head`, and with the `id` of the version held before, if there is one.
 
 A follower checks as often as for any set (`file-set.md` §5.3). There is no topic for a hidden
 set in [`pubsub.md`](pubsub.md) in this version.

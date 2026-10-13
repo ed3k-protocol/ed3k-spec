@@ -18,7 +18,7 @@ This extension gives a crowded keyword more room and an order:
 - **No early deletion.** A file that loses its place is not deleted. Its record stays until it
   expires, and by then its publishers have stored it one level down.
 
-A file is published under every keyword of its name, as in version 1.
+A file is published under the keywords that `Protocol.md` §10.1 selects, as in version 1.
 
 ## 1. What version 1 already carries
 
@@ -63,7 +63,7 @@ A record for file F arrives under target T:
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
 | The node has no room at all | nothing | `BUSY` |
-| F is held under T with a record that is not older than this one (§10.7) | nothing | `OLDER` |
+| F is held under T with a record from the same publisher that is not older than this one (§10.7) | nothing | `OLDER` |
 
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
@@ -107,7 +107,8 @@ A publisher remembers one level L per (file, keyword), starting at 0.
 The outcome of a store at one level is taken over the storing nodes that answered
 `responsible`, ignoring `BUSY`:
 
-- **placed:** at least half of them answered `STORED`
+- **placed:** at least half of them answered `STORED` or `OLDER`: both say that the node
+  holds the file
 - **full:** otherwise
 
 A refresh:

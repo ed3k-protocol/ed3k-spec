@@ -30,7 +30,9 @@ A client tries these in order and stops when its lookups work:
 5. **Node lists** (§2 to §4).
 
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the
-sources above completed a handshake, and at most once per 6 h *(initial)*.
+sources above completed a handshake, and at most once per 6 h *(initial)*. The 6 h are counted
+per first contact, not per source: one first contact fetches from several sources (§3 of this
+document), and the next one starts 6 h later at the earliest.
 
 ---
 
@@ -54,7 +56,7 @@ message NodeList {
   bytes  nodes4 = 2;          // n × 22 B compact nodes (§5.4)
   bytes  nodes6 = 3;          // n × 34 B compact nodes
   string comment = 4;
-  bytes  net_id = 5;          // 16 B: H("ed3k v1 net", name)[0..16) of the network the list is for (§4.3); empty = the public network
+  bytes  net_tag = 5;         // 16 B: H("ed3k v1 nodes net", net_id)[0..16) of the network the list is for; empty = the public network
 }
 ```
 
@@ -66,13 +68,25 @@ Each signature is computed over
 
 `Signature` and the rules for `sigs` are those of §10.7.
 
+`net_tag` names the network without giving away `net_id` (§4.3), which is the key input of the
+obfuscation and, in a closed network, all that makes a member. A list of the public network
+leaves `net_tag` empty. A list of any other network carries
+
+```
+net_tag = H("ed3k v1 nodes net", net_id)[0..16)
+```
+
+A member computes the same value and recognises its list. Nobody can get `net_id` or the name
+back from it.
+
 A reader refuses a list
 
 - that does not start with the 8 bytes, or is larger than 32 KiB *(initial)*,
 - whose `key` is not the one configured for the source, or whose signature does not verify
   under it (§3),
-- whose `net_id` is not that of the client's own network (§4.3): a list of another network is
+- whose `net_tag` is not that of the client's own network: a list of another network is
   no use, and the public network's lists must not lead into a test network,
+- whose `nodes4` is not a multiple of 22 B, or whose `nodes6` is not a multiple of 34 B,
 - whose `created` is more than 30 days *(initial)* in the past or more than 1 h in the future.
 
 A list that names more than 200 *(initial)* nodes per family is not refused; the nodes after
@@ -92,6 +106,10 @@ A **source** is an HTTPS URL together with the key that signs the lists found th
   It picks another one for each that fails.
 - The server certificate is verified as for any HTTPS request. The signature is verified on
   top of that, so a list may be served by a mirror or a cache that the signer does not run.
+- A fetch is HTTPS only. The client follows at most 3 *(initial)* redirects, each to an HTTPS
+  URL; a redirect to anything else, or a fourth one, ends the fetch as failed.
+- The client stops reading at 32 KiB, the largest list of §2 of this document. An answer that
+  goes on beyond that is a failed fetch.
 - The request carries nothing that names the node: no node ID, no cookie, a plain user agent.
   It follows the user's proxy settings.
 - A list from a single source is used when no second source answers. The client then fetches
@@ -116,7 +134,8 @@ signed with its node key, so that one user can help another who is cut off from 
 ## 4. Using a list
 
 - From each list a client takes at most 50 *(initial)* nodes, chosen at random. One entry per
-  address is used; further entries of an address are dropped before the sample is taken.
+  IP address is used, whatever its port and node ID; further entries of an IP address are
+  dropped before the sample is taken.
 - **A node from a list is a candidate, not a contact.** The client dials it. The handshake
   proves the node ID (T1) and with it the routing ID (§6.3). Only then is it inserted, under
   the rules of §10.2 and [`ip-diversity.md`](ip-diversity.md). A list gives a node no better
@@ -124,11 +143,15 @@ signed with its node key, so that one user can help another who is cut off from 
 - At most half of the candidates of a first contact come from one list, as long as a second
   list was received.
 - When 4 *(initial)* nodes have completed a handshake, the client looks up its own routing ID
-  (§6.3, §10.3), once per public address. From then on
+  (§6.3, §10.3), once per public address. When more than one list was received, at most half
+  of the 4 come from one list: further nodes of that list do not count towards the 4, and the
+  client waits for nodes from elsewhere. One list then cannot supply every seed of the first
+  lookup. From then on
   its table is filled by lookups, and the lists are not used again.
 - A node from a list that does not answer is dropped without a second attempt.
 - A list belongs to one network ([`Protocol.md`](../Protocol.md) §4.3). A node of another
-  network does not answer, and the name of a closed network is never part of a list.
+  network does not answer. Neither the name of a closed network nor its `net_id` is ever part
+  of a list; `net_tag` is a hash of `net_id` under a context of its own (§2 of this document).
 
 ---
 
@@ -159,7 +182,7 @@ For whoever runs a source:
 | **A false list at a real source** (server taken over) | the signature. The signing key need not be on the server |
 | **An old list shown again** | `created` and the 30 days |
 | **A stolen signing key** | nothing in the protocol. The client's next release removes the source |
-| **A list that names a victim's address** many times, to make newcomers send to it | one entry per address is used; a newcomer sends one handshake; 50 nodes per list |
+| **A list that names a victim's address** many times, to make newcomers send to it | one entry per IP address is used; a newcomer sends one handshake; 50 nodes per list |
 | **Blocking the sources** | sources at several hosts; lists by hand (§3); every other way of §1 |
 
 **What a fetch shows.** The network between client and source sees an HTTPS connection to the

@@ -64,16 +64,17 @@ message Channel {
   string codecs = 6;          // RFC 6381 codecs string, for example "avc1.64001f,mp4a.40.2"
   uint32 kbps = 7;            // typical bit rate
   uint32 segment_ms = 8;      // duration a segment aims at
-  uint32 window = 9;          // segments a viewer keeps; 0 or absent = 30
+  uint32 window = 9;          // segments a viewer keeps, 8 to 240; 0 or absent = 30
   uint64 created = 10;
 }
 ```
 
 - The signature is over `"ed3k v1 live channel" ‖ body` and is REQUIRED. A reader checks it
   against `key` and refuses the file when it fails.
-- A channel file MUST NOT exceed 64 KiB, and `window` is at most 240 *(initial)*: a reader
-  refuses a channel file above that, so the first `LiveState` of §3.1 carries at most that many
-  records and a viewer keeps at most that many segments.
+- A channel file MUST NOT exceed 64 KiB. `window` is 8 to 240 *(initial)*; 0 or absent still
+  means 30. A reader refuses a channel file that is larger or has another `window`, so the
+  first `LiveState` of §3.1 carries at most 240 records, a viewer keeps at most that many
+  segments, and a window is never too short to join 3 segments behind (§3.3).
 - It is shared, published under its keywords and downloaded like any file ([`Protocol.md`](../Protocol.md) §10 and §12). A search
   finds channels as it finds files; the suggested name ends in `.ed3klive`.
 - It describes the channel, not a broadcast. It changes only when the description does.
@@ -137,9 +138,17 @@ and is made with the channel key.
 - A record is about 150 bytes. A `LiveRecord` MUST NOT exceed 1 KiB.
 - A node accepts a record only when the signature is valid, and drops it otherwise. A neighbour
   that sent it counts one miss (§6).
+- **Limits.** A record with a valid signature is still invalid when its `size` is above 4 MiB,
+  its `init_size` is above 256 KiB (§2.1), or `root` is absent without `end`. A node drops it
+  and does not forward it. It is not a miss for the neighbour that sent it: the channel key
+  signed it, and the neighbour only passed it on.
 - **Order.** Records are ordered by `start`, then `seq`. A node ignores a record of an earlier
   `start` than the newest it has seen, and a `start` more than 1 h *(initial)* ahead of its
   clock. An old broadcast can therefore not be played back into a running one.
+- **Behind the window.** A node drops, without forwarding, a record whose `seq` is below the
+  newest `seq` it holds of that broadcast minus `window` (§3.3; nothing while the newest `seq`
+  is below `window`). Old records of a running broadcast then do not travel through the mesh
+  again. Such a record is not invalid and counts no miss.
 - **Two records for one `seq`** of one broadcast with different content are proof that the
   channel key signed both. The one with the lower `root`, compared as a byte string, wins: a
   node keeps it, passes it on and drops the other, also when it had already fetched that
@@ -148,7 +157,8 @@ and is made with the channel key.
 - `end` closes the broadcast. Nodes forward it, keep it for 30 min *(initial)*, and leave the
   stream: they stop storing `LIVE` records at once, and for those 30 min answer a `LiveJoin`
   with the `end` record and `refusal = LIVE_LEFT`, so that a late viewer learns that the
-  broadcast is over. There is no other way to end a broadcast than this record or silence (§3.4). An `end`
+  broadcast is over. In a private channel only a `LiveJoin` with a valid proof is answered so
+  (§10.3). There is no other way to end a broadcast than this record or silence (§3.4). An `end`
   record has the `seq` after the last segment's, and `root`, `size`, `ms`, `init` and
   `init_size` absent.
 - For one `seq`, a record without `root` loses against one with a `root`, and of two without
@@ -207,7 +217,7 @@ message LiveState {
   string media = 6;           // answer to want_channel
   string codecs = 7;
   Refusal refusal = 8;        // set: I do not take you as a neighbour
-  bytes  proof = 9;           // private channel: 16 B, in the first answer (§10.3)
+  bytes  proof = 9;           // private channel: 16 B, in the first answer to a valid proof, whatever `refusal` (§10.3)
 }
 
 enum Refusal { LIVE_NONE = 0; LIVE_FULL = 1; LIVE_LEFT = 2; LIVE_BLOCKED = 3; }   // prefixed: enum values share one scope per package
@@ -250,6 +260,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 - `LiveGet` is accepted only from a neighbour, that is while a live exchange with that node is
   open. Anything else is answered `Error{DENIED}`.
 - A segment of more than one block may be fetched from several neighbours at once, by block.
+- **Init data** is asked of a neighbour whose `have` shows a segment whose record names it.
+  `Error{NOT_FOUND}` from such a neighbour counts as for a segment (below).
 - A node that no longer wants a segment resets the exchange. One lost packet delays only the
   segment it belongs to, because each segment has an exchange of its own.
 - `Error{NOT_FOUND}` for a segment that the neighbour's last `have` showed counts as a miss
@@ -340,7 +352,7 @@ For each neighbour a node keeps the outcome of its own last 20 *(initial)* reque
 | Outcome | Counts as |
 |---|---|
 | The whole segment, or every block asked for, arrived within the time of §3.2 (4 s plus 1 s per MiB asked for) | 1 hit |
-| `Error{BUSY}` (with the rule of §6.2), no answer in time, a bad block, an invalid record, or `NOT_FOUND` for a segment shown in `have` | 1 miss |
+| `Error{BUSY}` (with the rule of §6.2), no answer in time, a bad block, a record whose signature fails (§2.2), or `NOT_FOUND` for a segment shown in `have` | 1 miss |
 | The same for an **urgent** request | 1 outcome that counts twice in the rate: 2 hits or 2 misses, in one of the 20 places |
 | A request the node reset itself | nothing |
 
@@ -369,17 +381,25 @@ rate = hits / (hits + misses)
 All numbers are *(initial)*.
 
 - **Down.** A rate under 50 % with at least 5 outcomes puts a neighbour back to **new**, and
-  its time as a neighbour starts again; the outcomes kept are cleared with it.
-- **Out.** A rate under 20 % with at least 10 outcomes ends it. The node closes the live
-  exchange and refuses that node ID with `LIVE_BLOCKED` for 30 min, for this stream only.
+  its time as a neighbour starts again; the outcomes kept are cleared with it. Down applies at
+  every rank, **new** included.
+- **Out.** A second Down for the same neighbour within 10 min *(initial)* of the one before
+  ends it. Out is checked first: when a rate falls under 50 % with at least 5 outcomes, the
+  node looks for an earlier Down in those 10 min, and only without one is it a Down. On Out
+  the node closes the live exchange and answers a `LiveJoin` of that node ID with
+  `LIVE_BLOCKED` for 30 min, for this stream only. The time of a Down is kept per node ID,
+  also when the neighbour leaves and returns.
 - A request above the number its rank allows is answered `Error{BUSY}`. A node counts a `BUSY`
   as a miss only when it had at most one request outstanding at that neighbour, the allowance
   of every rank; a `BUSY` for a further request is its own doing and counts nothing.
 - **Core limits.** At most 1 **core** neighbour per site and 2 per block. A further one stays
   **steady**. One network can then not hold a node's whole inner circle.
-- **Sudden loss.** A node that loses more than a third of its **core** neighbours within 2 min
-  neither lowers a rank nor ends a neighbour for the next 2 min. A network fault looks like
-  many peers failing at once, and punishing through it would take the mesh apart.
+- **Sudden loss.** A node that had at least 3 **core** neighbours and lost more than a third
+  of them within 2 min neither lowers a rank nor ends a neighbour for the next 2 min. A core
+  neighbour is lost when its live exchange closed without the node closing it, or when it sent
+  nothing for 30 s (§3.1). A demotion is not a loss. A network fault looks like many peers
+  failing at once, and punishing through it would take the mesh apart; with 1 or 2 core
+  neighbours one failure says nothing of the kind.
 - **A returning neighbour** within 30 min starts at the rank it had, less one. Ranks are kept
   per node ID, which a peer cannot change with its address ([`Protocol.md`](../Protocol.md) §6.1).
 - The broadcaster ranks its neighbours in the same way. It has nothing to ask them for, so it
@@ -524,8 +544,12 @@ LiveState.proof  = H("ed3k v1 live private answer", k ‖ joiner's node ID ‖ p
 - Both node IDs are those of the authenticated connection ([`Protocol.md`](../Protocol.md) §6.2), so a proof is of no use to
   a third node and cannot be replayed on another connection.
 - A peer answers a `LiveJoin` without a valid proof with `refusal = LIVE_LEFT`, the answer of a
-  node that is not in the stream. It sends nothing else. A `LIVE_FULL` answer to a valid proof
-  carries `proof` as well, and `peers` as §3.1 asks.
+  node that is not in the stream. It sends nothing else: no `proof`, no `peers` and no record,
+  the `end` record of §2.2 included.
+- **Every answer to a valid proof carries `proof`, whatever its `refusal`:** an answer that
+  takes the joiner, `LIVE_FULL` with `peers` as §3.1 asks, `LIVE_BLOCKED`, and `LIVE_LEFT`
+  with the `end` record after the broadcast is over. The `end` record is sent only to a valid
+  proof.
 - A joiner closes the exchange when the first `LiveState` has no valid proof, and reads `peers`
   from one that has, whatever its `refusal`.
 - `peers`, records and segments go only to neighbours that passed this.

@@ -112,18 +112,31 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
 | Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8 |
 | Target | the target of the request is the one computed from `scheme` and `id` |
-| Count | one record per publisher, target and root. At most 64 *(initial)* different roots per target; further ones get `FULL` |
+| Count | one record per publisher, target and root. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
 
 - It checks nothing that depends on the scheme, and stores records of schemes it does not
   know.
 - It cannot check the claim.
-- A search returns up to 16 *(initial)* records, the roots named by the most publisher sites
-  first, one record per root. A site is the group of [`ip-diversity.md`](ip-diversity.md) §1.
+- **Records per root.** It keeps at most 3 *(initial)* records per root under a target: the
+  freshest ones, of different publishers. A further valid record is not kept; its publisher's
+  site is counted until that record's `expires`, and the answer is `STORED`. This is the
+  limit of a storing node. The 4 records per root and scheme above are the limit of one
+  publisher, over the names it publishes.
+- A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
+  publisher sites first, one record per root. Among equal counts the order is the node's own,
+  which a publisher cannot choose (`Protocol.md` §10.3). A site is the group of
+  [`ip-diversity.md`](ip-diversity.md) §1.
+- `KadAnswer.sites` (`Protocol.md` §10.3) has one entry per entry of `aliases`: the publisher
+  sites the node counted for that root, 0 = not counted.
+- A search is paged with `offset` and `more` as in `Protocol.md` §10.3, along the order
+  above: `offset` counts roots in it.
 
 **Searcher**
 
 - It checks the signature and that `scheme` and `id` give the target it searched.
 - **Every record is a claim.** §4 says how each relation is checked.
+- It merges the answers by `root`. The site count of a root is the median of the `sites`
+  values reported for it; among equal counts the lower `root` comes first.
 - It tries at most 3 *(initial)* roots per name, those named by the most publisher sites first.
 - A publisher whose claim proved false is ignored from then on.
 

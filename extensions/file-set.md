@@ -99,8 +99,9 @@ A reader MUST refuse a manifest that breaks one of these *(initial)*:
 | Components in a directory path | 32 |
 | `root` | 32 bytes |
 | `dir` | 0 to the number of `dirs` |
-| Manifests below each other (§2.5) | 8, counting the outer one |
-| Files of a set with all its inner sets | 1,000,000 |
+
+The limits over several manifests, the depth and the total of files, are in §2.5. They leave
+an inner set unopened; no manifest is refused for them.
 
 ### 2.2 Paths
 
@@ -109,7 +110,8 @@ A manifest comes from a stranger and names places in the reader's file system.
 - A component MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, NUL or a code point below
   U+0020. A directory path MUST NOT begin or end with `/` or contain `//`.
 - Two members MUST NOT have the same `dir` and `name`. Two entries of `dirs` MUST NOT be equal.
-  A member's path, its directory and `name`, MUST NOT equal an entry of `dirs`.
+  A member's path, its directory and `name`, MUST NOT be equal to an entry of `dirs`, or a
+  prefix of one that ends at a `/` (file `a` with `dirs = ["a/b"]`).
 - A reader MUST refuse a manifest that breaks these rules. It MUST NOT repair it.
 - A reader writes every member below one directory that the user chose for the set, and MUST
   NOT follow a symbolic link that leaves it.
@@ -132,12 +134,15 @@ A manifest comes from a stranger and names places in the reader's file system.
 A manifest MAY be signed by its author. Each signature is computed over
 
 ```
-"ed3k v1 set" ‖ body
+"ed3k v1 set manifest" ‖ body
 ```
 
 with the key in `key`. The rules for `sigs` are those of `Protocol.md` §10.7. The author's
 node ID is `H("ed3k v1 node id", key)[0..16)` (`Protocol.md` §6.1).
 
+- A manifest is **signed** when `key` is present. It then has exactly one of `sigs` and
+  `grant` ([`multi-author-set.md`](multi-author-set.md) §1.2); with both or with neither it
+  MUST be refused. A manifest with `sigs`, `grant` or `cosigs` and no `key` MUST be refused.
 - A signed manifest with a signature that does not verify MUST be refused.
 - The signature says who made the list. It says nothing about the files.
 - An unsigned manifest is valid. Most sets need no author.
@@ -234,12 +239,15 @@ second is part of `Protocol.md` §12.5.
 bool  want_members = 8;       // on the stream of a manifest: tell me which members you have
 
 // in FileStatus:
-bytes members = 10;           // bitmap over FileSet.files, LSB first; bit set = member complete
+bytes members = 10;           // bitmap over FileSet.files, LSB first; bit set = member complete; missing bits are 0; absent = not told
 ```
 
 - A downloader sets `want_members` in a `FileRequest` for a manifest.
 - An uploader that shares the file as a set answers with `members`. An absent field means "not
   told"; the downloader then asks per member.
+- The bitmap MAY be shorter than the list: bytes that are missing at its end read as 0, and
+  bits after the last member are ignored. An uploader that has no member complete sends the
+  one byte `00`, so that its answer is not read as "not told".
 - A bit is set only for a member the uploader holds completely. A partial member is found by
   asking for it.
 - `members` is sent again only when the downloader asks again.
@@ -271,6 +279,11 @@ A set that changes has an author and an `id`:
 - The manifest is signed (§2.4). `key` is the author's key.
 - `FileSet.id` is 1 to 32 bytes chosen by the author when the set is created, random or
   readable. It is the same in every version.
+- A set that may get co-owners later is created with an `id` of at most 16 bytes: a joint
+  head holds no longer one, and the `id` cannot change
+  ([`multi-author-set.md`](multi-author-set.md) §1.1, §1.3). In a joint head `Head.name`
+  (§5.2) MAY be empty, or the manifest's name cut at a code point boundary to at most 64
+  bytes.
 - `FileSet.seq` is the version number. Every new version has a higher one.
 
 The pair (`key`, `id`) is the name of the set. Its head is stored at
@@ -326,7 +339,8 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
 - **Only the author can make a head**, because the target contains the key.
 - **Anyone can store it again.** A node that follows a set SHOULD store the head it holds once
   per 24 h *(initial)* on the closest nodes, with `signer` set. The record then outlives the
-  storing nodes that leave, and the author need not be online. `signer` is how a `Store`
+  storing nodes that leave, and the author need not be online until the head's `expires`
+  (7 days at most), when only the author can sign a new one. `signer` is how a `Store`
   carries a record that the connection's key did not sign (`Protocol.md` §10.7).
 - **An old head can be shown again** until its `expires`, to a storing node that never saw the
   newer one. A searcher asks R nodes (`Protocol.md` §10.4) and takes the highest `seq`. An author who wants
@@ -338,7 +352,9 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
 
 1. Search `HEAD` at the target. No answer means that the version held is the newest known.
 2. For a head with a higher `seq` than the manifest held, or with the same `seq` and a lower
-   `root`, download the manifest `root`.
+   `root`, download the manifest `root`. Where a head or the manifest held has a grant, the
+   comparison is in the order of [`multi-author-set.md`](multi-author-set.md) §1.3: by the
+   grant's `number` first, then by `seq`, then by the lower `root`.
 3. Accept it only when it is signed by the same key and carries the same `id` and the `seq` of
    the head. Otherwise ignore the head and keep the old version.
 4. Compare the two lists by path.
@@ -374,6 +390,7 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
   not know `ed3k:set`.
 - An `ed3k:set` link with `s` in place of `id` names a hidden set
   ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
+  A link with both `id` and `s` is refused.
 - Unknown parameters of an `ed3k:set` link are ignored. [`chaintube.md`](chaintube.md) §3.1
   adds `b3` and `sz`, which pin one version of the manifest, and `ipfs`, which names a copy in
   IPFS.
@@ -416,15 +433,30 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 
 **Storing node**
 
+- Signature and `expires` are checked as for a keyword record (`Protocol.md` §10.7). The
+  record holds `member` and nothing else; else `REJECTED`.
 - One record per publisher, file and set. At most 64 *(initial)* different sets per target;
   further ones get `FULL`.
+- It keeps at most 3 *(initial)* records per set under a target: the freshest ones, of
+  different publishers. A further valid record is not kept; its publisher's site is counted
+  until that record's `expires`, and the answer is `STORED`.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
-  sites first, one record per set. A site is the group of
+  sites first, one record per set. Among equal counts the order is the node's own, which a
+  publisher cannot choose (`Protocol.md` §10.3). A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1.
+- `KadAnswer.sites` (`Protocol.md` §10.3) has one entry per entry of `sets`: the publisher
+  sites the node counted for that set, 0 = not counted.
+- A search is paged with `offset` and `more` as in `Protocol.md` §10.3, along the order
+  above: `offset` counts sets in it.
 
 **Searcher**
+
+- It checks signature and `expires` as for a keyword record (`Protocol.md` §10.7), and that
+  the record holds `member` and nothing else. A record that fails is dropped.
+- It merges the answers by `set`. The site count of a set is the median of the `sites` values
+  reported for it; among equal counts the lower `set` comes first.
 
 - The claim is checked by fetching the manifest and looking for the root. A record whose
   manifest does not list the file is false; the client SHOULD ignore that publisher from then

@@ -129,6 +129,11 @@ message Tube {
   checks a set with an ID by one `getContentById` (or `getCommentById`) call, and a set with 0
   by `eth_getLogs` as in §4.3, which is unbounded in the chain's history; it MAY give up on
   the latter after a bounded number of windows and show the set as unverified.
+- **After an upload in one transaction, the version the chain pins carries `content_id` = 0.**
+  Its root is the `b3` of the link (§3.1), and the ID exists only once that link is on the
+  chain, so this version cannot carry it. It is verified by the log search. An author SHOULD
+  follow with an update: a new version of the set that carries the ID, and `updateMedia` with
+  its `b3` (§3.2). Readers then check the video with one call.
 - A set without the field is still a valid upload set. It is found from the chain only.
 
 ---
@@ -409,7 +414,7 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 | Is this the right chain | `eth_chainId` |
 | One video | `eth_call` of `getContentById` |
 | The videos of an account | `eth_getLogs` at the content contract, topics `author` and `kind` = 0 |
-| The video of a set | `eth_call` of `getContentById(tube.content_id)` when the id is set, checking `author` and the link; else the same with `tube.author`; then the video whose link names the set's `key` and `id` |
+| The video of a set | `eth_call` of `getContentById(tube.content_id)` when the id is set, checking `author` and the link; else `eth_getLogs` at the content contract, topics `author` = `tube.author` and `kind` = 0; then the video whose link names the set's `key` and `id` |
 | The entry of an attachment set | `eth_call` of `getContentById` or `getCommentById(tube.content_id)` when the id is set; else `eth_getLogs` at `tube.contract`, topic `author` = `tube.author` (both contracts index it, §4.1); then the entry whose link names the set's `key` and `id` |
 | The comments of a video | `eth_getLogs` at the comment contract, topics `contractHash` and `contentId` |
 | The votes on a video or a comment | `eth_getLogs` at the vote contract, the same two topics |
@@ -626,6 +631,11 @@ and its `hashes` URL is `<gateway>/ipfs/<CID>/ed3k/<root, base32 lower case, no 
 - The checks, limits and redirects of `http-source.md` §3 and §5 apply. A gateway that
   redirects to a host name of its own for the CID is followed like any redirect. A gateway on
   the user's own machine is allowed because the user configured it.
+- **That exception is narrow.** It lifts the address check of `http-source.md` §5 for the
+  address and port of the gateway as the user configured it, and for a redirect whose target
+  resolves to that same address and port, such as `<CID>.ipfs.localhost` on a local gateway.
+  It covers nothing else: a redirect from the gateway to any other address that is not global
+  unicast is refused, and so is such an address in a gateway that a source named.
 - The gateway of a site SHOULD answer `Range` requests on files. Seeking in a player and
   fetching from several sources at once both need it. A gateway that does not is read from
   the start or not used (`http-source.md` §3).

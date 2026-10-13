@@ -11,7 +11,7 @@ the three guarantees the QUIC binding gives Kad:
 
 | Guarantee | Needed for | QUIC binding | This binding |
 |---|---|---|---|
-| Proof of the peer's key | low 107 bits of the routing ID (§6.3); source records bound to the publisher (§10.3) | TLS handshake | static Diffie-Hellman; an answer or request that decrypts was made by the key holder |
+| Proof of the peer's key | low 107 bits of the routing ID (§6.3) | TLS handshake | static Diffie-Hellman; an answer or request that decrypts was made by the key holder |
 | Proof of the peer's address | top 21 bits of the routing ID; no reflection | QUIC address validation | cookie for the requester; fresh transaction ID for the responder |
 | Confidentiality and no fixed bytes | T2, T5 | TLS + §4 obfuscation | AEAD + the same mask |
 
@@ -84,8 +84,9 @@ the `INIT` it answers.
 cookie(8) ‖ responder_public_key(32)
 ```
 
-58 bytes plus padding, or 70 when a key-puzzle solution follows the key
-([`key-puzzle.md`](key-puzzle.md) §3): the length tells which, and any other length is dropped.
+The payload after `txid` is 40 bytes, or 52 when a key-puzzle solution follows the key
+([`key-puzzle.md`](key-puzzle.md) §3): the payload length tells which, and a datagram with any
+other payload length is dropped. The datagram is then 58 or 70 bytes plus padding.
 It MUST NOT be longer than the datagram it answers. Sent in reply to an `INIT`, and in reply
 to a `REQUEST` whose cookie is not valid.
 
@@ -138,9 +139,19 @@ ChaCha20-Poly1305 (RFC 8439), 16-byte tag.
 ```
 nonce = salt(8) ‖ txid(4)                       of the datagram being sealed
 aad   = type(1) ‖ txid(4) ‖ everything in the payload before the ciphertext
-        for ANSWER also ‖ H("ed3k v1 kad req", the whole REQUEST payload after the salt)[0..8), so that an answer is bound to its request
+        for ANSWER also ‖ req_hash, so that an answer is bound to its request
+req_hash = H("ed3k v1 kad req", type(1) ‖ txid(4) ‖ payload)[0..8)    of the REQUEST being answered
 seal_req uses k_req, seal_ans uses k_ans
 ```
+
+`req_hash` is taken over the **unmasked** bytes of the `REQUEST`: its `type` (50), its `txid`
+and its whole payload, that is `requester_public_key ‖ cookie ‖` the ciphertext with its tag
+(§2.3). `salt`, `magic`, `kp` and the padding are not part of it.
+
+Every copy of a `REQUEST` has its own `req_hash`: a retransmission has a new salt and so a new
+ciphertext, and the copy sent after a `CHALLENGE` has a new cookie as well. A requester keeps
+the `req_hash` of every copy it sent for a `txid`, at most three (§4), and accepts an `ANSWER`
+that opens under any of them. The responder uses the hash of the copy it answers.
 
 `salt` is fresh for every datagram, retransmissions included, so a nonce never repeats under a
 key in practice: 64 random bits, and the `txid` tells exchanges apart. A retransmission is
@@ -173,11 +184,12 @@ A verified contact from this binding has the same standing as one verified by a 
 - **No forward secrecy.** Keys are static per pair. A stolen identity key lets its thief read
   recorded Kad datagrams of that node. Kad requests are not secret from the network: any node
   can be asked the same question. Peer sessions and file transfers stay on QUIC with full TLS.
-- **Replay.** A recorded `REQUEST` can be replayed only from the same source address and only
-  while its cookie is valid. Every Kad operation is idempotent: a replayed search repeats an
-  answer to the real requester, and a replayed store re-stores the same record. A replay can
-  extend a record's life by at most the remaining cookie lifetime. A replayed `ANSWER` matches
-  no pending `txid` and is dropped.
+- **Replay.** A recorded `REQUEST` can be replayed only with the same source address, forged
+  or not, and only while its cookie is valid, one to two hours. A replay changes nothing on
+  the responder, because no `REQUEST` stores anything (§4). It makes the responder send one
+  more answer, up to 1200 bytes for about 96, to the address of the real requester; the
+  `REQUEST` rate of §5 bounds that. A replayed `ANSWER` matches no pending `txid` and is
+  dropped.
 - **One key, two uses.** Using an Ed25519 key for X25519 after conversion is established
   practice; the context strings keep the DH output apart from every other use of the key.
 - **The requester's key is visible.** `REQUEST` carries `requester_public_key` under the mask
@@ -194,13 +206,21 @@ A verified contact from this binding has the same standing as one verified by a 
 
 1. Without the responder's public key: send `INIT`. With key but without cookie: also `INIT`.
    Then wait for the `CHALLENGE` (step 3) with the timer of step 2; `REQUEST` is not sent
-   before it arrives.
+   before it arrives. For a contact that is not known to set `KAD_DGRAM`, 300 ms *(initial)*
+   replace the timer of step 2: when they pass, the `INIT` is not retransmitted, no failure
+   is counted, and the requester opens a QUIC connection (§9). A `CHALLENGE` with that `txid`
+   that arrives later only fills the cache with key and cookie; no `REQUEST` follows it.
 2. With key and cookie: send `REQUEST`. Start a timer of 1 s *(initial)*, or twice a known round-trip time.
 3. On `CHALLENGE` with the same `txid`: store cookie and key, send the `REQUEST` again once,
    with the same `txid` and a new `salt`.
 4. On timeout: retransmit once with a new `salt` and the same `txid`. After the second timeout
-   the exchange has failed; the contact counts one failure as in §10.2.
-5. Accept the first valid `ANSWER` for a `txid` and ignore later ones.
+   the exchange has failed; the contact counts one failure as in §10.2. This step does not
+   apply to the `INIT` for a contact not known to set `KAD_DGRAM` (step 1).
+5. Accept the first valid `ANSWER` for a `txid` and ignore later ones. An `ANSWER` is valid
+   when it opens under the `req_hash` of any copy sent for that `txid` (§3.2).
+6. Never send a `KadRequest` with `store` in a `REQUEST`. A lookup for a store MAY walk by
+   datagram with the same request without `store`; the request with `store` goes over QUIC.
+   On `Error{UNSUPPORTED}` for a request, repeat it over QUIC.
 
 **Responder**
 
@@ -208,10 +228,11 @@ A verified contact from this binding has the same standing as one verified by a 
 2. `REQUEST`: check the cookie first. If it is not valid, reply `CHALLENGE` and stop; no
    Diffie-Hellman is computed for an unvalidated address.
 3. Open the seal. On failure drop silently.
-4. Process the `KadRequest` exactly as §10.3 prescribes. For a `store` of kind `SOURCE`, the
-   source's node ID is taken from `requester_public_key` and its endpoint from the datagram's
-   source address.
-5. Reply with one `ANSWER`.
+4. A `KadRequest` with `store` is not accepted over datagrams. Nothing is stored, and the
+   `ANSWER` carries `Error{UNSUPPORTED}` (§5.6), which tells the requester to repeat the
+   request over QUIC.
+5. Process any other `KadRequest` exactly as §10.3 prescribes.
+6. Reply with one `ANSWER`.
 
 Only a `ROUTER` node answers. A leaf uses the binding as a requester only.
 
@@ -225,8 +246,12 @@ about 1110.
   left out it sets `more`. zstd is applied before measuring.
 - A requester that sees `more` either asks again with `Query.offset`, or opens a QUIC connection
   for the rest.
-- A `KadRequest` that does not fit, in practice a large keyword `Store`, MUST be sent over QUIC,
-  or split into several requests.
+- If an answer sets `more` and carries no record at all, the contacts left no room for one. The
+  requester asks again with `want = 0`, so that the answer carries no contacts. If that answer
+  carries no record either, one record does not fit a datagram, and the requester sends the
+  request over QUIC. It does not ask a third time by datagram.
+- A `KadRequest` that does not fit, in practice a search with many words, MUST be sent over
+  QUIC. A request with `store` goes over QUIC whatever its size (§4).
 
 16 IPv4 contacts take 352 bytes and 16 IPv6 contacts 544, so a find-node answer for both families
 always fits.
@@ -240,7 +265,8 @@ always fits.
 | Reflection | A `CHALLENGE` is never longer than the datagram that caused it, and nothing else is sent to an address without a valid cookie. A responder SHOULD send at most 4 *(initial)* `CHALLENGE`s per second to one address |
 | Amplification | An `ANSWER` goes only to a cookie-validated address |
 | CPU | Cookie check (one keyed hash) precedes everything. Derived keys are cached per peer key; a responder limits new key derivations per source address to 8 per second *(initial)* |
-| Flooding | The limit on records per `Store` and the per-address, per-kind policy of §10.3 apply unchanged |
+| Request floods and replay | A responder processes at most 16 / 64 / 256 *(initial)* `REQUEST`s per second per host / site / block ([`ip-diversity.md`](ip-diversity.md) §1), counted on `REQUEST`s with a valid cookie. A `REQUEST` above a limit is dropped without an answer |
+| Flooding of records | A `KadRequest` with `store` is not accepted over datagrams and is answered `Error{UNSUPPORTED}` (§4). The per-address, per-kind policy of §10.3 applies unchanged to searches |
 | Requester load | At most 16 *(initial)* exchanges outstanding in total, and 2 per responder |
 
 ---
@@ -278,10 +304,13 @@ Sizes are whole UDP payloads without padding, estimated from the layouts above.
 |---|---|---|---|
 | Exchange with a known node | ~2.5 KB handshake + messages, 2 round trips (1 with 0-RTT) | ~0.5 KB, 1 round trip | ~0.3–0.4 KB, 1 round trip |
 | First contact with a node | same | + ~120 B and 1 round trip | + verify-key round trip in some cases |
-| Lookup with operation, 8–12 nodes | 15–25 KB | 5–7 KB | 3–5 KB |
+| Lookup with a search, 8–12 nodes | 15–25 KB | 5–7 KB | 3–5 KB |
+
+A store is not sent by datagram (§4). A lookup for a store saves the connections to the
+waypoints only; each node that stores still costs a QUIC connection (§10.5).
 
 The remaining gap to eMule Kad is the requester's 32-byte key and the 16-byte tags, which buy
-authenticated node IDs and source records that cannot be forged.
+authenticated node IDs.
 
 `KadAnswer` carries no `observed` endpoint. A node that uses datagrams for all of Kad still
 learns its own address from its relay and peer sessions (§9.2).
@@ -307,8 +336,10 @@ learns its own address from its relay and peer sessions (§9.2).
    over QUIC.
 2. A requester uses datagrams with nodes it knows to have the bit (from `Hello`). For a contact
    it knows only from a `KadAnswer` it sends `INIT`, and if no `CHALLENGE` arrives within
-   300 ms *(initial)* it opens a QUIC connection instead. A failed attempt is remembered per
-   contact.
+   300 ms *(initial)* it opens a QUIC connection instead. The 300 ms replace the timer of §4
+   step 2 of this document: the `INIT` is not retransmitted, and the missing `CHALLENGE` is
+   not a failure in the sense of §10.2. A failed attempt is remembered per contact. A
+   `CHALLENGE` that arrives after the 300 ms only fills the cache.
 3. Network upgrade (§16): from a date fixed in the specification, a node MUST set `KAD_DGRAM` to
    be accepted as `ROUTER`. From then on step 2 needs no fallback.
 

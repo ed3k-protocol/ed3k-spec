@@ -38,7 +38,7 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the text of the `segment` element with leading and trailing ASCII whitespace removed, without `<` and `>`, as bytes |
+| mᵢ | the message ID of part *i* of the file: the text of the `segment` element with leading and trailing whitespace removed, without `<` and `>`, as bytes. Whitespace is space (0x20) and tab (0x09), here and in §2 |
 | Order of parts | by the `number` attribute, 1 to n. Where a number occurs twice, the first entry in the NZB counts |
 | fⱼ | the file ids of all files of the NZB, in ascending order of their bytes |
 
@@ -79,10 +79,13 @@ message Post {
 ```
 
 - **`name` and `size` come from the articles,** not from the NZB: the `name` and the `size` of
-  the yEnc header line `=ybegin`, with trailing whitespace removed. All parts of a file carry
-  the same values; a client takes them from the lowest-numbered part it has, and makes no
-  manifest and no `ALIAS` record for a post whose parts disagree.
+  the yEnc header line `=ybegin`, with trailing whitespace (space and tab, §1) removed. All
+  parts of a file carry the same values; a client takes them from the lowest-numbered part it
+  has, and makes no manifest and no `ALIAS` record for a post in which a file's parts
+  disagree among the parts it fetched.
 - A name that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8.
+- **A message ID that is not valid UTF-8** cannot be written into `ids`. A post with such a
+  message ID has no article list and no manifest (§3).
 - **The list does not say which bytes an article holds.** Each article says so itself, in its
   `=ypart` line (`begin`, `end`). A client that wants a range asks for the part the range
   falls in when all parts have the size of the first, and corrects itself from the answer.
@@ -124,6 +127,8 @@ A manifest with `usenet` is a **post set**. Its canonical form:
 - Every file of the NZB is a member: archive volumes, repair files, text files.
 - **No canonical manifest exists** for a post
   - with a file of which the client has no article, so that name and size are unknown,
+  - with a message ID that is not valid UTF-8 (§2),
+  - whose article list would be larger than 32 MiB *(initial)*, the limit of `list_size`,
   - whose names break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2, two equal names
     included,
   - or whose manifest would be larger than 4 MiB.
@@ -137,7 +142,7 @@ it uses both together:
 
 | Check | Rule |
 |---|---|
-| List | the article list has the root `usenet.list` |
+| List | the article list has the root `usenet.list`. A `list_size` above 32 MiB *(initial)* fails: the list is not fetched |
 | Post id | the file ids of the list, hashed as in §1, give `usenet.id` |
 | Count, order | the manifest has one member per entry of the list, in its order |
 | Name, size | member *i* has the name and the size of entry *i* |
@@ -184,7 +189,8 @@ The user gave an NZB file. **The articles are what was asked for,** and a root f
 a claim.
 
 1. The client computes the post id and the file ids (§1) and searches `ALIAS` records of
-   `nzb` and of `nzb-file`, in parallel with the download from Usenet.
+   `nzb`, in parallel with the download from Usenet. It searches `nzb-file` only when `nzb`
+   gave no post set that passes §3, and then for at most 256 *(initial)* files of the NZB.
 2. For a post set it finds, it downloads the manifest and the article list and makes the
    checks of §3. It tries at most 3 *(initial)* sets, those named by the most publisher sites
    first. A root found through `nzb-file` is a claim for that one file.
@@ -236,18 +242,20 @@ password.
 
 ## 6. Publishing
 
-A node publishes when it has the complete post, decoded the articles itself and computed every
-member's root from them, and shares the files. A manifest whose members it only verified under
-roots it was given is not published: that proves the manifest, not the post.
+A node publishes when it has the complete post and shares the files. Two kinds of rows have a
+further condition, as in [`torrent.md`](torrent.md) §5: the `ALIAS` rows and `PACKED` are
+published only by a node that decoded the articles itself and computed every member's root
+from them. Members that were only verified under roots the node was given prove the manifest,
+not the post. Such a node, one that got the post over ed3k, still publishes the other rows.
 
-| What | How |
-|---|---|
-| The members | as files: `SOURCE`, and `KEYWORD` by their names |
-| The manifest and the article list | as files: `SOURCE` only |
-| `ALIAS` of `nzb` | post id → manifest. Only for the canonical manifest |
-| `ALIAS` of `nzb-file` | file id → member, for each member. At most 256 *(initial)* per post; a client that needs more members finds them through the set |
-| `MEMBER` | from each member to the post set ([`file-set.md`](file-set.md) §6), so that a download that started from one file finds the article list |
-| `PACKED` | where the node unpacked the archive itself |
+| What | How | Who |
+|---|---|---|
+| The members | as files: `SOURCE`, and `KEYWORD` by their names | every node that shares them |
+| The manifest and the article list | as files: `SOURCE` only | every node that shares them |
+| `ALIAS` of `nzb` | post id → manifest. Only for the canonical manifest | only a node that decoded the articles itself |
+| `ALIAS` of `nzb-file` | file id → member, for each member. At most 256 *(initial)* per post; a client that needs more members finds them through the set | only a node that decoded the articles of that member itself |
+| `MEMBER` | from each member to the post set ([`file-set.md`](file-set.md) §6), so that a download that started from one file finds the article list | every node that shares both |
+| `PACKED` | where the node unpacked the archive itself | only a node that decoded the articles itself |
 
 - **A post that was downloaded is published.** A client that shares the files of a post
   shares the manifest and the article list with them, and publishes the records above.

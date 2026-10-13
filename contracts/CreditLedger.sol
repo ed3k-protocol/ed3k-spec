@@ -3,7 +3,8 @@
 //
 // Ledger of the ed3k credit extension (extensions/credit.md §6).
 //
-// NOT AUDITED, NOT TESTED, NOT DEPLOYED. The contract is immutable and has no
+// NOT AUDITED, NOT TESTED, NOT DEPLOYED. NOT COMPILED since the holds (hold, holdFor,
+// release, sweep, holdOf) were written by hand. The contract is immutable and has no
 // owner: a fault cannot be fixed after deployment. It needs tests, fuzzing and
 // an external audit first. The numbers marked (initial) were not simulated.
 pragma solidity ^0.8.24;
@@ -38,7 +39,8 @@ contract CreditLedger {
     uint64 public constant PAIR_CAP_KIB = 10 << 20; // 10 GiB per issuer, holder and 7 days (initial)
     uint64 public constant MAX_RECEIPT_KIB = 50 << 20; // 50 GiB in a day (initial)
     uint32 public constant WINDOW_DAYS = 7; // (initial)
-    uint256 public constant HOLD_TIME = 1 hours; // (initial): a bid's hold, credit.md §6.5
+    uint256 public constant HOLD_TIME = 6 hours; // (initial): a bid's hold, credit.md §6.5
+    uint256 public constant OVERDRAW_DAYS = 2; // (initial): a receipt older than this takes without the flag
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
     uint256 public constant UPLOADER_SHARE_PCT = 10; // of spent credits; the rest is burned
     uint256 public constant CALLER_REWARD_PCT = 60;
@@ -49,6 +51,8 @@ contract CreditLedger {
         keccak256("Receipt(address issuer,address holder,uint32 day,uint64 kib,uint64 spent)");
     bytes32 public constant PERMIT_TYPEHASH =
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
+    bytes32 public constant HOLD_TYPEHASH =
+        keccak256("Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)");
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
@@ -126,8 +130,10 @@ contract CreditLedger {
 
     /// payer → payee → hold
     mapping(address => mapping(address => Hold)) private _holds;
-    /// payer → sum of its holds; a hold that ran out counts until it is released or replaced
+    /// payer → sum of its holds; a hold that ran out counts until it is released, swept or replaced
     mapping(address => uint256) private _heldTotal;
+    /// payer → highest nonce used in holdFor
+    mapping(address => uint256) public holdNonces;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -137,7 +143,9 @@ contract CreditLedger {
     event Held(address indexed payer, address indexed payee, uint256 amount, uint64 until);
 
     error BadDeadline();
+    error BadNonce();
     error BadSignature();
+    error HoldLocked();
     error IsOverdrawn();
     error InsufficientBalance();
     error InsufficientAllowance();
@@ -195,7 +203,7 @@ contract CreditLedger {
 
     /// Whether receipts signed by `account` mint (credit.md §6.3).
     function isMature(address account) public view returns (bool) {
-        if (address(operators) != address(0) && operators.isRoot(account)) return true;
+        if (_isRoot(account)) return true;
         Account storage a = _accounts[account];
         return a.registeredAt != 0 && block.timestamp >= uint256(a.registeredAt) + MATURE_AGE
             && a.inflow >= MATURE_KIB && a.issuers >= MATURE_ISSUERS;
@@ -247,27 +255,40 @@ contract CreditLedger {
     }
 
     /// Locks `amount` µ of the caller's balance for `payee` for HOLD_TIME (credit.md §6.5).
-    /// Replaces an earlier hold for that payee; 0 releases it. The caller's holds must fit
-    /// its balance after decay.
+    /// While a hold runs it can only be raised or extended. Once it ran out it can be
+    /// lowered, and 0 releases it.
     function hold(address payee, uint256 amount) external {
-        if (payee == address(0)) revert ZeroAddress();
-        if (amount > type(uint128).max) revert InsufficientBalance();
-        Account storage a = _accounts[msg.sender];
-        if (a.overdrawn) revert IsOverdrawn();
-        _touch(a, msg.sender);
-        Hold storage h = _holds[msg.sender][payee];
-        uint256 total = _heldTotal[msg.sender] - h.amount + amount;
-        if (uint256(a.earned) + a.received < total) revert InsufficientBalance();
-        _heldTotal[msg.sender] = total;
-        h.amount = uint128(amount);
-        h.until = amount == 0 ? 0 : uint64(block.timestamp + HOLD_TIME);
-        emit Held(msg.sender, payee, amount, h.until);
+        _hold(msg.sender, payee, amount);
     }
 
-    /// What `payer` still holds for `payee`; 0 once the hold has run out.
-    function holdOf(address payer, address payee) external view returns (uint256) {
+    /// `hold` for a payer that sends no transaction: anyone may hand in its signature.
+    /// `nonce` must be above every nonce used by this payer before. `sig` is 65 bytes, r ‖ s ‖ v.
+    function holdFor(address payer, address payee, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata sig)
+        external
+    {
+        if (block.timestamp > deadline) revert BadDeadline();
+        if (nonce <= holdNonces[payer]) revert BadNonce();
+        bytes32 digest = _digest(keccak256(abi.encode(HOLD_TYPEHASH, payer, payee, amount, nonce, deadline)));
+        if (payer == address(0) || _recoverSig(digest, sig) != payer) revert BadSignature();
+        holdNonces[payer] = nonce;
+        _hold(payer, payee, amount);
+    }
+
+    /// The payee gives up the hold of `payer`, at any time.
+    function release(address payer) external {
+        _dropHold(payer, msg.sender);
+    }
+
+    /// Anyone may remove a hold that ran out, so that it no longer counts against transfers.
+    function sweep(address payer, address payee) external {
+        if (block.timestamp < _holds[payer][payee].until) revert HoldLocked();
+        _dropHold(payer, payee);
+    }
+
+    /// The hold of `payer` for `payee` as stored. It protects nothing once `until` has passed.
+    function holdOf(address payer, address payee) external view returns (uint256 amount, uint64 until) {
         Hold storage h = _holds[payer][payee];
-        return block.timestamp < h.until ? h.amount : 0;
+        return (h.amount, h.until);
     }
 
     // ────────────────────────────── internals ────────────────────────────
@@ -313,6 +334,7 @@ contract CreditLedger {
     }
 
     /// Takes `amount` from the issuer, as far as it has it. Returns what was taken.
+    /// A shortfall sets `overdrawn` only for a receipt at most OVERDRAW_DAYS old.
     function _spend(
         Account storage issuer,
         Account storage holder,
@@ -323,11 +345,13 @@ contract CreditLedger {
     ) private returns (uint256 taken) {
         _touch(issuer, issuerAddr);
         taken = _take(issuer, amount);
-        if (taken < amount) {
+        // dayStart is not after now: the caller refused a day in the future
+        if (taken < amount && block.timestamp / 1 days - dayStart / 1 days <= OVERDRAW_DAYS) {
             issuer.overdrawn = true;
             emit Overdrawn(issuerAddr, amount - taken);
         }
         if (taken == 0) return 0;
+        _useHold(issuerAddr, holderAddr, taken);
 
         uint256 share = taken * UPLOADER_SHARE_PCT / 100;
         if (share != 0) {
@@ -341,6 +365,65 @@ contract CreditLedger {
         if (burned != 0) {
             totalSupply -= burned;
             emit Transfer(issuerAddr, address(0), burned);
+        }
+    }
+
+    /// A payment uses up the hold it was placed for. No event: `Settle` carries what was taken.
+    function _useHold(address payer, address payee, uint256 taken) private {
+        Hold storage h = _holds[payer][payee];
+        uint256 held = h.amount;
+        if (held == 0) return;
+        uint256 used = taken < held ? taken : held;
+        h.amount = uint128(held - used);
+        uint256 total = _heldTotal[payer];
+        _heldTotal[payer] = total > used ? total - used : 0;
+    }
+
+    /// Rules of `hold` and `holdFor`. A hold that ran out counts as none: it can be lowered,
+    /// and placing it again is a new hold.
+    function _hold(address payer, address payee, uint256 amount) private {
+        if (payee == address(0)) revert ZeroAddress();
+        if (amount > type(uint128).max) revert InsufficientBalance();
+        Hold storage h = _holds[payer][payee];
+        uint256 old = h.amount;
+        bool live = block.timestamp < h.until;
+        if (live && amount < old) revert HoldLocked();
+        uint256 total = _heldTotal[payer] - old + amount;
+        if (amount != 0) {
+            Account storage a = _accounts[payer];
+            if (a.overdrawn) revert IsOverdrawn();
+            // The balance is checked only when the hold grows; extending a running hold is free
+            // of it, and so is a release, which must not fail (it would freeze transfers).
+            if (!live || amount > old) {
+                _touch(a, payer);
+                if (uint256(a.earned) + a.received < total) revert InsufficientBalance();
+            }
+        }
+        _heldTotal[payer] = total;
+        h.amount = uint128(amount);
+        h.until = amount == 0 ? 0 : uint64(block.timestamp + HOLD_TIME);
+        emit Held(payer, payee, amount, h.until);
+    }
+
+    function _dropHold(address payer, address payee) private {
+        Hold storage h = _holds[payer][payee];
+        uint256 old = h.amount;
+        if (old == 0 && h.until == 0) return;
+        uint256 total = _heldTotal[payer];
+        _heldTotal[payer] = total > old ? total - old : 0;
+        h.amount = 0;
+        h.until = 0;
+        emit Held(payer, payee, 0, 0);
+    }
+
+    /// Whether `account` is an operator's root. A missing or reverting operator contract reads as false,
+    /// so that it cannot revert a batch.
+    function _isRoot(address account) private view returns (bool) {
+        if (address(operators).code.length == 0) return false;
+        try operators.isRoot(account) returns (bool root) {
+            return root;
+        } catch {
+            return false;
         }
     }
 

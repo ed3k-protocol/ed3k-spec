@@ -93,8 +93,8 @@ message HttpResult {
     DISABLED = 1;             // downloads over HTTP are switched off
     BUSY = 2;                 // at the limit of concurrent fetches
     NOT_WANTED = 3;           // range not needed (any more)
-    BAD_SOURCE = 4;           // failed the checks of §5
-    HTTP_FAILED = 5;          // transport failure or a status that is not 200 or 206
+    BAD_SOURCE = 4;           // failed a check of §5 on the description itself: scheme, form of the URL, range, sealed fields
+    HTTP_FAILED = 5;          // transport failure, a status that is not 200 or 206, or a target address refused by §5
     SIZE_MISMATCH = 6;        // the server sent another length than described
     CORRUPT = 7;              // digest, padding or BLAKE3 verification failed
   }
@@ -296,18 +296,67 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 | Check | Rule |
 |---|---|
 | Scheme | `http` or `https`, with a host; no user name or password in the URL |
-| Target address | public. A literal address is checked at once, a name after it is resolved, and again for every redirect; the fetch connects to the address that was checked, not to a second resolution of the name. Private, loopback, link-local and unique-local addresses are refused, except in a named test network (`Protocol.md` §4.3) |
+| Target address | global unicast, for the first URL and for every redirect (below) |
 | Range | `offset` and `length` lie inside the file and cover bytes still wanted |
 | Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s ahead |
 | Origin | from a peer: the peer is a source for that file on an open or recent file stream. From Kad or a link: the node itself chose the file |
 | Load | below the node's limit of concurrent fetches; no other fetch running for the same range |
 
+**Target address.** The address a fetch connects to MUST be global unicast as `Protocol.md`
+§8.2 (7) lists it.
+
+- A literal address is checked at once, a name after it is resolved, and again for every
+  redirect. The fetch connects to the address that was checked, not to a second resolution of
+  the name.
+- An IPv4-mapped address (`::ffff:0:0/96`) is normalised to IPv4 first and checked as IPv4.
+- An address of NAT64 (`64:ff9b::/96`) or of 6to4 (`2002::/16`) is judged by the IPv4 address
+  embedded in it: the last 32 bits of the first, bits 16 to 47 of the second. It is acceptable
+  only when that IPv4 address is. A name that resolves to an inner address through such a
+  prefix is refused like the inner address itself.
+- **The one exception is a named network** (`net_id` not empty, `Protocol.md` §4.3): there the
+  private ranges of `Protocol.md` §8.2 are allowed as well. In the public network they never
+  are.
+- **Through a proxy** the node resolves the name itself, checks the address, and passes the
+  literal address to the proxy, with the original name in `Host` and, for `https`, as the
+  server name of TLS (SNI) and in the check of the certificate. It follows redirects itself, so
+  that every target is checked the same way. A node that cannot resolve the name itself, or
+  whose proxy takes names only, does not use the source.
+
+**What is reported.** A peer that named a URL MUST NOT learn from the result how a name
+resolves where the downloader is. The result (§2.1) therefore depends on the check:
+
+| Failed | `HttpResult.code` |
+|---|---|
+| Scheme, or the form of the URL: no host, a user name or password, longer than 1,024 bytes | `BAD_SOURCE` |
+| Range: `offset` and `length` not inside the file | `BAD_SOURCE` |
+| Range: inside the file, but not wanted | `NOT_WANTED` |
+| Sealed: size, `alg`, the lengths of key, IV and digest, `expires` | `BAD_SOURCE` |
+| Target address, of the first URL or of a redirect, literal or resolved | `HTTP_FAILED` |
+| Load | `BUSY` |
+
+`BAD_SOURCE` is for what every node decides alike from the description alone. It says nothing
+of the downloader's network. A refused address is reported like a server that could not be
+reached.
+
 **Fetch limits.** A false source costs a request to a host that did not ask for it. A node
 therefore limits failed or pending fetches per file and hour to the values it uses for failed
 source dials ([`ip-diversity.md`](ip-diversity.md) §2.5), counted by the address of the HTTP
-server: 2 per host, 4 per site, 8 per block *(initial)*. The same values bound failed or
-pending fetches **over all files** per hour, per host, site and block of the server, so that
-one URL published under many files costs its host no more than one file would.
+server: 2 per host, 4 per site, 8 per block *(initial)*.
+
+The same values bound failed or pending fetches **over all files** per hour. There they are
+counted per pair of who named the URL and the host, site or block of the server. One URL
+published under many files then costs its host no more than one file would, and a peer that
+names dead URLs at a cache server or a content network uses up its own budget there, not that
+of other sources.
+
+- **Who named the URL** is the peer that sent it, by node ID, or the Kad record it came in, by
+  its publisher.
+- A fetch is **pending** from the request until the response header arrived. After that it is
+  a failure or it counts nothing.
+- A fetch that was redirected counts at every address of the chain, the first included.
+- **Not counted over all files:** a fetch at a host that delivered a block which passed
+  verification within the last hour, and a fetch at a gateway, a cache server or a link that
+  the user configured or pasted. The limit per file holds for these too.
 
 ## 6. Who is blamed
 

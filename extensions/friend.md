@@ -75,6 +75,7 @@ k   = H("ed3k v1 friend", secret ‖ key)                                   32 b
   under it, and everyone who should still find it needs a new link.
 - A holder of the link can store false records at the place (§4 of this document). Each costs
   the others one failed dial.
+- A link with `s` is an open link. An `r` in it is ignored: an open link carries no request.
 
 **This link is a credential.** A client MUST NOT write the secret to a log or show it in an
 error message, and SHOULD mark such a link as private wherever it shows it.
@@ -89,9 +90,13 @@ was given the link can ask to be added, without a second link going back by hand
 ```
 target = H("ed3k v1 friend request target", key ‖ r(8) ‖ period(8))[0..16)    key and r of the node that is asked; r enters as its 8 raw bytes, the base32 text is the link grammar only; period = the day number of §4 of this document, big-endian
 
-sealed = e(32) ‖ nonce(12) ‖ ChaCha20-Poly1305(k_req, nonce, serialised FriendRequest)       RFC 8439, 16-byte tag
+plain  = len(2) ‖ serialised FriendRequest ‖ zero bytes up to 324 B          len = size of the serialised message, big-endian
+sealed = e(32) ‖ nonce(12) ‖ ChaCha20-Poly1305(k_req, nonce, plain)           RFC 8439, 16-byte tag, empty associated data; 384 B
 k_req  = H("ed3k v1 friend request", X25519(e's private key, the asked node's public key) ‖ e ‖ key)     key = the asked node's key
 ```
+
+The padding is that of every `sealed` (§4 of this document). A serialised `FriendRequest` is at
+most 322 bytes.
 
 ```protobuf
 message FriendRequest {
@@ -112,8 +117,8 @@ node's record for it (§1 of this document) or 7 days *(initial)* have passed.
 *(initial)*: the targets of the day before, the current day and the day after, so that an
 asking node whose clock is ahead is found.
 
-- It drops a request whose tag fails, whose signature does not verify under `key`, or whose
-  `issued` is more than 7 days old.
+- It drops a request that is not 384 bytes, whose tag fails, whose `len` is above 322, whose
+  signature does not verify under `key`, or whose `issued` is more than 7 days old.
 - It shows the rest to the user, each key once. A request is never accepted without the user.
 - When the user accepts, the node adds the key. Both are then friends by §1 of this document.
 - When the user declines, nothing is sent.
@@ -132,7 +137,7 @@ used to ask at all.
 FRIEND = 10;
 
 // in Store (§10.3):
-bytes sealed = 9;             // FRIEND: at most 384 B
+bytes sealed = 9;             // FRIEND: exactly 384 B, padded before sealing; above 384 B: REJECTED
 
 // in KadAnswer (§10.3):
 repeated bytes friends = 15;  // answer to a search of kind FRIEND
@@ -148,11 +153,29 @@ For §1 and §2:
 ```
 k_rec   = H("ed3k v1 friend record", k)                                   32 bytes
 target  = H("ed3k v1 friend target", k ‖ period(8))[0..16)                period = Unix time / 86400, rounded down, big-endian
-sealed  = nonce(12) ‖ ChaCha20-Poly1305(k_rec, nonce, serialised FriendRecord)     RFC 8439, 16-byte tag
+plain   = len(2) ‖ serialised FriendRecord ‖ zero bytes up to 356 B          len = size of the serialised message, big-endian
+sealed  = nonce(12) ‖ ChaCha20-Poly1305(k_rec, nonce, plain)                  RFC 8439, 16-byte tag, empty associated data; 384 B
 ```
 
 A request (§3 of this document) has its own target and its own `sealed`, and travels in the
 same fields.
+
+**Every `sealed` is exactly 384 bytes.** The message is padded before it is sealed, so the
+padding is encrypted and a record and a request have one length on the wire:
+
+| | Bytes before the ciphertext | `plain` | Tag | `sealed` | Message at most |
+|---|---|---|---|---|---|
+| Record (§1, §2 of this document) | `nonce` 12 | 356 | 16 | 384 | 354 B |
+| Request (§3 of this document) | `e` 32, `nonce` 12 | 324 | 16 | 384 | 322 B |
+
+- `len` is 2 bytes, big-endian: the size of the serialised message that follows it. The rest
+  of `plain` is zero bytes.
+- A reader opens `sealed`, reads `len` and parses that many bytes. It drops a `sealed` that is
+  not 384 bytes, and one whose `len` is larger than the room `plain` has. It ignores the
+  bytes after the message.
+- A node that has more relays or endpoints than fit leaves some out. A record is never
+  stored unpadded.
+- The associated data of the AEAD is empty in both forms.
 
 **The storing node** treats every `FRIEND` record like a source record (§10.3):
 
@@ -162,8 +185,9 @@ same fields.
   ([`ip-diversity.md`](ip-diversity.md) §1), and answers `FULL` after that; a holder of the
   link then needs several sites to lock the real node out of its place.
 - The lifetime is 5 h *(initial)*.
-- It checks the size and nothing else. It cannot read the record or tell the three forms
-  apart, and it returns the records of a target without saying who stored them.
+- It checks the size and nothing else: a `sealed` above 384 bytes is `REJECTED`. It cannot
+  read the record. All three forms have one length, so it cannot tell them apart by their
+  size. It returns the records of a target without saying who stored them.
 
 **The node that wants to be found**
 
@@ -175,12 +199,16 @@ same fields.
 
 **The node that looks**
 
-1. Searches `FRIEND` at the target of the current day. If nothing is found, it searches the
-   day before, and then the day after (the friend's clock may be ahead).
+1. Searches `FRIEND` at the targets of the current day and of the day before, and merges the
+   answers: a false record under today's target must not hide the real one under
+   yesterday's. Only when both give no record that opens, it searches the day after (the
+   friend's clock may be ahead).
 2. Opens every record with `k_rec`. One whose tag fails is dropped.
-3. Takes the record with the latest `issued` that is not more than 10 min *(initial)* in the future, and
-   dials: directly, or through the relays as in §9.4 and §9.5.
+3. Tries the records in descending order of `issued`, each once, leaving out those whose
+   `issued` is more than 10 min *(initial)* in the future. For each it dials: directly, or
+   through the relays as in §9.4 and §9.5.
 4. **The handshake is the proof.** The node at that address has to hold `key` (T1). A record
+   whose dial or handshake fails is dropped, and the next one is tried. A record
    is not signed for the same reason a source record is not: no signature can prove an
    address, and dialling does.
 

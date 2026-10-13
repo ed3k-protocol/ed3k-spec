@@ -46,11 +46,14 @@ enum TopicType {
 An **item** is one signed record of a topic. Every item has an **order number**, and an item is
 *newer* than another of the same topic when its order number is higher. Of two set heads with
 the same `seq` the one with the lower `root` is the newer ([`file-set.md`](file-set.md) §5.2).
+The order number of a set head is a pair: the `number` of its grant, which is 0 for a head
+without `joint`, and `Head.seq`. Pairs are compared by the grant number first
+([`multi-author-set.md`](multi-author-set.md) §1.3).
 A node holds at most one item per topic: the newest it has verified.
 
 | Type | Item | Order number | Signed by |
 |---|---|---|---|
-| `SET_HEAD` | the `HEAD` record of the set ([`file-set.md`](file-set.md) §5.2) | `Head.seq` | the author's key |
+| `SET_HEAD` | the `HEAD` record of the set ([`file-set.md`](file-set.md) §5.2), sole-author or joint | (`Grant.number`, `Head.seq`); the grant number is 0 without `joint` | the author's key; a joint head by one key of its grant (§4.1) |
 | `ON_AIR` | an on-air notice of the channel (§4.2) | `OnAir.issued` | the channel key |
 
 - There is no topic for free data. A type is defined by a specification, with the checks that a
@@ -68,10 +71,11 @@ exchange**; after that both sides are equal.
 message TopicJoin {
   bytes     topic = 1;        // 16 B
   TopicType type = 2;
-  uint64    held = 3;         // order number (seq) of the item I hold, 0 = none; the peer sends its item when its number is not below this
+  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued), 0 = none
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
+  uint64    held_grant = 7;   // Grant.number of the joint head I hold, 0 = none or a sole-author head
 }
 
 message TopicState {
@@ -97,6 +101,10 @@ never sent: both sides know it, or they could not have computed `topic`.
   item if its order number is at least `held`, so that an item of the same number can win by
   the tie-break of its type, where it has one (§4), and peers if asked. Of two `ON_AIR`
   notices with the same `issued` a node keeps the first it verified.
+- For `SET_HEAD` the subscriber sends both parts of the order number: `held_grant` and `held`.
+  The peer sends its item when the pair (grant number, `seq`) of its item is not below
+  (`held_grant`, `held`). `held_grant` is 0 for `ON_AIR`.
+- An item whose `expires` has passed is not given out, neither in this answer nor later.
 - A peer that does not take the subscriber answers with `refusal` set and closes. With
   `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
   to the topic, or does not know the type, answers `TOPIC_LEFT`.
@@ -122,6 +130,8 @@ A node checks an item before it does anything else with it (§4). Then:
 | fails its signature or content check | drops it, closes the exchange and does not take that node as a neighbour of any topic for 24 h *(initial)* |
 | fails a time check (`expires`, `issued`) | drops it. Clocks differ, so this is no fault of the neighbour |
 
+- **Size.** The `Signed` of an item is at most 1 KiB ([`Protocol.md`](../Protocol.md) §10.7).
+  A larger one fails the content check.
 - **At most one item per topic is passed on per 10 s** *(initial)*. An item that arrives
   earlier waits, and only the newest one that waited is sent. An author who signs a thousand
   versions in a minute then costs each subscriber six messages per neighbour.
@@ -160,23 +170,30 @@ the first subscriber that polls brings it into the mesh.
 
 The item is the `Signed` record of kind `HEAD`, byte for byte as it is stored in Kad. A joint
 head ([`multi-author-set.md`](multi-author-set.md) §1.3) is an item too: it is checked as that
-document's storing node checks it, and ordered as there, by `Grant.number` before `Head.seq`.
+document's searcher checks it, and ordered as there, by `Grant.number` before `Head.seq`.
 
 | Check | |
 |---|---|
-| Signature | valid under the key of the topic, computed as [`Protocol.md`](../Protocol.md) §10.7 with kind `HEAD` and the head target ([`file-set.md`](file-set.md) §5.1) |
-| `head.id` | the `id` of the topic |
+| Signature | a head without `joint`: valid under the key of the topic. A joint head: valid under one key of `joint.grant.keys`; the verifier tries each, at most 8. Both computed as [`Protocol.md`](../Protocol.md) §10.7 with kind `HEAD` and the head target of the topic's key and `id` ([`file-set.md`](file-set.md) §5.1) |
+| `head.id` | the `id` of the topic; in a joint head `Head.id` and `Grant.id` |
+| Joint head | the grant is a valid grant ([`multi-author-set.md`](multi-author-set.md) §1.1) and `grant.key` MUST be the key of the topic; the `cosigs` pass the check of §1.3 there. A failure is a content failure (§2.2) |
 | `expires` | later than now minus 1 h |
 | Content | `head`, or `joint` in a joint head, and nothing else |
+| Size | `id`, `root` and `name` as in [`file-set.md`](file-set.md) §5.2; in a joint head `name` at most 64 B and `id` at most 16 B |
 
 These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node that accepts
 the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
 with the same key, the same `id` and the `seq` of the head.
 
-- A head with the same `seq`, the same `root` and a later `expires` is not newer and is not passed on. It only
-  renews the record in Kad.
+- A head with the same grant number, the same `seq`, the same `root` and a later `expires` is
+  not newer and is not passed on. The node **replaces the bytes it holds** with it, so that
+  what it stores in Kad and gives to a node that joins is the copy that lives longest.
+- A head has **run out** when its `expires` has passed (`expires` < now). It is not given out
+  (§2.1) and not stored in Kad. The node keeps its order number, so that an older head is
+  still not newer.
 - A subscriber stores the head in Kad as a follower does (once per 24 h). The push changes
-  nothing in that.
+  nothing in that. For a joint head it sets `Store.signer` to the key of the grant under which
+  the record signature verified.
 
 ### 4.2 `ON_AIR`
 
@@ -213,7 +230,14 @@ signed record of that kind is ever stored, so the notice cannot be replayed as a
   the one before, so that two never tie.
 - A notice says that a broadcast runs. The peers are still found through the `LIVE` records
   ([`live.md`](live.md) §5), and a notice is no proof that any peer can be reached.
-- A notice that has run out is no longer held, and not given to a node that joins.
+- A notice has **run out** when its `expires` has passed (`expires` < now). It is then no
+  longer held, and not given to a node that joins. The check above still lets a notice in
+  that ran out less than 1 h ago, for clocks that differ; such a notice is not passed on.
+- **The highest `issued` is remembered.** A node remembers the highest `issued` it has
+  verified for a topic until 1 h *(initial)* after the `expires` of that notice, also when it
+  no longer holds the notice. It drops a notice whose `issued` is not later, as one that is
+  not newer (§2.2). An old notice can therefore not be shown again after the one that
+  followed it ran out.
 - **In this version the notice is not stored in Kad.** It is built as a signed record so that
   the options for listing channels ([`live.md`](live.md) §11) can use the same bytes later.
 - A private channel ([`live.md`](live.md) §10) has no topic, and neither has a hidden set

@@ -103,8 +103,9 @@ needed, the file is gone.
 - A resolver SHOULD run apart from the node: in a process of its own, without access to the
   node's keys and files. It handles pages that the hoster and its advertisers control.
 - The checks of [`http-source.md`](http-source.md) §5 apply to the link before the resolver is
-  asked: scheme, public target address, range, origin and load. The resolver applies the
-  address check to every request it makes itself.
+  asked: scheme, target address, range, origin and load. The resolver applies the
+  address check to every request it makes itself, the proxy rule included. A refused address
+  is reported as `HTTP_FAILED`, as that section says.
 - **Accounts.** A user may give the resolver a login for a hoster. Login data, session cookies
   and the addresses a hoster hands out after a login are never sent to a peer, never put into
   a record or a link, and MUST NOT be written to a log or shown in an error message.
@@ -113,7 +114,9 @@ needed, the file is gone.
 - **A link is used sparingly.** Many hosters allow one download at a time and a quota per day
   for each address. A client opens at most one stream per hoster and account at a time
   *(initial)*, and counts failed attempts per hoster with the limits of
-  [`http-source.md`](http-source.md) §5.
+  [`http-source.md`](http-source.md) §5: per file, and over all files per pair of who named
+  the link and the hoster's address. A link from a manifest is named by that manifest. A link
+  the user pasted is not counted over all files.
 
 ---
 
@@ -127,14 +130,50 @@ canonical = host ‖ path [ ‖ "?" ‖ query ] [ ‖ "#" ‖ fragment ]
 id        = H("ed3k v1 url", canonical)                          32 B
 ```
 
-| Part | Canonical form |
-|---|---|
-| Scheme | `http` or `https`. Not part of `canonical` |
-| Host | lower case, in its ASCII form (an internationalised name through IDNA, UTS 46 non-transitional); a leading `www.` and a trailing `.` are removed; no port and no user name. The port is dropped on purpose: the same path on 443, 80 or another port is one `id`, and the fetch decides whether the bytes match |
-| Path | as in the link. Percent-escapes of letters, digits, `-`, `.`, `_` and `~` are decoded, other escapes are written with upper case digits, and every byte that is neither an unreserved nor a reserved character of RFC 3986 (among them space, `"`, `<`, `>`, `{`, `}` and every byte outside ASCII) is written as its percent-escape. A `%` that is not followed by two hex digits makes the link invalid. An empty path is `/` |
-| Query, fragment | as in the link, with the escaping rule of the path, each left out when empty; `+` is kept as it is. The fragment stays: some hosters keep the key of the file there |
+`canonical` is made from the link in these steps, in this order. A link that a step calls
+invalid has no `id`: no `ALIAS` record of it is published or looked up.
 
-`canonical` is hashed as its bytes; after these rules it is ASCII.
+1. **Split.** The link is split as RFC 3986 §3 says: the fragment is what follows the first
+   `#`, the query what follows the first `?` before it, the authority what stands between
+   `//` and the next `/`, `?` or `#`, and the path the rest. The scheme is `http` or `https` in any case
+   of letters, and is not part of `canonical`; any other scheme makes the link invalid.
+2. **Authority.** A user name is removed: everything up to the last `@`, with it. A port is
+   removed: a `:` after the host (after the `]` of a host in brackets), with the digits behind
+   it. What is left is the host; an
+   empty host makes the link invalid. The port is dropped on purpose: the same path on 443, 80
+   or another port is one `id`, and the fetch decides whether the bytes match.
+3. **Host in brackets.** It MUST be an IPv6 address (RFC 4291 §2.2) without a zone. It is
+   written in the form of RFC 5952 inside `[` and `]`: lower case, the longest run of zero
+   groups as `::`, and always in hexadecimal groups, never with a dotted IPv4 part. Anything
+   else in brackets makes the link invalid. Steps 4 to 6 are skipped.
+4. **Name.** Any other host is not percent-decoded. It goes through UTS 46 `ToASCII` with
+   non-transitional processing, `UseSTD3ASCIIRules` = true, `CheckHyphens` = true,
+   `CheckBidi` = true, `CheckJoiners` = true and `VerifyDnsLength` = false. The result is
+   lower case ASCII. **A host that fails makes the link invalid**; a `%` in a host fails here.
+5. **Dot and length.** One trailing `.` is removed. The host is then 1 to 253 bytes, in
+   labels of 1 to 63 bytes; otherwise the link is invalid.
+6. **IPv4 or `www.`** When the last label consists of digits only, or starts with `0x`, the
+   host is an IPv4 address. It MUST then be dotted decimal: exactly four numbers from 0 to
+   255, without a leading zero. Every other form (fewer parts, hexadecimal, octal, one number)
+   makes the link invalid. For any other host a leading `www.` is removed.
+7. **Path, query and fragment** are each written by one pass over their bytes, from left to
+   right. What the pass has written is never read again, so the pass gives the same output
+   when it is run on its own output.
+   - `%` and two hex digits that stand for a letter, a digit, `-`, `.`, `_` or `~`: that
+     character.
+   - `%` and two hex digits that stand for any other byte, `%` itself (`%25`) included: the
+     escape, with upper case digits. A literal `%` therefore stays `%25`, and `%2541` stays
+     `%2541`; it does not become `%41` or `A`.
+   - `%` without two hex digits behind it: the link is invalid.
+   - An unreserved or a reserved character of RFC 3986: as it is. `+` is kept as it is.
+   - Any other byte (among them space, `"`, `<`, `>`, `{`, `}` and every byte outside ASCII):
+     its percent-escape, with upper case digits.
+8. **Join.** An empty path is `/`. The query and the fragment are each left out, with their
+   `?` or `#`, when empty. The path is otherwise as in the link: the case of letters stays,
+   and `.` and `..` segments are not removed. The fragment stays: some hosters keep the key of
+   the file there.
+
+`canonical` is hashed as its bytes; after these steps it is ASCII.
 
 | Relation | Meaning | `root` |
 |---|---|---|
@@ -337,6 +376,8 @@ every volume, and the file that came out has the root in `id`.
   ([`alias.md`](alias.md) §4.1).
 - **A record from an archive to what is inside,** for a user who has the volumes and wants to
   know before unpacking.
+- **Test vectors for `canonical`** (§4), and the version of the UTS 46 tables they are made
+  with: two versions of Unicode can map one name differently.
 - Whether `NEEDS_USER` should say which of its four causes it was. It would tell an uploader
   more, and a peer something about the user.
 - All numbers are first values.

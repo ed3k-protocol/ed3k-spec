@@ -46,9 +46,11 @@ message Torrent {
   it stands in the torrent. A node that shares a torrent set shares it under `info`, and
   publishes a `SOURCE` record for it. It MUST NOT publish `KEYWORD` records for it.
 - A client that has the manifest fetches the info dictionary from ed3k nodes by its root, or
-  from BitTorrent peers by the metadata exchange of BitTorrent. Either way it checks that the
-  SHA-1, or the SHA-256, of the bytes is the infohash in the manifest.
-- `info_size` is at most 32 MiB *(initial)*.
+  from BitTorrent peers by the metadata exchange of BitTorrent. Either way it checks the bytes
+  against every infohash the manifest has: the SHA-1 against `btih`, the SHA-256 against
+  `btmh` (§3).
+- `info_size` is at most 32 MiB *(initial)*. A reader does not fetch a larger info dictionary:
+  it shows the manifest as a plain set, as after a failed check of §3.
 - A client without this extension ignores `torrent` and sees a plain set.
 
 ---
@@ -81,6 +83,7 @@ leaves nothing to choose.
   - that is marked private (§6.3),
   - whose paths or counts break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2,
   - that has a symbolic link (attribute `l`),
+  - whose info dictionary is larger than 32 MiB *(initial)*, the limit of `info_size` (§1),
   - or whose manifest would be larger than 4 MiB.
 
   Such a torrent has no torrent root and is not joined with ed3k.
@@ -99,7 +102,8 @@ both together:
 
 | Check | Rule |
 |---|---|
-| Infohash | the hash of the info dictionary is `btih`, or `btmh` |
+| Infohash | every infohash that is set MUST match: the SHA-1 of the info dictionary is `btih` when `btih` is set, and its SHA-256 is `btmh` when `btmh` is set. A manifest with neither fails |
+| Size | `info_size` is at most 32 MiB *(initial)* |
 | Count | the manifest has one member per file of the dictionary that is not a padding file |
 | Order, size, path | member *i* has the length and the path of file *i* |
 | Not private | the dictionary is not marked private |
@@ -141,7 +145,8 @@ judge.**
 **When no ed3k node has the manifest.** A link with `bt` (§7) names the infohash. The client
 downloads the torrent from BitTorrent alone, computes the canonical manifest (§2), and
 compares its root with the root of the link. Equal roots verify the whole torrent under
-BLAKE3 without a single ed3k source.
+BLAKE3 without a single ed3k source. With unequal roots the link and the torrent do not
+belong together: the client says so and keeps the data as checked, not verified (above).
 
 ### 4.2 Started from a torrent
 
@@ -194,7 +199,9 @@ An `ALIAS` record ([`alias.md`](alias.md)) leads from the infohash to the manife
 
 **Publisher**
 
-- A node publishes the record only for a torrent set it shares, and only when it computed the
+- A node publishes the record only for the canonical manifest (§2), never for another
+  manifest with `torrent`, and only for a torrent set it shares.
+- It publishes only when it computed the
   manifest itself from complete data that it checked against the info dictionary (§4.2
   step 5). Verifying the members under BLAKE3 alone is not enough: that proves the manifest,
   not the infohash, and a node that published on that ground would repeat a false claim as

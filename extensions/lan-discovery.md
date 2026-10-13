@@ -48,6 +48,7 @@ Neither group nor port is registered.
 
 - The address of the announcing node is the source address of the datagram. The body carries
   none.
+- A `LanAnnounce` whose `port` is 0 or above 65,535 is dropped.
 - Several nodes on one host share the port; each binds it for shared use.
 - The mask has a key that everyone can compute. It only keeps the datagram free of fixed
   bytes. Anyone in the network who knows this document can read it (§5).
@@ -72,6 +73,10 @@ Neither group nor port is registered.
   announce.
 - An announce is not a reason to connect. A node dials a LAN peer when it has something to ask
   (§2 of this document).
+- A node without Kad contacts also dials a LAN peer for first contact
+  ([`bootstrap.md`](bootstrap.md) §1). Every node answers a `KadRequest` with the contacts it
+  knows (§10.3), so a LAN peer that is only a leaf serves for that too. Rule §3 of this document
+  holds: the LAN peer itself does not enter the routing table.
 - An announce proves nothing. The handshake does (T1): a LAN peer whose key does not give the
   announced node ID is dropped. A false announce costs one dial inside the local network.
 - A node keeps at most 256 *(initial)* LAN peers and takes at most 10 new ones per minute.
@@ -95,6 +100,8 @@ message LanAnswer {
   answered `Error{MALFORMED}`.
 - A node answers it only on a connection whose remote address passes the test of §1 of this
   document (Receiving), and with `Error{DENIED}` otherwise.
+- `have` holds one bit per root of the query, in its order. A `have` that is shorter than the
+  query reads as if the missing bits were 0; bits beyond the last root are ignored.
 - For every set bit the asking node adds the LAN peer as a source of that file and opens a file
   stream as usual (§12.1).
 - A node asks a LAN peer at most once per 10 min *(initial)*, and once more when it starts a new
@@ -114,8 +121,8 @@ A node that only shares never needs to ask. It is found by the nodes that downlo
 - **Its address reports do not count.** What a LAN peer says in `Hello.observed` is a local
   address. It is not a report in the sense of §9.2, and a connection from it is not an unasked
   connection there.
-- The limits of [`ip-diversity.md`](ip-diversity.md) and the connection budget (§4.6) already
-  exempt local addresses.
+- The limits of [`ip-diversity.md`](ip-diversity.md) do not count a LAN peer (§1 there), and
+  the connection budget (§4.6) exempts local addresses.
 - A LAN peer waits in the upload queue like any other downloader. A node MAY serve LAN peers
   outside its upload limit and outside its number of slots, because that data does not use the
   user's line. This is local policy.

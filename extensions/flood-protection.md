@@ -12,8 +12,9 @@ It has two tools and no new wire element:
 
 - **QUIC Retry.** A node under load makes an unknown address prove itself before it does any
   cryptographic work for it.
-- **Address budgets.** Packets from unvalidated addresses are counted per host, site and block,
-  and dropped above a limit.
+- **Address budgets.** Packets from unvalidated addresses are counted per host, site and block.
+  Above a limit the node answers with a Retry, and drops only what one host sends beyond its
+  share of Retry packets.
 
 A node that implements none of this still interoperates. Every version 1 node accepts a Retry
 (§4.1).
@@ -23,13 +24,12 @@ A node that implements none of this still interoperates. Every version 1 node ac
 | Step | Work | Who can cause it |
 |---|---|---|
 | Unmask 5 bytes, check `magic` (§4.5 steps 1 and 2) | one BLAKE3 block | anyone who knows the node ID |
-| Try the keys of the connections this node opened by a hole punch (§4.5 step 3), for a datagram from an address without a connection that failed step 2; at most 100 datagrams per second | one BLAKE3 block per such connection | anyone, with any bytes |
 | Reassemble fragments (§4.4) | memory for at most 4 messages per source address, 3 s | anyone who knows the node ID: the pieces pass the `magic` check first |
 | Answer with Retry | one keyed hash, one small datagram | anyone who knows the node ID |
 | Start a handshake | key exchange, a signature and a verification; state for the connection | anyone who knows the node ID, unless Retry is demanded |
 | Complete a handshake | counted by §4.6 | a node at a real address |
 
-The expensive step is the fourth: on the order of 0.1 to 0.2 ms of one core per handshake
+The expensive step is the fourth, starting a handshake: on the order of 0.1 to 0.2 ms of one core per handshake
 (estimate), and memory until it completes or times out. The aim is that only validated
 addresses reach it while the node is under load.
 
@@ -77,10 +77,21 @@ groups of [`ip-diversity.md`](ip-diversity.md) §1.
 
 | Per second *(initial)* | host | site | block |
 |---|---|---|---|
-| Retry packets sent | 4 | 16 | 64 |
 | Handshakes started without a token (node not guarded) | 4 | 16 | 64 |
+| Retry packets sent | 4 | — | — |
 
-- Above a limit the packet is dropped without an answer.
+- **Above a handshake budget the node answers with a Retry** (§2 of this document) and starts
+  no handshake, as if it were guarded for that group. It does not drop the Initial. Forged
+  Initials from one site or block then cost every other address of that group one round trip,
+  not its access: an honest node there answers the Retry and is served.
+- **Only the Retry budget drops.** An Initial without a token from a host that already got 4
+  Retry packets in this second is dropped without an answer. This bounds what a forged source
+  address makes the node send to one victim host. The victim itself is cut off only for a first
+  contact without a token; with a return token it is not counted here at all.
+- **There is no Retry budget per site or block.** A Retry costs one keyed hash and keeps no
+  state, and it is smaller than the Initial that caused it. A site or block budget for it would
+  bring back the fault this rule removes: whoever forges addresses of a /16 could use it up, and
+  the whole /16 would get no answer.
 - **Nothing here bans.** The source address of these packets is not proven; a ban would let an
   attacker cut off a victim by forging its address. Bans come only from §4.6.
 - A node SHOULD also limit handshakes in progress in total, and drop the oldest unvalidated
@@ -104,8 +115,10 @@ This extension adds the group budgets to it:
 
 A `REQUEST` with a valid cookie comes from a validated address and proves its key. It is not
 counted by the connection budget of §4.6, which would need state per requester that the
-responder does not keep ([`kad-datagram.md`](kad-datagram.md) §2); the per-address rates of
-[`kad-datagram.md`](kad-datagram.md) §5 and the table above bound it instead.
+responder does not keep ([`kad-datagram.md`](kad-datagram.md) §1). The `REQUEST` rate of
+[`kad-datagram.md`](kad-datagram.md) §5 bounds it instead: 16 / 64 / 256 `REQUEST`s per second
+per host / site / block *(initial)*, dropped above. The table above bounds only what comes
+before a validated `REQUEST`: `CHALLENGE`s and key derivations.
 
 ## 5. What it does not do
 

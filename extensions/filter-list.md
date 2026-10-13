@@ -57,11 +57,13 @@ enum Verdict {
 }
 ```
 
-- The file SHOULD be named `<title>.ed3kflt`. A client recognises a list by its first 8 bytes.
+- The file SHOULD be named `<title>.ed3kflt`; as a member of a set it MUST have that ending
+  (§2). A client recognises a list by its first 8 bytes.
 - `ids` is sorted, so a client looks an entry up without building an index. A list in which an
   `ids` is not a multiple of 16 bytes, not in ascending order, or holds an entry twice is
-  refused as a whole.
-- A group with a `subject` or `verdict` the reader does not know is ignored.
+  refused as a whole. This is checked only in groups whose `subject` the reader knows.
+- A group with a `subject` or `verdict` the reader does not know is ignored; its `ids` is not
+  looked at.
 - A list file is at most 4 MiB *(initial)*, which is about 260,000 entries.
 - An `AUTHOR` is a key: the publisher of keyword and note records
   ([`Protocol.md`](../Protocol.md) §10.7), the author of a set, the key of a live channel.
@@ -73,13 +75,21 @@ enum Verdict {
 
 - A list is a member of a set that is signed and has an `id`
   ([`file-set.md`](file-set.md) §5.1). The author of the set is the author of its lists.
-- A user follows a list by its `ed3k:set` link. Every member of the set that starts with the 8
-  bytes of §1 is a list; other members are ignored by this extension.
+- A user follows a list by its `ed3k:set` link. **Which members are lists** is decided from
+  the manifest, before anything is fetched. A member is a list file when it
+  - is at the top level of the set (`dir` = 0),
+  - is not marked `set`,
+  - has a `name` that ends in `.ed3kflt`, compared as bytes,
+  - and has a `size` of at most 4 MiB *(initial)*.
+
+  The first 64 *(initial)* such members, in the order of `files`, are read. Other members are
+  ignored by this extension, and so is a list file that does not start with the 8 bytes of
+  §1.
 - A new version is found as for any set (`file-set.md` §5.3). A member whose root did not
   change is not downloaded again, so an author of a large list MAY split it into several files
   and change only some.
 - A client follows at most 32 *(initial)* lists and reads at most 64 *(initial)* list files per
-  set.
+  set, the first ones as above.
 - A list file that was opened by hand, without a set, MAY be used. It has no author and no
   updates, and the client says so.
 - A user's own verdicts are a list of their own, kept by the client. A client MAY let the user

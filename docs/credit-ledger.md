@@ -128,6 +128,9 @@ filled by whoever wants to.
   ([`credit.md`](../extensions/credit.md) §4.3). The peer is paid by the reward.
 - The reward needs a receipt that mints or burns at least 1 credit. Minting needs a mature
   issuer and is capped per week, so the coin one key can earn is capped too.
+- A hold earns no reward: it burns and mints nothing, and a payer could raise one in many
+  small steps. A bidder without coin signs its hold, and the uploader it bids at sends it
+  (`holdFor`), for the share it earns from the turn.
 
 ## 7. Transfers
 
@@ -146,7 +149,8 @@ Rules that follow from transfers ([`credit.md`](../extensions/credit.md) §6.5):
 | maturity is bought | only minted credits count for maturity |
 | credits move at no cost | 10 % of a transfer is burned, about one day of decay |
 | a pool at an exchange holds credits | every address decays, contracts too |
-| credits shown for a bid are moved away before the uploader settles | a hold (§6.5 there) locks one turn per uploader for an hour; a transfer cannot dip into it |
+| credits shown for a bid are moved away before the uploader settles | a hold (§6.5 there) locks one turn per uploader for six hours; a transfer cannot dip into it, the payer cannot lower it in that time, and the uploader settles before it runs out |
+| a holder settles late, against a balance that has decayed, and the issuer is flagged for good | a receipt older than two days takes what is there and sets no flag (§6.2 there) |
 
 The standard interface is kept so that wallets and explorers show a balance. Two things differ
 from a plain ERC-20 and have to be said to anyone who integrates it: the balance falls without
@@ -198,4 +202,4 @@ this. The share is a constant of the contract.
   wired. Neither is specified.
 - Whether credits that can be sold are acceptable in law. Not checked.
 - A light check of a remote node by the validators' signatures.
-- Measurements: gas per receipt, state per year, disk of a node that follows the L1.
+- Measurements: gas per receipt and per hold, state per year, disk of a node that follows the L1.

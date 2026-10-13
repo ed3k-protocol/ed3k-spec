@@ -3,7 +3,8 @@
 Every value below was computed with the reference BLAKE3 implementation (the `blake3` crate,
 1.8.7: `derive_key` for `H`, keyed XOF for the mask stream, the `hazmat` chaining values for
 the tree) and a bitwise CRC32C. An implementation that reproduces them has the derivations of
-`Protocol.md` §4.3, §6.1, §6.3, §10.1, §12.4 and §14.2 right. Hex is lower case; `‖` is
+`Protocol.md` §4.3, §6.1, §6.3, §10.1, §10.7, §12.4 and §14.2 right. The signature of the
+signed record was made with `ed25519-dalek` 2.2.0. Hex is lower case; `‖` is
 concatenation; integers in a layout are big-endian (§0).
 
 ## Sample inputs
@@ -17,7 +18,7 @@ concatenation; integers in a layout are big-endian (§0).
 | issuer key | 32 bytes, byte *i* = `0xa5 XOR i`: `a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba` |
 | secret | 32 bytes, byte *i* = `0x37 XOR i`: `37363534333231303f3e3d3c3b3a393827262524232221202f2e2d2c2b2a2928` |
 | request value `r` | `1122334455667788` |
-| alias `id` | `5a5b58595e5f5c5d5253505156575455` |
+| alias `id` | scheme `ed2k` (alias.md §2): a 16-byte hash, byte *i* = `0x5a XOR i`, ‖ the size of the sample file as 8 bytes: `5a5b58595e5f5c5d52535051565754550000000000000010` |
 | period | day 20739 (2026-10-13 UTC) as 8 bytes: `0000000000005103` |
 | salt | `0102030405060708` |
 | network name | the 9 ASCII bytes `ed3k test` |
@@ -63,7 +64,7 @@ The sample file's root is `453b9482e0d4f14e084be18f10b4b16b0f61bfa2ffae0f6e48fc4
 | `PART` | `H("ed3k v1 parts", key ‖ id ‖ issuer key)` | `804fa4f5ecc00a2337fc07d81ac0510c` |
 | `GATE` | `H("ed3k v1 gate", NodeID)` | `65c28351371c965dc864a4e0f14ef72d` |
 | `SUB` | `H("ed3k v1 topic", 01 ‖ key ‖ id)` (type 1) | `f48c084b69dab97e1a4beaa74d48bb1f` |
-| `ALIAS` | `H("ed3k v1 alias", 04 ‖ "ed2k" ‖ alias id)` | `309bddd5e0f4d3a1b37f963d12a3613a` |
+| `ALIAS` | `H("ed3k v1 alias", 04 ‖ "ed2k" ‖ alias id)` | `9f8d46b06d714c56e4648bf6aa932c32` |
 | `HIDDEN` base | `H("ed3k v1 hidden head", key)` | `08299d3a4b291d676e0ecd0d39db534a` |
 | `HIDDEN` | `H("ed3k v1 hidden head target", base ‖ period)` | `3566278da07fab366afdbc5f4d76265c` |
 
@@ -96,11 +97,30 @@ H("ed3k v1 friend request target", key ‖ r ‖ period)[0..16) = 482ed5f410de42
 | `va` | `5ce5a7ac339dee564ffbc48b031bfc35` |
 | `été` | `aa5038d6eb60080247c35b751a004695` |
 | `strasse` | `6fbd6277e369c70ebb8f1ed7f00c02af` |
+| `final` | `7c1c05bfcc0e8de2e77021cf8408423e` |
 | `tokyo` | `fa5db173fc4ae2f9bf101849de1f8ed9` |
 | `story` | `4fb0dea3e88250d48db1ab4145d6009d` |
 | `東京` | `988b051341ac734878ffb07e7c97c1d9` |
 | `京物` | `c5ad4b45ff9cc3d17e09986f98e6711a` |
 | `物語` | `bbcb1d1e2730b4a844019e9d9d67e705` |
+
+## Signed record (§10.7)
+
+A `KEYWORD` record for the sample file under the keyword `sleep`, signed with the sample key
+(RFC 8032 test 1; its seed is `9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60`).
+Ed25519 signatures are deterministic, so the signature is reproducible.
+
+```
+Record    = { expires = 1791936000, file = { root, size = 16, name = "The.Big_Sleep (1946) [1080p].mkv" } }
+body      = 08808cbbd60612460a20453b9482e0d4f14e084be18f10b4b16b0f61bfa2ffae0f6e48fc4a0e9bc3e394
+            10101a205468652e4269675f536c65657020283139343629205b31303830705d2e6d6b76      (78 bytes)
+kind      = 02 (KEYWORD)
+target    = f797b920611f6bebcb89cad846086177                                    (`sleep`, level 0)
+signed    = "ed3k v1 record" ‖ kind ‖ target ‖ body                             (109 bytes)
+          = 6564336b207631207265636f7264 02 f797b920611f6bebcb89cad846086177 ‖ body
+signature = b1c5bcac6211b9e588444546096a6b4a817476d8103a32084162df8641ce5f8b
+            7960c6196eec9e53ef5430e4ba978024b30bec48f02861507ce71c8d67b25102
+```
 
 ## Obfuscation (§4.3)
 
