@@ -369,7 +369,7 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
 - An `ed3k:set` link with `s` in place of `id` names a hidden set
   ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
 - Unknown parameters of an `ed3k:set` link are ignored. [`chaintube.md`](chaintube.md) §3.1
-  adds `b3` and `sz`, which name one version of the manifest, and `ipfs`, which names a copy in
+  adds `b3` and `sz`, which pin one version of the manifest, and `ipfs`, which names a copy in
   IPFS.
 
 ## 6. From a member to its sets

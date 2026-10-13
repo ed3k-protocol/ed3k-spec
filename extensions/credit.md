@@ -377,7 +377,8 @@ Then, in this order:
    `received`; the rest is burned
    ([`docs/credit-ledger.md`](../docs/credit-ledger.md) §9).
 2. **Mint.** If the issuer is mature (§6.3) and not overdrawn, the growth of `kib` is minted to
-   the holder's `earned`, up to what is left of the issuer's weekly limit (§6.3). What exceeds
+   the holder's `earned`, up to what is left of the issuer's weekly limit and of the limit of
+   the pair (§6.3). What exceeds
    the limit is lost.
 3. **Activity.** If at least 1 credit was minted and `day` is newer than the holder's
    `lastActive`, the holder's decay is first written up to the start of `day`, and then
@@ -406,6 +407,7 @@ issuer is **mature**:
 | Limit | Value *(initial, not simulated)* |
 |---|---|
 | Minted from one issuer, over all holders, per 7 days | 100 GiB |
+| Minted from one issuer to one holder, per 7 days | 10 GiB |
 | `kib` of one receipt | 50 GiB |
 | Age of a receipt at settlement | 60 days |
 
@@ -413,8 +415,15 @@ issuer is **mature**:
   not mint yet. The uploaders it took from are credited later, if it matures within 60 days.
 - To make one more key an accepted issuer, an attacker has to upload 1 GiB to three accepted
   issuers through it and wait 30 days. What that key can then mint is bounded per week.
+- **The limit of a pair** keeps one issuer from pouring its week onto one holder. To use its
+  100 GiB a key has to sign for 10 holders, so a mature user that signs for a friend gives
+  it 10 GiB a week and no more. A real download of more than 10 GiB from one uploader in a
+  week mints 10 GiB; the rest is lost to the uploader.
 - **This is a bound, not a proof.** A group of keys can mint to each other up to the weekly
-  limit of each mature key. The rules make that cost real upload first.
+  limit of each mature key, when the group has at least 11 of them. The rules make that cost
+  real upload first.
+- **What the limits do not bound** is how fast such a group grows: three mature keys can
+  sign the contribution of any number of new keys (§13).
 
 ### 6.4 Overdrawn
 
@@ -533,8 +542,10 @@ of the chain (`https://<host>/ext/bc/<blockchain ID>/rpc`).
 | Downloader does not sign | the uploader earns no credits | one tranche; local ranking (§3.1) |
 | Downloader stops paying in a turn | none | payment is one tranche ahead |
 | Downloader signs payments to many uploaders | each gives up to a tranche for nothing | `overdrawn`, for good (§6.4) |
-| Two keys of one person sign for each other | credits without upload | maturity and the weekly limit (§6.3) |
-| A mature user signs large receipts for friends | the same | the weekly limit |
+| Uploader sends data that fails verification | none: only verified blocks count in `kib` | it is banned by the downloader after 2 blocks (`Protocol.md` §12.3) |
+| Two keys of one person sign for each other | credits without upload | maturity, 10 GiB per pair and week, and the weekly limit (§6.3) |
+| A mature user signs large receipts for friends | the same | 10 GiB per friend and week |
+| A group of mature keys makes new keys mature | more keys that mint, each up to the weekly limit | 30 days and 1 GiB of the group's limits per key; **not bounded in number** (§13) |
 | Uploader charges more to earn its 10 % | the downloader pays up to its maximum | never above `max_price`; the gain is a tenth of the difference |
 | A bidder's turn is ended by a higher bid | it loses what it paid ahead, if it gets no other turn that day | one tranche |
 | Farming credits to sell them | credits get a price (§10) | decay, the 10 % on transfer, the limits |
@@ -618,11 +629,14 @@ node for which that is too much leaves credits off under its anonymous key.
 | Signing, verifying | one secp256k1 operation per tranche and side |
 | RPC reads of an uploader | two calls per bidder per 10 min |
 | Transactions of an uploader | one `settle` per 48 h, with the receipts of that time |
-| Ledger state | one entry per (issuer, holder, day) that was settled, kept for good |
+| Ledger state | one entry per (issuer, holder, day) that was settled and one per (issuer, holder, week) that minted, kept for good |
 
 Gas, from one run on a test chain without the native minter: about 195,000 for the first
 receipt of a pair and day with two new accounts, about 65,000 for a later one of the same pair
-and day, plus 21,000 per transaction. The size of the chain after a year was **not measured**.
+and day, plus 21,000 per transaction. These were measured before the limit of a pair was
+added; that limit writes one more value per receipt that mints, so the numbers are now
+higher, by about 22,000 for the first receipt of a pair and week by the gas schedule, **not
+measured**. The size of the chain after a year was **not measured**.
 
 ## 12. Alternatives considered
 
@@ -643,10 +657,24 @@ The choice of chain, key, gas and transfers is argued in
 | The credit key signed by the node key | third parties can check the tie | nobody needs to: the session is authenticated; and the tie would be a public proof |
 | Relay over HTTPS to operators | no message type | a second service and its addresses; operators become a gate |
 
+On the bounds against keys that sign for each other (§6.3):
+
+| Alternative | Pro | Con |
+|---|---|---|
+| **A limit per issuer and holder** (chosen, 10 GiB per 7 days) | a key cannot give its week to one friend; receipts have to spread | a real download above the limit from one uploader mints only the limit; one more stored value per pair and week |
+| A cap on sponsoring: an issuer counts towards the maturity of at most 3 new accounts per 30 days | a group of colluding keys can at most double per month | the honest network cannot grow faster either; one more counter per account |
+| A lower weekly limit and a dearer maturity (25 GiB; 4 GiB from 5 issuers) | each colluding key is worth less and costs more, with no new mechanism | heavy downloaders mint less for their uploaders; newcomers mature more slowly |
+| A weekly limit that follows what the issuer earned itself | a group that uploads to nobody outside mints a fifth | an uploader earns less from pure downloaders; the most complex in the contract |
+
 ## 13. Open points
 
+- **A group of colluding keys grows without a bound.** Three mature keys can sign the 1 GiB of
+  contribution for any number of new keys, and each new key mints up to 100 GiB a week after
+  30 days. The limit of a pair slows this (a new key needs 10 GiB a week from each of 10
+  others to use its week) and does not stop it. A cap on sponsoring (§12) would; it was not
+  taken.
 - **Every number of §6.3** needs a simulation against a Sybil model: age, contribution, the
-  weekly limit. So does the gas reward of §6.6, which must not pay for filling blocks.
+  weekly limit and the limit of a pair. So does the gas reward of §6.6, which must not pay for filling blocks.
 - **Bootstrap.** At the start only the operators are mature. Maturity spreads only as fast as
   operators download from new nodes. A rule for the first months may be needed.
 - **`overdrawn` for good** is harsh for a client bug. A way back, at a price, was not designed.

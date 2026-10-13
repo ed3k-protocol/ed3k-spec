@@ -35,6 +35,7 @@ contract CreditLedger {
     uint64 public constant MATURE_KIB = 1 << 20; // 1 GiB (initial)
     uint16 public constant MATURE_ISSUERS = 3; // (initial)
     uint64 public constant WEEK_CAP_KIB = 100 << 20; // 100 GiB per issuer and 7 days (initial)
+    uint64 public constant PAIR_CAP_KIB = 10 << 20; // 10 GiB per issuer, holder and 7 days (initial)
     uint64 public constant MAX_RECEIPT_KIB = 50 << 20; // 50 GiB in a day (initial)
     uint32 public constant WINDOW_DAYS = 60; // (initial)
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
@@ -95,7 +96,7 @@ contract CreditLedger {
     }
 
     struct Settled {
-        uint64 kib; // KiB of this pair and day that minted, or were lost to the weekly limit
+        uint64 kib; // KiB of this pair and day that minted, or were lost to a limit
         uint64 spent; // µ of this pair and day already taken
     }
 
@@ -104,6 +105,8 @@ contract CreditLedger {
     mapping(address => mapping(address => mapping(uint32 => Settled))) public settled;
     /// issuer → week (day / 7) → KiB minted from this issuer
     mapping(address => mapping(uint32 => uint64)) public issuedKib;
+    /// issuer → holder → week (day / 7) → KiB minted from this issuer to this holder
+    mapping(address => mapping(address => mapping(uint32 => uint64))) public pairKib;
     /// holder → issuer → counted in Account.issuers
     mapping(address => mapping(address => bool)) private _countedIssuer;
 
@@ -306,14 +309,18 @@ contract CreditLedger {
         uint32 week = r.day / 7;
         uint64 used = issuedKib[r.issuer][week];
         uint64 room = used < WEEK_CAP_KIB ? WEEK_CAP_KIB - used : 0;
+        uint64 pairUsed = pairKib[r.issuer][r.holder][week];
+        uint64 pairRoom = pairUsed < PAIR_CAP_KIB ? PAIR_CAP_KIB - pairUsed : 0;
+        if (pairRoom < room) room = pairRoom;
         uint64 delta = r.kib - st.kib;
         uint64 grant = delta < room ? delta : room;
 
         // The value is computed on the cumulative count so that rounding does not add up.
         minted = _value(uint256(st.kib) + grant) - _value(st.kib);
-        st.kib = r.kib; // what exceeds the weekly limit is lost
+        st.kib = r.kib; // what exceeds the limits is lost
         if (grant == 0) return 0;
         issuedKib[r.issuer][week] = used + grant;
+        pairKib[r.issuer][r.holder][week] = pairUsed + grant;
 
         // Decay up to the day of the receipt is written first. Then the activity
         // counts, so that the days after it, up to the grace, do not decay.

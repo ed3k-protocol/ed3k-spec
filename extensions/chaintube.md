@@ -136,7 +136,7 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
 
 - `key`, `id` and `dn` are those of `file-set.md` §5.4.
 - **`b3` and `sz` are added by this extension.** They are the root and the size of the
-  manifest of one version: the one the author held when it wrote the link. A client without
+  manifest of one version of the set. **That version is the video** (§3.2). A client without
   this extension ignores them.
 - **`ipfs` is added by this extension too.** It is the content ID of an IPFS directory that
   holds the files of the set at their paths (§5.5). It is optional, at most 128 bytes, and
@@ -151,24 +151,28 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
 
 1. Parse the link. A value that is no `ed3k:set` link with `key`, `id`, `b3` and `sz` is not an
    upload of this extension.
-2. Search the head of the set (`file-set.md` §5.3).
-3. Take the manifest that the head names, or the one of `b3` when no head is found or the head
-   names a `seq` that is not higher than that of the `b3` manifest.
-4. Accept a manifest only when it is signed by `key` and carries `id`. Otherwise the video has
-   no media, and the client says so.
+2. Fetch the manifest with the root `b3` and the size `sz`, as a file.
+3. Accept it only when it is signed by `key` and carries `id`. Otherwise the video has no
+   media, and the client says so.
+
+- **The link pins the version.** A reader of this extension MUST NOT follow the head of the
+  set for a video. A version of the set that the chain does not name is not the video,
+  whatever its `seq`.
+- **A new version is a transaction.** The author writes the pair again (`updateMedia`, §4.1)
+  with the `b3`, `sz` and `ipfs` of the new version. This holds for every upload, with a site
+  or without one. The chain so shows every version of a video with its time.
 
 - **The transaction is the tie.** The account that sent it is the author on the chain, and it
   wrote the channel key into the link. No signature joins the two keys, and none is needed:
   nobody else can write that pair.
-- **Whoever holds the channel key decides what the link shows.** A newer version of the set
-  replaces the one of `b3` without a transaction. A site MUST NOT do that (§5.3), but a reader
-  cannot tell a site's key from an author's, so it cannot enforce the rule. An uploader that
-  lets a site hold the key trusts the site to keep it.
-- **`b3` keeps the link alive.** A head lasts 7 days unless someone stores it again
-  (`file-set.md` §5.2). Without `b3`, a video whose head has gone everywhere could not be
-  found although its files still have sources.
-- An author that seeds alone MAY write the pair again with the `b3` of a newer version. It
-  need not. For an upload through a site the pair MUST be written again (§5.3).
+- **The channel key alone changes nothing.** Whoever holds it can sign a newer version, but
+  only the account can make it the video. A site that holds the key, or a thief of it, cannot
+  change what a video shows.
+- **No head is needed.** A head lasts 7 days unless someone stores it again (`file-set.md`
+  §5.2). A video is found by `b3` for as long as its files have sources.
+- A client without this extension reads the link as a plain set link and follows the head.
+  So that it sees the same video, whoever stores a head for the set MUST store the one of the
+  version the chain names, and a newer one only after its transaction is in a block.
 - One channel key in the links of two accounts means that both accounts chose it. It says
   nothing more.
 
@@ -178,7 +182,7 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
 |---|---|---|
 | Transactions per upload | 1 | 1 per rendition, sound track and subtitle |
 | What is committed | everything, by one root | each file alone; nothing joins them |
-| A rendition added later | a new version of the set; a transaction only for an upload through a site (§5.3) | a transaction |
+| A rendition added later | a new version of the set and one transaction | a transaction |
 | Picture | has a place | none in the contract |
 | First byte | after the manifest, a few hundred bytes | at once |
 | A plain web player | needs a gateway to read the manifest | could read a `ws` URL in the link |
@@ -340,10 +344,11 @@ it then does what every index node does and nothing else.
 
 ### 5.2 What a site node does
 
-- **It seeds.** It follows the sets of the videos its site shows, downloads their members and
+- **It seeds.** It reads the videos its site shows from the chain, downloads the members of
+  the version each link names, and
   shares them, by its own policy of which and for how long.
-- **It keeps heads alive.** As a follower it stores the head of each set again
-  (`file-set.md` §5.2).
+- **It MAY keep heads alive** for clients that read the link as a plain set link: the head
+  of the version the chain names, and no other (§3.2).
 - **It names its gateway as an HTTP source.** A site that serves the files over HTTP for web
   players is a plain source ([`http-source.md`](http-source.md) §1). The site node hands that
   URL out in the file stream and next to its `SOURCE` record, as that document says. An ed3k
@@ -368,20 +373,15 @@ The channel key is where the two ways differ:
 | | The visitor holds the channel key | The site holds it |
 |---|---|---|
 | Who signs the manifest | the visitor's browser or client, over the body the site prepared | the site |
-| The site can make a newer version of the set | no | yes; it still needs the visitor's transaction to publish it (below) |
+| The site can sign a newer version of the set | no | yes; it is the video only after the visitor's transaction (§3.2) |
 | The visitor can move to another site | yes, with key and files | only by a new upload under a new key |
 | Needs | a key kept by the visitor next to the wallet | nothing from the visitor |
 
 - In both ways the transaction is signed by the visitor's account, and the link names the key.
   The visitor's wallet sends it, or the visitor signs it and the site sends it. A site that
   sends it cannot change it; it can only hold it back.
-- **A new version is published on the chain.** When a set that was uploaded through a site
-  gets a newer version, the pair MUST be written again (`updateMedia`, §4.1) with the `b3`,
-  `sz` and `ipfs` of that version. The transaction is signed and sent as the first one was.
-- The site node MUST NOT store the head of the new version before that transaction is in a
-  block. Until then the video is the version the chain names.
-- So the chain shows every version of a video that a site made, with its time, and a site
-  cannot change a video without the account's signature.
+- **A new version is a transaction** (§3.2), signed and sent as the first one was. A site
+  cannot change a video without the account's signature, also when it holds the channel key.
 - A site that holds channel keys MUST keep one per account and MUST NOT sign a set of one
   account with the key of another.
 - A site SHOULD say which of the two it does.
@@ -428,8 +428,8 @@ it is.
 - The files in the directory are byte for byte the members of the set. The site hashes each
   once more with BLAKE3; IPFS neither needs nor sees that root.
 - A newer version of the set is a new directory with a new CID. Files that did not change keep
-  their CIDs inside it, so nothing is stored twice. A site writes the new CID to the chain
-  (§5.3).
+  their CIDs inside it, so nothing is stored twice. The new CID goes to the chain with the new
+  `b3` (§3.2).
 - The name `ed3k/` is taken: no member of an upload set has a path under it (§2.1).
 - The name has no leading dot on purpose. Tools that add a directory to IPFS leave out names
   that start with a dot unless told otherwise, and say nothing about it.
@@ -496,7 +496,7 @@ roots before it serves a block, as always.
 | **A false `tube` field**: a set that claims an author it does not have | the claim is checked on the chain (§2.3). Nothing is shown before |
 | **A link to someone else's set** in an own video | the set keeps its own key; the client shows the account of the chain as the author of the video. A copy is as possible as on any video site |
 | **A site lists what is not on the chain** | the client reads the video from the chain before it downloads (§4.5) |
-| **A site that holds a channel key changes a video** | stated in §5.3; the visitor can hold the key |
+| **A site that holds a channel key, or a thief of one, changes a video** | it cannot: a reader takes the version the chain names and follows no head (§3.2) |
 | **A remote RPC node lies** | two nodes of different operators (§4.3). It cannot sign for anyone |
 | **A false `ipfs` in a link**, or a gateway that sends other bytes | the bytes fail under the root; the source is dropped. A web player without ed3k has no such check (§5.5) |
 | **A link names a gateway inside the reader's network** | a link names a CID, never a host; gateways are the user's or come with a source and pass the address checks of `http-source.md` §5 |
@@ -539,7 +539,9 @@ roots before it serves a block, as always.
 | **An `ALIAS` scheme from a video ID to the root** ([`alias.md`](alias.md)) | a video is found in Kad by its name on the chain | whoever knows the ID can ask the chain, which is the judge anyway; a record that only the chain can check adds a lookup and no certainty |
 | **A signature between the account and the channel key** | a set proves its author without a read of the chain | a new signed object and a prompt in the wallet; a copy of it proves nothing unless it is on the chain too |
 | **The credit key as the account** | one key for both | joins the credit address of a node to a public person (§4.4) |
-| **A link without `b3`** | shorter; the head alone decides | a video is lost to readers when its head expires everywhere |
+| **A link without `b3`** | shorter; the head alone decides | a video is lost to readers when its head expires everywhere, and the channel key alone can change it |
+| **`b3` as a fallback, the head followed when it is newer** | an author that seeds alone adds a rendition without a fee | whoever holds the channel key changes a video with no trace on the chain; a rule for sites that no reader can check |
+| **A `pin` flag in the link**, the head followed without it | both of the above, by the author's choice | two ways to read a link, and a viewer has to be shown which one a video uses |
 | **The CID as the identity of the video**, with no root | one name; what an IPFS site has anyway | a second identity that ed3k cannot verify block by block from a peer; rule 1 of [`alias.md`](alias.md) §5 |
 | **An `ALIAS` scheme from a CID to the root** | a video is found in ed3k by its CID | the claim can be checked only by building IPFS's tree with the publisher's settings for chunks and layout; the link on the chain names both already |
 | **The CID in the manifest** | changes with the set, no transaction | the directory holds the manifest, so the manifest cannot hold the directory's CID |
@@ -551,8 +553,6 @@ roots before it serves a block, as always.
 
 - **A site registry.** Sites are configured or found by links. A list on the chain would let a
   client find them, and would be a thing to moderate.
-- **Whether the link should be able to pin a version**, so that not even the holder of the
-  channel key can change what a video shows without a transaction.
 - **Live streams of a channel.** [`live.md`](live.md) has channels with a key of their own. A
   pair that names an `ed3k:live` link would join one to an account.
 - **Following an account.** The profile contract logs `FollowSet` for an account or for a board
@@ -570,9 +570,6 @@ roots before it serves a block, as always.
   such a base today.
 - How fast the gateways of the IPFS nodes in common use answer `Range` on large files was not
   measured.
-- An author that seeds alone may make a newer version without a transaction (§3.2). A CID in
-  its link then names the older directory. The old files stay valid for members that did not
-  change.
 - **Who pays the fee** is outside this extension. The contracts take a call from the account
   itself, or a request that the account signed (EIP-712) and that a site sends through a
   forwarder contract (ERC-2771) and pays for. The author on the chain is the account in both

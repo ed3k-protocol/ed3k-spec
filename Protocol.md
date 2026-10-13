@@ -166,6 +166,10 @@ and a path to close it are described in [`docs/transport-bindings.md`](docs/tran
 - Connection migration SHOULD be enabled. It is what lets a session survive an address change and
   move between IPv4 and IPv6 (§8.3).
 - 0-RTT MAY be used, and only for `Hello` and `KadRequest` without a `store` (replay-safe).
+  A resumed handshake carries no key. Both sides MUST keep the peer's key with the session
+  ticket and take the node ID from it. A server that cannot recover the client's key from a
+  ticket MUST refuse the resumption and do a full handshake, which also rejects the 0-RTT data.
+  A client MUST use a ticket only towards the node ID whose key it was issued under.
 - Idle timeout: 30 s *(initial)* for a connection with no open exchange; relay reservations and
   file streams keep a connection alive with QUIC PING every 20 s *(initial)*.
 - Congestion control is the sender's choice. BBR is RECOMMENDED.
@@ -329,6 +333,8 @@ A node MUST limit the new connections it accepts from one peer.
   already has one with, and SHOULD keep a connection it will use again open for the idle
   timeout.
 
+A node that sent bad blocks is banned in the same way, for other times (§12.3).
+
 Protection against floods of packets that never complete a handshake is optional and local:
 [`extensions/flood-protection.md`](extensions/flood-protection.md).
 
@@ -384,6 +390,7 @@ Types 1–63 keep the tag at one byte.
 | 35 | `Receipt` | downloader → uploader | optional, §13.1 |
 | 36 | `CreditRelay` | request | optional, §13.1 |
 | 37 | `CreditRelayAnswer` | answer | optional, §13.1 |
+| 38 | `BadBlock` | downloader → uploader | §12.3 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -1627,12 +1634,46 @@ The codecs and the alternatives are compared in
 **A block that fails.** Every block is verified on its own (§7.2), so the sender of a bad one
 is known exactly. The downloader discards the block and asks another source for it.
 
-- After 1 bad block a downloader SHOULD stop using that node as a source for that file for
-  4 h *(initial)*.
-- After a bad block in a second file, or 2 bad blocks in total, within 24 h *(initial)*, it
-  SHOULD stop using the node as a source for any file for 24 h *(initial)*.
-- Both are counted per node ID and are local: nothing is reported to other nodes. Uploads to
-  that node and its credits stay local policy (§12.1).
+| Bad blocks from one node ID | What the downloader does |
+|---|---|
+| 1 | MUST NOT use the node as a source for that file for 4 h *(initial)* |
+| 2 within 24 h *(initial)*, in any files | MUST ban the node ID for 24 h *(initial)*, and the host address the second one came from for 1 h *(initial)* |
+| 1 more within 30 days *(initial)* after a ban ended | MUST ban the node ID for 30 days *(initial)*, and the host address for 1 h |
+
+- **A ban is that of §4.6:** open connections are closed, a handshake of that node ID is
+  closed as soon as the key is known, and nothing is downloaded from the node or uploaded to
+  it. The host address is an IPv4 /32 or an IPv6 /64; private, loopback, link-local and
+  unique-local addresses are exempt.
+- **One bad block is not a ban.** A disk or a memory fault at an honest node gives one. Two
+  within a day is a node that should not be serving.
+- **No ban is for ever.** A node ID costs nothing to replace, so a ban for good would stop no
+  attacker and would only keep out a node that has since been repaired. The address ban is
+  short because several nodes share an address behind a NAT; it is there so that a new key
+  from the same address gains nothing for that hour.
+- A block counts only when the chaining value it was checked against was itself verified
+  under the root (§12.4). The fault is then the block's, and its sender is certain.
+- The counts and the bans are kept across restarts. They are counted per node ID and are
+  local: nothing is reported to other nodes.
+- Sources that are not nodes follow the rules of their extension (§13.1).
+
+**Telling the sender.** The downloader tells the sender once per bad block, on the file
+stream, before it closes the stream or the connection:
+
+```protobuf
+message BadBlock {            // type 38, downloader → uploader, on the file stream
+  uint64 offset = 1;          // start of the block that failed, in the file of the stream
+}
+```
+
+- It is not answered.
+- The sender MUST verify that block of its own copy before it serves the block again, to
+  anyone. If the block fails, the piece it lies in is no longer complete: the sender clears
+  its bit in `have` and fetches the piece again, or stops sharing the file.
+- If the block passes, the sender does nothing more. A `BadBlock` proves nothing, and a node
+  MUST NOT ban a peer because of one.
+- A sender acts on at most one `BadBlock` per block and hour and on 16 per peer and day
+  *(initial)*, and ignores the rest. Each one costs it a read and a hash of 256 KiB.
+- This is how an honest node with a damaged file finds out, and stops collecting bans.
 
 ### 12.4 Hashes
 
@@ -2043,7 +2084,9 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Outstanding block ranges | 16 |
 | Block compression: least saving, blocks skipped after a miss | 1/8, 15 |
 | Bad block: source not used for that file | 4 h |
-| Bad block in a second file, or 2 in total, within 24 h: source not used at all | 24 h |
+| 2 bad blocks within 24 h: ban of the node ID, of the host address | 24 h, 1 h |
+| Bad block within 30 days after a ban ended: ban of the node ID, of the host address | 30 days, 1 h |
+| `BadBlock` acted on, at most: per block, per peer | 1 per hour, 16 per day |
 | Queue: time to come back (`recheck`) | 30 min to 4 h |
 | Queue: entry kept after the time to come back, or after a lost connection | 30 min |
 | Queue: ping interval, answer time | 30 min, 30 s |
@@ -2092,7 +2135,7 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Credits: a bid ends a turn that has more left than, rate measured over; uploader's share of a payment | 60 s, 10 s; 10 % |
 | Credits, ledger: grace, decay, floor, burned on transfer, settle within | 3 days, 10 % per day, 10 credits, 10 %, 48 h |
 | Credits: receipts per `CreditRelay`, `floor` at least, `tick`, gas reward; open payments of a client at most | 32, 1,000,000 µ per MiB, 10,000 µ per MiB, 2 × the gas of a receipt; 80 % of the balance |
-| Credits, ledger: receipt age at settlement, `kib` per receipt, minted per issuer and 7 days, maturity (age, contribution, issuers) | 60 days, 50 GiB, 100 GiB, 30 days / 1 GiB / 3 |
+| Credits, ledger: receipt age at settlement, `kib` per receipt, minted per issuer and 7 days, minted per issuer and holder and 7 days, maturity (age, contribution, issuers) | 60 days, 50 GiB, 100 GiB, 10 GiB, 30 days / 1 GiB / 3 |
 | Flood protection: Retry token, return token valid for; per second per host / site / block: Retry packets, handshakes without token | 10 s, 24 h; 4 / 16 / 64, 4 / 16 / 64 |
 | Flood protection: validated handshakes per minute per site / block while guarded; Kad datagrams per second per host / site / block: `CHALLENGE`s, key derivations | 120 / 480; 4 / 16 / 64, 8 / 32 / 128 |
 | Keyword levels (reserved): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |

@@ -182,7 +182,7 @@ and completing a file without a hash.
 | Leaf and inner nodes told apart | no | yes, by BLAKE3's flags |
 | Tree root commits to the length | no *(by reading)* | yes |
 | Sender of a bad block | known per verified range; blame shared by byte count among all who contributed | known exactly: one block, one sender |
-| Reaction to bad data | source dropped for that file above 40 % bad bytes, forgotten after 4 h | one bad block drops the source for that file for 4 h; a second drops the node for 24 h (§12.3) |
+| Reaction to bad data | source dropped for that file above 40 % bad bytes, forgotten after 4 h | one bad block drops the source for that file for 4 h; a second within 24 h bans the node for 24 h, a later one for 30 days, and the sender is told (§12.3) |
 
 - Without a mark for leaf and inner nodes, and without the length in the root, a 64-byte file
   made of two node hashes has the same root as the two-leaf file they belong to. BLAKE3 rules
@@ -340,7 +340,7 @@ All three were applied on 2026-10-11.
 | # | Gap | Rule added | Where |
 |---|---|---|---|
 | 1 | §9.2 does not say when a node tests its reachability again | Test again every 60 min and at once when the local address or the observed endpoint changes. After a test without prober, retry after 30 s, doubling up to 60 min. Two tests without a probe end the `open` class | §9.2, Appendix A |
-| 2 | Nothing says what a downloader does with the sender of a block that fails verification | The sender is known exactly (§7.2). One bad block: not used for that file for 4 h. A bad block in a second file, or 2 in total, within 24 h: not used at all for 24 h. Credits stay local policy. NeoShare's 40 % rule exists only because it cannot tell who sent the bad bytes | §12.3, Appendix A |
+| 2 | Nothing says what a downloader does with the sender of a block that fails verification | The sender is known exactly (§7.2). One bad block: not used for that file for 4 h. 2 within 24 h: the node ID is banned for 24 h and its address for 1 h; one more within 30 days after that: 30 days. The sender is told with `BadBlock` and verifies its copy. NeoShare's 40 % rule exists only because it cannot tell who sent the bad bytes | §12.3, Appendix A |
 | 3 | The HTTP source extension does not limit how many sealed chunks of one range exist | A node SHOULD NOT publish a chunk for a range while it knows 2 live sealed sources for it, and publishes the second only on a server with another host name or IP address. NeoLoader's hoster cache stops at 3 | [`extensions/http-source.md`](../extensions/http-source.md) §4 |
 
 Added on 2026-10-12:
