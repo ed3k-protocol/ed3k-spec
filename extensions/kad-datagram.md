@@ -62,10 +62,13 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ type(1) ‖ txid(4) �
 `obf_id`: `dir = 0x00` for `INIT` and `REQUEST`, `dir = 0x01` for `CHALLENGE` and `ANSWER`.
 The responder does not need to know who the requester is to mask its reply.
 
-**Receiving.** Step 2 of §4.5 accepts either magic. A node that receives a datagram from an
-address with a pending exchange unmasks it with that responder's key and `dir = 0x01`. A
-datagram from an address with a live QUIC connection that fails the `magic` check under the
-connection key goes on to the next step of §4.5, as any datagram does.
+**Receiving.** Step 2 of §4.5 accepts either magic. This binding adds a step 2a to §4.5,
+between steps 2 and 3: for a datagram from an address with a pending exchange, unmask with
+that responder's `obf_id` and `dir = 0x01`; on a match hand it to the exchange. A datagram
+from an address with a live QUIC connection that fails the `magic` check under the connection
+key goes on to the next step of §4.5, as any datagram does; step 2a is what catches a
+`CHALLENGE` or `ANSWER` from a responder that is at the same time the client of a QUIC
+connection to this node.
 
 A datagram of this binding MUST NOT exceed 1200 bytes of UDP payload.
 
@@ -81,8 +84,10 @@ the `INIT` it answers.
 cookie(8) ‖ responder_public_key(32)
 ```
 
-58 bytes plus padding. It MUST NOT be longer than the datagram it answers. Sent in reply to an
-`INIT`, and in reply to a `REQUEST` whose cookie is not valid.
+58 bytes plus padding, or 70 when a key-puzzle solution follows the key
+([`key-puzzle.md`](key-puzzle.md) §3): the length tells which, and any other length is dropped.
+It MUST NOT be longer than the datagram it answers. Sent in reply to an `INIT`, and in reply
+to a `REQUEST` whose cookie is not valid.
 
 The requester MUST check that `H("ed3k v1 node id", responder_public_key)[0..16)` equals the node
 ID it meant to contact, and drop the datagram otherwise.
@@ -133,6 +138,7 @@ ChaCha20-Poly1305 (RFC 8439), 16-byte tag.
 ```
 nonce = salt(8) ‖ txid(4)                       of the datagram being sealed
 aad   = type(1) ‖ txid(4) ‖ everything in the payload before the ciphertext
+        for ANSWER also ‖ H("ed3k v1 kad req", the whole REQUEST payload after the salt)[0..8), so that an answer is bound to its request
 seal_req uses k_req, seal_ans uses k_ans
 ```
 
@@ -174,6 +180,9 @@ A verified contact from this binding has the same standing as one verified by a 
   no pending `txid` and is dropped.
 - **One key, two uses.** Using an Ed25519 key for X25519 after conversion is established
   practice; the context strings keep the DH output apart from every other use of the key.
+- **The requester's key is visible.** `REQUEST` carries `requester_public_key` under the mask
+  only (§2.3). Anyone who knows the responder's node ID unmasks it and learns which node
+  asked; the QUIC binding keeps the key inside TLS.
 - **Not a general transport.** No streams, no ordering, no retransmission beyond §4, no
   congestion control beyond the limits in §5.
 
@@ -184,7 +193,9 @@ A verified contact from this binding has the same standing as one verified by a 
 **Requester**
 
 1. Without the responder's public key: send `INIT`. With key but without cookie: also `INIT`.
-2. Send `REQUEST`. Start a timer of 1 s *(initial)*, or twice a known round-trip time.
+   Then wait for the `CHALLENGE` (step 3) with the timer of step 2; `REQUEST` is not sent
+   before it arrives.
+2. With key and cookie: send `REQUEST`. Start a timer of 1 s *(initial)*, or twice a known round-trip time.
 3. On `CHALLENGE` with the same `txid`: store cookie and key, send the `REQUEST` again once,
    with the same `txid` and a new `salt`.
 4. On timeout: retransmit once with a new `salt` and the same `txid`. After the second timeout

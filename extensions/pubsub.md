@@ -100,7 +100,8 @@ never sent: both sides know it, or they could not have computed `topic`.
 - A peer that does not take the subscriber answers with `refusal` set and closes. With
   `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
   to the topic, or does not know the type, answers `TOPIC_LEFT`.
-- After the first answer **both sides send `TopicState`** when they have verified a newer item.
+- After the first answer **both sides send `TopicState`** when they have verified a newer item,
+  and at once to a new neighbour whose answer showed no item or an older one.
   They send it to every neighbour that has not shown this item or a newer one. Nothing else is
   sent on the exchange.
 - The exchange stays open, and the connection is kept alive as for a file stream
@@ -118,7 +119,8 @@ A node checks an item before it does anything else with it (§4). Then:
 |---|---|
 | valid and newer than the one held | keeps it, passes it on (§2.1) and acts on it (§4) |
 | valid, not newer | drops it. This is normal: an item arrives over several neighbours |
-| fails a check | drops it, closes the exchange and does not take that node as a neighbour of any topic for 24 h *(initial)* |
+| fails its signature or content check | drops it, closes the exchange and does not take that node as a neighbour of any topic for 24 h *(initial)* |
+| fails a time check (`expires`, `issued`) | drops it. Clocks differ, so this is no fault of the neighbour |
 
 - **At most one item per topic is passed on per 10 s** *(initial)*. An item that arrives
   earlier waits, and only the newest one that waited is sent. An author who signs a thousand
@@ -156,14 +158,16 @@ the first subscriber that polls brings it into the mesh.
 
 ### 4.1 `SET_HEAD`
 
-The item is the `Signed` record of kind `HEAD`, byte for byte as it is stored in Kad.
+The item is the `Signed` record of kind `HEAD`, byte for byte as it is stored in Kad. A joint
+head ([`multi-author-set.md`](multi-author-set.md) §1.3) is an item too: it is checked as that
+document's storing node checks it, and ordered as there, by `Grant.number` before `Head.seq`.
 
 | Check | |
 |---|---|
 | Signature | valid under the key of the topic, computed as [`Protocol.md`](../Protocol.md) §10.7 with kind `HEAD` and the head target ([`file-set.md`](file-set.md) §5.1) |
 | `head.id` | the `id` of the topic |
 | `expires` | later than now minus 1 h |
-| Content | `head` and nothing else |
+| Content | `head`, or `joint` in a joint head, and nothing else |
 
 These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node that accepts
 the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
@@ -201,11 +205,12 @@ signed record of that kind is ever stored, so the notice cannot be replayed as a
 | Signature | valid under the key of the topic, with kind `LIVE` and target `stream` |
 | `on_air.id` | the `id` of the topic |
 | `issued` | at most 1 h ahead of now |
-| `expires` | later than now, and at most 15 min *(initial)* after `issued` |
+| `expires` | later than now minus 1 h, and at most 15 min *(initial)* after `issued` |
 | Content | `on_air` and nothing else |
 
 - The broadcaster sends a notice when a broadcast starts, every 5 min *(initial)* while it
-  runs, and one with `end` when it is over.
+  runs, and one with `end` when it is over. Each notice carries a strictly later `issued` than
+  the one before, so that two never tie.
 - A notice says that a broadcast runs. The peers are still found through the `LIVE` records
   ([`live.md`](live.md) §5), and a notice is no proof that any peer can be reached.
 - A notice that has run out is no longer held, and not given to a node that joins.
@@ -259,7 +264,7 @@ the storing nodes. A user who does not want to be listed follows by polling.
 | | Size |
 |---|---|
 | Item | a head record of about 150 B or a notice of about 110 B, to each neighbour once |
-| Connections | about 3 per topic, held open; at most 48 for 16 topics |
+| Connections | about 3 per topic, held open; about 48 and at most 64 for 16 topics |
 | Keeping them alive | one packet of about 70 B each way per connection and 20 s |
 | `SUB` record | one store per 30 min, on about 8 nodes |
 

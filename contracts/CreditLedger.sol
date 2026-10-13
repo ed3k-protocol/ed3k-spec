@@ -37,7 +37,8 @@ contract CreditLedger {
     uint64 public constant WEEK_CAP_KIB = 100 << 20; // 100 GiB per issuer and 7 days (initial)
     uint64 public constant PAIR_CAP_KIB = 10 << 20; // 10 GiB per issuer, holder and 7 days (initial)
     uint64 public constant MAX_RECEIPT_KIB = 50 << 20; // 50 GiB in a day (initial)
-    uint32 public constant WINDOW_DAYS = 60; // (initial)
+    uint32 public constant WINDOW_DAYS = 7; // (initial)
+    uint256 public constant HOLD_TIME = 1 hours; // (initial): a bid's hold, credit.md §6.5
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
     uint256 public constant UPLOADER_SHARE_PCT = 10; // of spent credits; the rest is burned
     uint256 public constant CALLER_REWARD_PCT = 60;
@@ -117,11 +118,23 @@ contract CreditLedger {
 
     // ─────────────────────────────── events ──────────────────────────────
 
+    /// A bid's hold: `amount` of the payer's balance locked for `payee` until `until` (credit.md §6.5).
+    struct Hold {
+        uint128 amount;
+        uint64 until;
+    }
+
+    /// payer → payee → hold
+    mapping(address => mapping(address => Hold)) private _holds;
+    /// payer → sum of its holds; a hold that ran out counts until it is released or replaced
+    mapping(address => uint256) private _heldTotal;
+
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Registered(address indexed account);
     event Settle(address indexed issuer, address indexed holder, uint32 day, uint256 minted, uint256 taken);
     event Overdrawn(address indexed account, uint256 missing);
+    event Held(address indexed payer, address indexed payee, uint256 amount, uint64 until);
 
     error BadDeadline();
     error BadSignature();
@@ -233,6 +246,30 @@ contract CreditLedger {
         emit Approval(owner, spender, value);
     }
 
+    /// Locks `amount` µ of the caller's balance for `payee` for HOLD_TIME (credit.md §6.5).
+    /// Replaces an earlier hold for that payee; 0 releases it. The caller's holds must fit
+    /// its balance after decay.
+    function hold(address payee, uint256 amount) external {
+        if (payee == address(0)) revert ZeroAddress();
+        if (amount > type(uint128).max) revert InsufficientBalance();
+        Account storage a = _accounts[msg.sender];
+        if (a.overdrawn) revert IsOverdrawn();
+        _touch(a, msg.sender);
+        Hold storage h = _holds[msg.sender][payee];
+        uint256 total = _heldTotal[msg.sender] - h.amount + amount;
+        if (uint256(a.earned) + a.received < total) revert InsufficientBalance();
+        _heldTotal[msg.sender] = total;
+        h.amount = uint128(amount);
+        h.until = amount == 0 ? 0 : uint64(block.timestamp + HOLD_TIME);
+        emit Held(msg.sender, payee, amount, h.until);
+    }
+
+    /// What `payer` still holds for `payee`; 0 once the hold has run out.
+    function holdOf(address payer, address payee) external view returns (uint256) {
+        Hold storage h = _holds[payer][payee];
+        return block.timestamp < h.until ? h.amount : 0;
+    }
+
     // ────────────────────────────── internals ────────────────────────────
 
     function _settleOne(Receipt calldata r, bytes calldata sig, uint32 today) private {
@@ -252,7 +289,7 @@ contract CreditLedger {
         // 1. take what was spent
         uint256 taken;
         if (r.spent > st.spent) {
-            taken = _spend(issuer, holder, r.issuer, r.holder, uint256(r.spent) - st.spent);
+            taken = _spend(issuer, holder, r.issuer, r.holder, uint256(r.spent) - st.spent, uint256(r.day) * 1 days);
             st.spent = r.spent;
         }
 
@@ -276,10 +313,14 @@ contract CreditLedger {
     }
 
     /// Takes `amount` from the issuer, as far as it has it. Returns what was taken.
-    function _spend(Account storage issuer, Account storage holder, address issuerAddr, address holderAddr, uint256 amount)
-        private
-        returns (uint256 taken)
-    {
+    function _spend(
+        Account storage issuer,
+        Account storage holder,
+        address issuerAddr,
+        address holderAddr,
+        uint256 amount,
+        uint256 dayStart
+    ) private returns (uint256 taken) {
         _touch(issuer, issuerAddr);
         taken = _take(issuer, amount);
         if (taken < amount) {
@@ -290,7 +331,9 @@ contract CreditLedger {
 
         uint256 share = taken * UPLOADER_SHARE_PCT / 100;
         if (share != 0) {
-            _touch(holder, holderAddr);
+            // decay is written up to the day of the receipt, not up to now: the activity of
+            // step 3 then keeps the days from `day` on free of decay (credit.md §6.2)
+            _touchAt(holder, holderAddr, dayStart > holder.decayedUntil ? dayStart : holder.decayedUntil);
             holder.received += uint128(share);
             emit Transfer(issuerAddr, holderAddr, share);
         }
@@ -369,6 +412,8 @@ contract CreditLedger {
         Account storage src = _accounts[from];
         if (src.overdrawn) revert IsOverdrawn();
         _touch(src, from);
+        // a transfer never dips into what the account holds for its bids (credit.md §6.5)
+        if (uint256(src.earned) + src.received < value + _heldTotal[from]) revert InsufficientBalance();
         if (_take(src, value) != value) revert InsufficientBalance();
 
         uint256 burned = value * TRANSFER_BURN_PCT / 100;

@@ -38,7 +38,7 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the text of the `segment` element, without `<` and `>`, as bytes |
+| mᵢ | the message ID of part *i* of the file: the text of the `segment` element with leading and trailing ASCII whitespace removed, without `<` and `>`, as bytes |
 | Order of parts | by the `number` attribute, 1 to n. Where a number occurs twice, the first entry in the NZB counts |
 | fⱼ | the file ids of all files of the NZB, in ascending order of their bytes |
 
@@ -79,8 +79,9 @@ message Post {
 ```
 
 - **`name` and `size` come from the articles,** not from the NZB: the `name` and the `size` of
-  the yEnc header line `=ybegin`. All parts of a file carry the same values; a client takes
-  them from any part it has.
+  the yEnc header line `=ybegin`, with trailing whitespace removed. All parts of a file carry
+  the same values; a client takes them from the lowest-numbered part it has, and makes no
+  manifest and no `ALIAS` record for a post whose parts disagree.
 - A name that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8.
 - **The list does not say which bytes an article holds.** Each article says so itself, in its
   `=ypart` line (`begin`, `end`). A client that wants a range asks for the part the range
@@ -235,8 +236,9 @@ password.
 
 ## 6. Publishing
 
-A node publishes when it has the complete post, every member verified under the root it
-computed, and shares the files.
+A node publishes when it has the complete post, decoded the articles itself and computed every
+member's root from them, and shares the files. A manifest whose members it only verified under
+roots it was given is not published: that proves the manifest, not the post.
 
 | What | How |
 |---|---|
@@ -304,7 +306,7 @@ of a type they do not know.
 | Hashing | every member is hashed with BLAKE3 once, which a node does for any file it shares |
 | Storage | the manifest, about 80 B per file, and the article list, about 45 B per article: 3 MiB for a post of 50 GiB |
 | Kad | one `ALIAS` record per post and one per file, next to the `SOURCE` records |
-| What a storing node learns | that a node has a post. The target is a hash, so it can test posts it knows |
+| What a storing node learns | that a node has a post, and its post id in clear, from the `ALIAS` record ([`alias.md`](alias.md) §1). The id is a hash of the message IDs, so the node can test posts it knows |
 | What others learn | the message IDs of the post, from the article list. For a post under meaningless names they are all that an index sells. §6 shares them on purpose, unless the user holds posts back |
 | What a news server learns | nothing about ed3k |
 

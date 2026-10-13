@@ -61,7 +61,7 @@ message CoSig {
 ```protobuf
 // in SetFile (file-set.md §1):
 SignedGrant grant = 4;
-repeated CoSig cosigs = 5;    // each over "ed3k v1 set" ‖ body, as in file-set.md §2.4
+repeated CoSig cosigs = 5;    // each over "ed3k v1 set cosig" ‖ body: not the sole-author prefix of file-set.md §2.4, so a cosig is no signature of a set of one's own
 ```
 
 - `SetFile.key` is the owner key, as before. `SetFile.sigs` is left empty.
@@ -79,18 +79,20 @@ Joint joint = 8;
 message Joint {
   bytes  head = 1;            // a serialised Head (file-set.md §5.2)
   SignedGrant grant = 2;
-  repeated CoSig cosigs = 3;  // each over "ed3k v1 joint head" ‖ target(16) ‖ head
+  repeated CoSig cosigs = 3;  // each over "ed3k v1 joint head" ‖ target(16) ‖ Grant.number(8, big-endian) ‖ head
 }
 ```
 
 The record is of kind `HEAD`, at the target of the set, and carries `joint` in place of `head`.
 It is signed, as a record, by any one key of the grant. That signature only lets the record be
-stored again with a new `expires`; what counts are the `cosigs`.
+stored again with a new `expires`; what counts are the `cosigs`. They bind the grant's
+`number`, so a head cosigned under an earlier grant cannot be carried under a later one and
+outrank the heads of that grant.
 
 | | Storing node, on `Store` | Searcher, on `KadAnswer` |
 |---|---|---|
-| Grant | verifies under `grant.key`; at most 8 keys | the same, and `grant.key` is the key it searched for |
-| Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request | the same |
+| Grant | verifies under `grant.key`; 1 to 8 distinct keys; `required` from 1 to the number of keys; else `REJECTED` | the same, and `grant.key` is the key it searched for |
+| Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request, and `Head.id` equals `Grant.id`; else `REJECTED` | the same |
 | Record signature | by a key of the grant | the same |
 | `cosigs` | at least `required` different keys of the grant, each valid | the same |
 | Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires`; a valid record that does not replace it is answered `OLDER` | the highest in this order wins |
@@ -101,8 +103,9 @@ stored again with a new `expires`; what counts are the `cosigs`.
 - A removed co-owner can still show an old head with the old grant to a storing node that
   never saw the new one, as with any old head (`file-set.md` §5.2). The order above makes a
   searcher prefer the newer grant.
-- With 8 keys and 4 signatures the record is about 900 bytes, inside the 1 KiB of §10.7.
-  `Head.name` has to stay short.
+- With 8 keys and 4 signatures the record is about 900 bytes, inside the 1 KiB of `Protocol.md` §10.7.
+  In a joint head `Head.name` is therefore at most 64 bytes and `id` at most 16 bytes; a
+  storing node answers `REJECTED` above that.
 
 A reader follows the set as in `file-set.md` §5.3, with §1.2 in place of "signed by the same
 key".
@@ -249,7 +252,8 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
 travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search is paged with
-`offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records.
+`offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records, in
+the order of the authors' keys as bytes.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
@@ -303,7 +307,7 @@ A part that fails is not shown, and an older version that passed is kept.
 | **A mounted author fills the directory** | `max_size` and `max_files`; the outer author removes the mount |
 | **Junk parts in a set with an issuer** | the storing node refuses keys without a certificate; the issuer decides who gets one |
 | **Junk parts in an open set** | per-part limits, 1,024 records per target, no automatic download. An open set can be filled; that is what open means |
-| **Filling the target so that real parts find no room** | with an issuer: not possible without certificates. Without: possible, by someone with many addresses |
+| **Filling the target so that real parts find no room** | with an issuer: not possible without certificates. Without: possible, since keys are free; the per-address rate of `Protocol.md` §10.3 is the only price |
 | **An issuer gives certificates to everyone** | the owner removes the issuer from the rules |
 | **Unwanted content in a part** | `banned` and `below` in the next version; the user's own filter lists |
 

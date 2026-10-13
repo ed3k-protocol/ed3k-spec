@@ -118,7 +118,8 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
    `HopCreated`, or `Error{BUSY}`. The exchange stays open. It is the **control stream** of the
    path on this link, and its stream number is 0 (§2.4).
 2. To add a hop, the owner sends `HopExtend` on the control stream. The last hop connects to
-   `node` as to any node, opens an exchange, sends `HopCreate` with a `path` of its own, and
+   `node` as to any node (it MUST be a global unicast address, `Protocol.md` §8.2 (7); else
+   `Error{MALFORMED}`), opens an exchange, sends `HopCreate` with a `path` of its own, and
    passes the `HopCreated` back to the owner as a frame on the control stream, inside the
    layers of the hops before it. From then on it forwards. A path MUST NOT be extended while
    it carries a stream other than the control stream: a hop added later has no layer on those
@@ -178,7 +179,7 @@ A stream of a path is one exchange on each link, joined end to end by the hops.
 ```protobuf
 message HopStream {           // type 32. First frame of an exchange between two neighbours
   bytes  path = 1;            // as in HopCreate, for this connection
-  uint64 number = 2;          // unique in the path and never 0 (the control stream). Even: opened by the owner. Odd: opened at the last hop
+  uint64 number = 2;          // never 0 (the control stream); greater than every number the opener used before on this path. Even: opened by the owner. Odd: opened at the last hop
 }
 ```
 
@@ -186,8 +187,12 @@ message HopStream {           // type 32. First frame of an exchange between two
   It is, with `Block`, a message that is followed by raw bytes.
 - A hop that receives `HopStream` opens an exchange on the other side of the path with its
   own `path` value and the same `number`, and copies in both directions. A half-close and a
-  reset are passed on. A `HopStream` with `number = 0`, or with a number in use on the path,
-  is answered `Error{MALFORMED}`.
+  reset are passed on. **Numbers never repeat on a path:** each opener MUST use a number
+  greater than every number it used before on the path, so that a layer's key stream is never
+  used twice. A `HopStream` with `number = 0`, or with a number not greater than every number
+  the hop has seen from that side, is answered `Error{MALFORMED}`. That `Error` is sent without
+  a layer by the hop that refuses; a hop that receives an `Error` or a reset on one side of a
+  stream resets the other side.
 - **A hop keeps little.** It holds at most 256 KiB *(initial)* per stream and direction. When
   the next link does not take data, it stops reading from the link before. The flow control of
   the exchanges carries this back to the sender. Nothing is acknowledged twice and nothing is
@@ -223,11 +228,13 @@ message HopGate {             // type 29. Request and answer on the control stre
 ```
 
 **Outwards.** The owner opens a stream and sends `HopConnect`. The last hop connects to
-`node`, opens an exchange, sends `HopJoin` with the same `gate`, and copies in both
-directions. A node that hides behind 0 hops sends `HopJoin` itself.
+`node` (a global unicast address, `Protocol.md` §8.2 (7); else `Error{MALFORMED}`), opens an
+exchange, sends `HopJoin` with the same `gate`, and copies in both directions. The dials that
+`HopExtend` and `HopConnect` cause are limited per path and per neighbour (§5). A node that hides behind 0 hops sends `HopJoin` itself.
 
 **Inwards.** An owner that wants to be reached sends `HopGate` on the control stream of a
-path. The last hop answers with a gate value and is from then on a **gate** of the owner.
+path. The last hop answers with a gate value and is from then on a **gate** of the owner. A
+`HopExtend` on a path that has a gate is answered `Error{MALFORMED}`: the gate is the last hop.
 
 - A node that receives `HopJoin` with a gate value it gave opens a stream with an odd number
   on that path and copies. With an unknown value it answers `Error{NOT_FOUND}`.
@@ -253,10 +260,10 @@ A → B   seal(k_a, key of A(32) ‖ sig_A(64))
 ```
 ss              = X25519(a, e_B) = X25519(b, e_A)          fresh pairs (a, e_A) and (b, e_B); refuse all zero
 k_b ‖ k_a ‖ k_s = H("ed3k v1 hop session", ss ‖ e_A ‖ e_B)                      96 bytes
-sig_B           = signature over "ed3k v1 hop session" ‖ 0x02 ‖ e_A ‖ e_B
-sig_A           = signature over "ed3k v1 hop session" ‖ 0x01 ‖ e_A ‖ e_B ‖ key of B
+sig_B           = signature over "ed3k v1 hop session sig" ‖ 0x02 ‖ e_A ‖ e_B
+sig_A           = signature over "ed3k v1 hop session sig" ‖ 0x01 ‖ e_A ‖ e_B ‖ key of B
 sid             = H("ed3k v1 hop session id", k_s)[0..16)
-seal(k, m)      = ChaCha20-Poly1305(k, nonce 0, m)                               RFC 8439, 16-byte tag
+seal(k, m)      = ChaCha20-Poly1305(k, nonce 0, m, empty AAD)                    RFC 8439, 16-byte tag
 ```
 
 - A key is the anonymous key of a node that hides, and the node key of one that does not.
@@ -279,7 +286,7 @@ path.
 
 ```
 key     = H("ed3k v1 hop session stream", k_s ‖ number(8, big-endian) ‖ dir(1))     dir = 0x00 from A, 0x01 from B
-record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12, big-endian), plaintext of at most 16,384 bytes)
+record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12, big-endian), plaintext of at most 16,384 bytes, empty AAD)
 ```
 
 `len` is the length of the ciphertext with its 16-byte tag, big-endian, 16 to 16,400. Records
@@ -296,7 +303,9 @@ first stream has the number 0, and its records follow the three messages of §3.
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
 - The first exchange is `Hello`. A node under its anonymous key sends no `observed`, `ep4`,
-  `ep6` and no `nat`, and a `Peer` that names it carries its node ID alone.
+  `ep6` and no `nat`, an empty `nick`, and as `agent` one fixed string that its implementation
+  uses for every hidden node; a `Peer` that names it carries its node ID alone, and its
+  `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys.
 - A node MUST limit the sessions of one node ID as it limits connections (`Protocol.md`
   §4.6). What it counts per address, it counts per gate or per node that sent the `HopJoin`.
 - B can open a stream to A only while a stream of the session is open, or through a gate of
@@ -380,7 +389,7 @@ Signed gate = 17;             // GATE search
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |
-| Count | one per key and target; at most 64 *(initial)* per target | one per target; replaced by a later `issued`, else answered `OLDER` |
+| Count | one per key and target; at most 64 *(initial)* per target, a further one answered `FULL` | one per target; replaced by a later `issued`, else answered `OLDER` |
 | Returned | in `anon`, with every search of kind `SOURCE` at that target | in `gate`, with the key in `keys` |
 
 - **Two steps on purpose.** Gates change whenever a path breaks. A node with 10,000 files
@@ -388,7 +397,9 @@ Signed gate = 17;             // GATE search
 - `anon` holds node IDs without key or signature. As for any source, reaching it is the proof:
   the session shows the key behind the ID.
 - A searcher that wants an anonymous source looks up its `GATE` record, checks that the key
-  gives the node ID, picks a gate at random, and opens a session through it.
+  gives the node ID, picks a gate at random, and opens a session through it. It makes at most
+  4 *(initial)* failed `GATE` lookups or session attempts per file and hour, as
+  [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
 - An owner stores its `GATE` record again after 45 min *(initial)*, and at once when a gate
   was lost.
 - The batch of `Protocol.md` §10.4 does not carry `ANON` records: each is signed for its
@@ -409,6 +420,7 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Streams per path | 64 |
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
+| Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |
 | `HopJoin` per gate and host | 10 per minute |
 
 Above a limit it answers `Error{BUSY}`. A hop that takes no new paths clears `HOP` in its
@@ -442,6 +454,7 @@ other service.
 | A peer, or a storing node | sees a gate or a last hop in place of the address |
 | A single hop | sees its two neighbours and how much flows. It cannot read it and does not know its place in the path, except a last hop, which sees where a stream goes, and a gate |
 | A last hop | reads the lookups it runs: targets, search words, the records stored. Not for whom |
+| A last hop, or a gate | reads `sid` on every further stream of a session (§3.2), so it can tell which paths carry one session and link their last hops |
 | The first and the last hop of a path together | match a path by its timing and volume. This is the limit of every design of this kind, and file sharing makes it easy: the flows are large and long |
 | Whoever runs many hops | is picked as first and last more often. Hops are found through Kad, where nodes are cheap; there is no list that someone vouches for. Entry hops and the site rule make this slower, not impossible |
 | Someone who watches the links of a node | sees that it takes part, and how much. Sizes and times are not hidden; there is no padding and no delay |

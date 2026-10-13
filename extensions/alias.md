@@ -65,8 +65,9 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
   24 h *(initial)*.
 - `scheme` is 1 to 16 bytes of `a`–`z`, `0`–`9` and `-`.
 - `entry` is at most 255 bytes, `password` at most 128 bytes.
-- The name is stored as a hash. A storing node learns which names it holds only for names it
-  already knows and tests.
+- The target is a hash of the name, but `scheme` and `id` are fields of the record, so a
+  storing node holds every name it stores in clear. Only a scheme whose `id` is itself a hash
+  (`url`, [`hoster.md`](hoster.md) §4) keeps the name from it.
 
 ---
 
@@ -109,7 +110,7 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | Check | Rule |
 |---|---|
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
-| Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1 |
+| Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8 |
 | Target | the target of the request is the one computed from `scheme` and `id` |
 | Count | one record per publisher, target and root. At most 64 *(initial)* different roots per target; further ones get `FULL` |
 
@@ -208,7 +209,7 @@ How networks fit under these rules. The last column says where, or that nothing 
 | A later network | a scheme name. Storing nodes of today store its records |
 | Kad | one record kind for all names; one record per publisher, name and root, about 150 B |
 | What a storing node can check | that the record sits under the hash of its own name. Nothing about the name itself |
-| What a storing node learns | that a publisher has a file with some name. It can test names it knows |
+| What a storing node learns | the name, in clear, and that a publisher has a file with it; for `url` only the hash of the link |
 | Trust | none added. A record is a signed claim, ordered by how many sites make it |
 
 ---

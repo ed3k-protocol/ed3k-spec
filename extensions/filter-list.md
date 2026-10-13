@@ -58,7 +58,9 @@ enum Verdict {
 ```
 
 - The file SHOULD be named `<title>.ed3kflt`. A client recognises a list by its first 8 bytes.
-- `ids` is sorted, so a client looks an entry up without building an index.
+- `ids` is sorted, so a client looks an entry up without building an index. A list in which an
+  `ids` is not a multiple of 16 bytes, not in ascending order, or holds an entry twice is
+  refused as a whole.
 - A group with a `subject` or `verdict` the reader does not know is ignored.
 - A list file is at most 4 MiB *(initial)*, which is about 260,000 entries.
 - An `AUTHOR` is a key: the publisher of keyword and note records

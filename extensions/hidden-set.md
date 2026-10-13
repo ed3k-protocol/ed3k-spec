@@ -84,7 +84,8 @@ message Sealed {
   place of `target` is taken by **`base`**, which does not change with the day. The author
   therefore signs once, and others can store the record on later days.
 - It travels in the fields of a `HEAD` record: `Store.head` with `Store.signer`, and
-  `KadAnswer.sets`. `signer` is always present.
+  `KadAnswer.sets`. `signer` is always present; a `Store` of kind `HIDDEN` without it is
+  answered `REJECTED`.
 - In the sealed `Head`, `id` and `seq` are those of the manifest, `root` and `size` those of
   the sealed manifest (§4.1), and `name` is empty.
 - `data` is at most 256 bytes.
@@ -114,8 +115,9 @@ message Sealed {
 
 **Reading**
 
-1. Search `HIDDEN` at the target of the current day. If nothing is found, search the day
-   before.
+1. Search `HIDDEN` at the targets of the current day and of the day before, and merge the
+   answers: a follower's store of an old version on the new day must not hide a newer one that
+   is still under yesterday's target.
 2. Take the record with the highest `seq` and open `data`.
 3. Download the sealed manifest by its `root`, open it (§4.1), and accept it by the rules of
    [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` of the head, and
@@ -188,7 +190,7 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 | Taking access away | not possible. A new secret is a new set, and every follower needs the new link |
 | A secret that leaks later | opens every version that someone kept. There is no forward secrecy |
 | Open members | are as visible as any shared file. Only that they belong together is hidden |
-| The author | is known to nobody by its node ID, as long as it stores through `signer` like any follower |
+| The author | is not named by the `HIDDEN` record when it stores through `signer` like any follower. Its `SOURCE` records for the sealed manifest (§4.3) are bound to its node ID like any source record, so a storing node sees who first offers a new version |
 
 ---
 

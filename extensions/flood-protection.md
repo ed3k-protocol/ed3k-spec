@@ -24,9 +24,9 @@ A node that implements none of this still interoperates. Every version 1 node ac
 |---|---|---|
 | Unmask 5 bytes, check `magic` (§4.5 steps 1 and 2) | one BLAKE3 block | anyone who knows the node ID |
 | Try the keys of the connections this node opened by a hole punch (§4.5 step 3), for a datagram from an address without a connection that failed step 2; at most 100 datagrams per second | one BLAKE3 block per such connection | anyone, with any bytes |
-| Reassemble fragments (§4.4) | memory for at most 4 messages per source address, 3 s | the same |
-| Answer with Retry | one keyed hash, one small datagram | the same |
-| Start a handshake | key exchange, a signature and a verification; state for the connection | the same, unless Retry is demanded |
+| Reassemble fragments (§4.4) | memory for at most 4 messages per source address, 3 s | anyone who knows the node ID: the pieces pass the `magic` check first |
+| Answer with Retry | one keyed hash, one small datagram | anyone who knows the node ID |
+| Start a handshake | key exchange, a signature and a verification; state for the connection | anyone who knows the node ID, unless Retry is demanded |
 | Complete a handshake | counted by §4.6 | a node at a real address |
 
 The expensive step is the fourth: on the order of 0.1 to 0.2 ms of one core per handshake
@@ -102,9 +102,10 @@ This extension adds the group budgets to it:
 | `CHALLENGE`s sent | 4 (as in `kad-datagram.md` §5) | 16 | 64 |
 | New key derivations for `REQUEST`s | 8 (as there) | 32 | 128 |
 
-A `REQUEST` with a valid cookie comes from a validated address and proves its key, so the
-connection budget of §4.6 applies to it as well, counting a requester's first `REQUEST` under a
-new cookie as a new connection.
+A `REQUEST` with a valid cookie comes from a validated address and proves its key. It is not
+counted by the connection budget of §4.6, which would need state per requester that the
+responder does not keep ([`kad-datagram.md`](kad-datagram.md) §2); the per-address rates of
+[`kad-datagram.md`](kad-datagram.md) §5 and the table above bound it instead.
 
 ## 5. What it does not do
 

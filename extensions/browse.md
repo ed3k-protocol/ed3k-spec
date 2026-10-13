@@ -29,7 +29,10 @@ message BrowseAnswer {
 - `Browse` is a request/answer exchange (§5.2).
 - A node sends `Browse` only to a peer that set `BROWSE` in its `Hello`. A node without the
   capability answers `Error{UNSUPPORTED}`.
-- `dir` names one directory. The empty string asks for the top level. The answer lists the
+- `dir` names one directory. The empty string asks for the top level. Its components MUST
+  follow [`file-set.md`](file-set.md) §2.2 (no `.`, `..`, empty component or `//`, at most 32
+  components); a `dir` that does not is answered `Error{MALFORMED}`, and one the node does not
+  show `Error{NOT_FOUND}`. The answer lists the
   directories directly below it in `dirs`, as names of one component each (the rules of
   [`file-set.md`](file-set.md) §2.2 for a component apply), and the files directly in it in
   `files`. The requester lists one of them with `dir` ‖ `/` ‖ name, or the name alone at the

@@ -40,7 +40,7 @@ All numbers are *(initial)* and are repeated in Appendix A of the main document.
 | Whole routing table (§2.1) | 1 | 10 | 20 |
 | One `KadAnswer` (§2.2) | 1 | 2 | 4 |
 | One lookup, nodes queried (§2.2) | 1 | 2 | 4 |
-| Closest set (§2.3) | 1 | — | 1, as a preference |
+| Closest set (§2.3) | as the lookup | as the lookup | as the lookup |
 | Failed or pending source dials per file and hour (§2.5) | 2 | 4 | 8 |
 
 ### 2.1 Routing table
@@ -61,9 +61,11 @@ replaces another, the contact being replaced is taken out of the counts first.
   contact whose host group was in the table under a different node ID less than an hour ago is
   not inserted. This slows an address from walking through the 8 positions that the choice of
   key gives it (§6.3). The contact is refused, not banned (§5).
-- These limits also protect the **responsibility rule** (§10.3). A node is responsible while it
-  knows fewer than K closer verified contacts. Without the limits, one network could place K
-  contacts next to a key in an honest node's table and make it refuse the payload.
+- These limits raise the price of an attack on the **responsibility rule** (§10.3) but do not
+  close it. A node is responsible while it knows fewer than K closer verified contacts. The
+  contacts closer to a key than the node span several buckets, and the table holds up to 20
+  per block, so one block with enough sites can still place K contacts next to a key in an
+  honest node's table and make it refuse the payload; without the limits one site could.
 
 ### 2.2 Lookup
 
@@ -85,17 +87,11 @@ A candidate that was skipped does not count towards termination. It is neither "
 The closest set is the R verified, responsible nodes that a lookup ends with: the nodes a
 `store` is sent to and whose `search` results are merged (R = 4 and 8, §10.4).
 
-The requester fills it in two passes:
-
-1. Closest first, taking a node only if no node of the same **block** is already in the set.
-2. If fewer than R nodes were taken, closest first again from the nodes passed over, taking at
-   most one per **host**.
-
-Diversity is a preference here and not a hard limit, for two reasons. Only responsible nodes
-accept a payload, and there are about K of them, so a hard limit could leave a payload on fewer
-nodes than exist. And on a small network the honest nodes near a key may well share a provider.
-The first pass is enough for the purpose: one block cannot push nodes of other blocks out of the
-set when such nodes are responsible.
+Its members were queried, so the per-lookup limits of §2.2 already bound it: at most 1 per
+host, 2 per site and 4 per block. No further rule applies, and the requester takes the R closest
+of the nodes it queried. On a small network the honest nodes near a key may well share a
+provider; the 4 per block of §2.2 leave room for that, and a lookup that cannot reach R nodes
+within the limits ends with fewer (`Protocol.md` §10.4).
 
 ### 2.4 Stored records
 
@@ -108,7 +104,8 @@ source address" in §10.3.
 | `KEYWORD` and `NOTE`: publishers counted per entry | 1 | 1 | — |
 
 - `SOURCE`: several nodes behind one carrier-grade NAT address are distinct, honest sources, so
-  the host limit is above 1. Each record still belongs to one authenticated node ID (§10.3).
+  the host limit is above 1. Each record still belongs to one authenticated node ID (§10.3). A
+  record beyond a limit is answered `FULL`.
 - `KEYWORD` and `NOTE`: records are accepted from any publisher within the general flood limits,
   but when an entry's publishers are counted (popularity, ranking, or a rating average), one
   site counts once. A network that publishes many entries gains nothing per entry by doing so.

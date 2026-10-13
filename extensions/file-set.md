@@ -63,7 +63,7 @@ message Member {
   uint64 size = 2;
   string name = 3;            // file name, one path component
   uint32 dir = 4;             // 0 = top level of the set; else 1 + index into `dirs`
-  bytes  ed2k = 5;            // optional: 16 B eD2K hash (§7.4)
+  bytes  ed2k = 5;            // optional: 16 B eD2K hash (`Protocol.md` §7.4)
   bool   set = 6;             // this member is the manifest of an inner set (§2.5)
   uint32 set_files = 7;       // with `set`: number of files in the inner set, its inner sets included
   uint64 set_size = 8;        // with `set`: sum of their sizes
@@ -109,6 +109,7 @@ A manifest comes from a stranger and names places in the reader's file system.
 - A component MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, NUL or a code point below
   U+0020. A directory path MUST NOT begin or end with `/` or contain `//`.
 - Two members MUST NOT have the same `dir` and `name`. Two entries of `dirs` MUST NOT be equal.
+  A member's path, its directory and `name`, MUST NOT equal an entry of `dirs`.
 - A reader MUST refuse a manifest that breaks these rules. It MUST NOT repair it.
 - A reader writes every member below one directory that the user chose for the set, and MUST
   NOT follow a symbolic link that leaves it.
@@ -169,7 +170,9 @@ copying its list.
   sets opened so far exceed 1,000,000 *(initial)*. One inner manifest may be a member in
   several places; it is counted each time. Without this limit a few small manifests that name
   each other many times would describe more files than any disk holds.
-- A path, with the directories of all levels, has at most 32 components (§2.1).
+- A path, with the directories of all levels, has at most 32 components. §2.1's limit is per
+  manifest; this one is over the levels. An inner set that would exceed it is shown as a plain
+  file and not opened; the manifest that names it is not refused for that.
 - A manifest cannot contain itself: its root would have to be known before it is written. The
   depth limit bounds a reader in any case.
 - **Choice.** The user's choice of an outer set covers the inner sets the user selected in it
@@ -308,6 +311,7 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
 | | Storing node, on `Store` | Searcher, on `KadAnswer` |
 |---|---|---|
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
+| Content | `head`, or `joint` in a joint head ([`multi-author-set.md`](multi-author-set.md) §1.3), and nothing else; else `REJECTED` | the same |
 | Target | `H("ed3k v1 set head", signing key ‖ head.id)[0..16)` is the target of the request | the same, with the key and `id` it searched for |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | Size | `id` 1 to 32 B, `root` 32 B, `name` at most 255 B of UTF-8; else `REJECTED` | the same |

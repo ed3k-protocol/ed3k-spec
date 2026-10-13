@@ -75,7 +75,7 @@ GONE = 10;                    // the hoster says the file was removed
 ```
 
 An uploader stops handing out a link after 3 *(initial)* results of `GONE`, `SIZE_MISMATCH` or
-`CORRUPT` from different downloaders. `NO_RESOLVER`, `NEEDS_USER` and `HTTP_FAILED` say
+`CORRUPT` from downloaders in 3 different sites ([`ip-diversity.md`](ip-diversity.md) §1). `NO_RESOLVER`, `NEEDS_USER` and `HTTP_FAILED` say
 something about the downloader or the moment, and do not count.
 
 ---
@@ -130,9 +130,9 @@ id        = H("ed3k v1 url", canonical)                          32 B
 | Part | Canonical form |
 |---|---|
 | Scheme | `http` or `https`. Not part of `canonical` |
-| Host | lower case, in its ASCII form (an internationalised name through IDNA, UTS 46 non-transitional); a leading `www.` is removed; no port and no user name. The port is dropped on purpose: the same path on 443, 80 or another port is one `id`, and the fetch decides whether the bytes match |
-| Path | as in the link. Percent-escapes of letters, digits, `-`, `.`, `_` and `~` are decoded, other escapes are written with upper case digits, and a character outside ASCII is written as the percent-escapes of its UTF-8 bytes. An empty path is `/` |
-| Query, fragment | as in the link, with the escaping rule of the path, each left out when empty. The fragment stays: some hosters keep the key of the file there |
+| Host | lower case, in its ASCII form (an internationalised name through IDNA, UTS 46 non-transitional); a leading `www.` and a trailing `.` are removed; no port and no user name. The port is dropped on purpose: the same path on 443, 80 or another port is one `id`, and the fetch decides whether the bytes match |
+| Path | as in the link. Percent-escapes of letters, digits, `-`, `.`, `_` and `~` are decoded, other escapes are written with upper case digits, and every byte that is neither an unreserved nor a reserved character of RFC 3986 (among them space, `"`, `<`, `>`, `{`, `}` and every byte outside ASCII) is written as its percent-escape. A `%` that is not followed by two hex digits makes the link invalid. An empty path is `/` |
+| Query, fragment | as in the link, with the escaping rule of the path, each left out when empty; `+` is kept as it is. The fragment stays: some hosters keep the key of the file there |
 
 `canonical` is hashed as its bytes; after these rules it is ASCII.
 
@@ -160,7 +160,7 @@ expanded the link itself and holds every member.
   looks the same to the client and costs the same.
 
 Two links to one file at one hoster often differ in their text. Each is a name of its own, and
-this extension does not try to see that they are the same (§9).
+this extension does not try to see that they are the same (§11).
 
 ### 4.1 A link without a root
 
@@ -171,11 +171,14 @@ Nobody has published the file, or the client has no ed3k source for it.
   such data is **checked, not verified** ([`alias.md`](alias.md) §5 rule 5).
 - When the file is complete the client computes its root. From then on it is an ordinary
   shared file and the client is its first source.
-- **A link that was downloaded is shared.** Once the file is complete and verified, a client
-  that shares the file publishes the `ALIAS` record of the link, attaches the link to its
-  `SOURCE` record, and hands it to its downloaders (§2). This holds for a link the user
+- **A link that was downloaded is shared when the user allows it.** Once the file is complete
+  and verified, a client that shares the file and does not hold links back (below) publishes
+  the `ALIAS` record of the link, attaches the link to its `SOURCE` record, and hands it to its
+  downloaders (§2). This holds for a link the user
   pasted as for any other, and for a link that came with a known root as well.
-- **Holding links back** is a setting, off by default. With it on, the client does none of
+- **Holding links back** is a setting, **on by default**: a link is often all that protects a
+  file at a hoster, so a client publishes and hands out links only when the user switched that
+  off. With it on, the client does none of
   the three: no `ALIAS` record of the link, no link at its `SOURCE` record, none handed to
   downloaders, and no link in a manifest it makes. **The file is shared all the same,** under
   its root, like any file. The setting covers every link the client knows, also those it got
@@ -222,7 +225,7 @@ Nothing in the manifest marks it as an archive.
 |---|---|
 | `id` | the root of the file that comes out |
 | `rel` | `PACKED` |
-| `root`, `size`, `name` | the manifest of the volumes. For an archive of one volume without a manifest: that volume |
+| `root`, `size`, `name` | the manifest of the volumes, also for an archive of one volume: `root` is always a manifest here, as the `Alias.root` comment says |
 | `entry` | the path of the file inside the archive; absent when the archive holds one file |
 | `password` | the password of the archive, if it has one |
 
@@ -279,18 +282,18 @@ every volume, and the file that came out has the root in `id`.
 - **To the hoster:** the address of the node, and which file it fetches. With a login, also
   who the user is to that hoster.
 - **To a peer or a storing node that is given a link:** the link. A link is often all that
-  protects a file at a hoster. This extension shares it on purpose: a link the user pasted is
-  passed on and published once the file is downloaded (§4.1). A client MUST say so where
-  the user switches downloads from hosters on, and offer the setting that holds links back
-  there. What stays with the node is everything of an
+  protects a file at a hoster. This extension can share it: a link the user pasted is passed
+  on and published once the file is downloaded (§4.1) when the user has switched that on; by
+  default links are held back. A client MUST say what sharing a link means where the user
+  switches it on. What stays with the node is everything of an
   account (§3).
 - **In Kad:** an `ALIAS` record of the scheme `url` holds a hash of the link, not the link.
   Whoever knows the link learns the root and the publisher.
 - **To the pages of a hoster:** whatever the resolver lets them see. This is the reason for
   running it apart (§3).
 - **Through an anonymous path** ([`hops.md`](hops.md)): a link fetched directly shows the
-  node's address to the hoster. A node that hides its address MUST NOT fetch links, except
-  through the same means it uses for HTTP there.
+  node's address to the hoster. A node that hides its address MUST NOT fetch links there:
+  under the anonymous key it uses no HTTP source either ([`hops.md`](hops.md) §1).
 
 ---
 

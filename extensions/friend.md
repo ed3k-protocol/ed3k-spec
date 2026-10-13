@@ -158,7 +158,9 @@ same fields.
 
 - It is bound to the connection: one record per publishing node under a target, and a new one
   replaces the old.
-- It holds at most 8 *(initial)* records under one target and answers `FULL` after that.
+- It holds at most 32 *(initial)* records under one target, at most 8 per host and 16 per site
+  ([`ip-diversity.md`](ip-diversity.md) §1), and answers `FULL` after that; a holder of the
+  link then needs several sites to lock the real node out of its place.
 - The lifetime is 5 h *(initial)*.
 - It checks the size and nothing else. It cannot read the record or tell the three forms
   apart, and it returns the records of a target without saying who stored them.
@@ -166,7 +168,8 @@ same fields.
 **The node that wants to be found**
 
 - stores a record for each friend and each open link, under the target of the current day:
-  when it starts, when its addresses or relays change, and every 4 h *(initial)*;
+  when it starts, when it accepts a friend or makes a link, when its addresses or relays
+  change, and every 4 h *(initial)*;
 - names in `peer` what it would put into a source record: its endpoints, or its relays when it
   is a leaf (§9.4).
 
@@ -175,7 +178,7 @@ same fields.
 1. Searches `FRIEND` at the target of the current day. If nothing is found, it searches the
    day before, and then the day after (the friend's clock may be ahead).
 2. Opens every record with `k_rec`. One whose tag fails is dropped.
-3. Takes the record with the latest `issued` that is not more than 1 h in the future, and
+3. Takes the record with the latest `issued` that is not more than 10 min *(initial)* in the future, and
    dials: directly, or through the relays as in §9.4 and §9.5.
 4. **The handshake is the proof.** The node at that address has to hold `key` (T1). A record
    is not signed for the same reason a source record is not: no signature can prove an

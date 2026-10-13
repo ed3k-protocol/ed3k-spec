@@ -50,7 +50,9 @@ message ChatAck { }
 - A sender that gets no answer because the connection was lost MAY send the message again with
   the same `id`. The receiver answers `ChatAck` to a repeated (sender, `id`) and shows the
   message once. It remembers the `id`s of a sender for at least 10 min *(initial)* and at
-  most 1,024 *(initial)* of them, the oldest forgotten first.
+  most 1,024 *(initial)* of them, the oldest forgotten first. Only the `id`s of messages it
+  took are remembered: one that was answered `BUSY` or `DENIED` is not, so the retry with the
+  same `id` is shown when it is taken.
 
 ## 3. Open points
 

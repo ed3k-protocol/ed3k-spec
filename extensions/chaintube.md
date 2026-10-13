@@ -110,6 +110,7 @@ message Tube {
   uint64 chain = 1;           // chain ID
   bytes  contract = 2;        // 20 B address of the contract that holds the entry: the content contract for a video
   bytes  author = 3;          // 20 B address of the account that publishes the set on the chain
+  uint64 content_id = 4;      // ID of the entry at `contract`; 0 = not yet known (the first upload)
 }
 ```
 
@@ -123,8 +124,11 @@ message Tube {
   `b3` of that link is another version of the set and not the video. The client says so and
   offers the version the chain names.
 - A `tube` that names a chain or a contract other than those of §4.2 is ignored.
-- The ID of the video is not in the field. The contract assigns it in the transaction, and the
-  manifest exists before.
+- `content_id` is the ID the contract assigned to the entry. The first manifest of a set is
+  written before the transaction and carries 0; the next version carries the ID. A client
+  checks a set with an ID by one `getContentById` (or `getCommentById`) call, and a set with 0
+  by `eth_getLogs` as in §4.3, which is unbounded in the chain's history; it MAY give up on
+  the latter after a bounded number of windows and show the set as unverified.
 - A set without the field is still a valid upload set. It is found from the chain only.
 
 ---
@@ -148,7 +152,9 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
   this extension ignores them.
 - **`ipfs` is added by this extension too.** It is the content ID of an IPFS directory that
   holds the files of the set at their paths (§5.5). It is optional, at most 128 bytes, and
-  SHOULD be a version 1 CID in base32.
+  SHOULD be a version 1 CID in base32. It MUST consist of the characters of base32 (`a`–`z`,
+  `2`–`7`) or of base58 (`1`–`9`, `A`–`H`, `J`–`N`, `P`–`Z`, `a`–`k`, `m`–`z`) only; a client
+  ignores any other value rather than put it into a gateway URL.
 - The value is at most 512 bytes. A longer one is not read.
 - A video has one such pair. It is written when the video is created, so an upload is one
   transaction.
@@ -235,7 +241,7 @@ value = ed3k:file?b3=<root, base32>&sz=<size>&dn=<url-encoded name>[&ipfs=<CID>]
 
 **This extension adds `ipfs` to `ed3k:file` links.** It is the content ID of the file itself
 in IPFS, not of a directory. The rules of the parameter are those of §3.1: optional, at most
-128 bytes, and a version 1 CID in base32 SHOULD be used.
+128 bytes, and a version 1 CID in base32 SHOULD be used; the character rule of §3.1 applies.
 
 ```
 <gateway>/ipfs/<CID>
@@ -403,15 +409,15 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 | Is this the right chain | `eth_chainId` |
 | One video | `eth_call` of `getContentById` |
 | The videos of an account | `eth_getLogs` at the content contract, topics `author` and `kind` = 0 |
-| The video of a set | the same with `tube.author`; then the video whose link names the set's `key` and `id` |
-| The entry of an attachment set | `eth_getLogs` at `tube.contract`, topic `author` = `tube.author`; then the entry whose link names the set's `key` and `id` |
+| The video of a set | `eth_call` of `getContentById(tube.content_id)` when the id is set, checking `author` and the link; else the same with `tube.author`; then the video whose link names the set's `key` and `id` |
+| The entry of an attachment set | `eth_call` of `getContentById` or `getCommentById(tube.content_id)` when the id is set; else `eth_getLogs` at `tube.contract`, topic `author` = `tube.author` (both contracts index it, §4.1); then the entry whose link names the set's `key` and `id` |
 | The comments of a video | `eth_getLogs` at the comment contract, topics `contractHash` and `contentId` |
 | The votes on a video or a comment | `eth_getLogs` at the vote contract, the same two topics |
 | New videos of all accounts | `eth_getLogs` at the content contract, topic `kind` = 0, backwards from the newest block |
 
 - A client asks for at most 2,048 blocks *(initial)* in one `eth_getLogs` and reads at a block
   that the chain treats as final.
-- A client that uses a remote node SHOULD ask two of different operators for a read it acts
+- A client that uses a remote node SHOULD ask two independent providers for a read it acts
   on, and SHOULD send RPC through the proxy the user configured, if any.
 - A local node of the chain needs nothing more.
 
@@ -645,7 +651,7 @@ roots before it serves a block, as always.
 | **A link to someone else's set** in an own video | the set keeps its own key; the client shows the account of the chain as the author of the video. A copy is as possible as on any video site |
 | **A site lists what is not on the chain** | the client reads the video from the chain before it downloads (§4.5) |
 | **A site that holds a channel key, or a thief of one, changes a video** | it cannot: a reader takes the version the chain names and follows no head (§3.2) |
-| **A remote RPC node lies** | two nodes of different operators (§4.3). It cannot sign for anyone |
+| **A remote RPC node lies** | two independent providers (§4.3). It cannot sign for anyone |
 | **A false `ipfs` in a link**, or a gateway that sends other bytes | the bytes fail under the root; the source is dropped. A web player without ed3k has no such check (§5.5) |
 | **A link names a gateway inside the reader's network** | a link names a CID, never a host; gateways are the user's or come with a source and pass the address checks of `http-source.md` §5 |
 | **Long strings on the chain** | limits when shown (§4.3), 512 bytes for a link (§3.1) |

@@ -4,7 +4,8 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §10.2, §10.3 and §13.2. Section numbers (§) refer to that document unless this one is named.
 **Capability:** none. One file format and one link. Nothing changes between two nodes.
 
-A node enters Kad with a `KadRequest` for its own ID (§10.3). For that it needs the address of
+A node enters Kad with a `KadRequest` for its own routing ID, one per public address (§6.3,
+§10.3). For that it needs the address of
 at least one node. This extension says where a node without any contact gets addresses from.
 
 - A **node list** is a small signed file with the addresses of some nodes.
@@ -53,6 +54,7 @@ message NodeList {
   bytes  nodes4 = 2;          // n × 22 B compact nodes (§5.4)
   bytes  nodes6 = 3;          // n × 34 B compact nodes
   string comment = 4;
+  bytes  net_id = 5;          // 16 B: H("ed3k v1 net", name)[0..16) of the network the list is for (§4.3); empty = the public network
 }
 ```
 
@@ -67,7 +69,10 @@ Each signature is computed over
 A reader refuses a list
 
 - that does not start with the 8 bytes, or is larger than 32 KiB *(initial)*,
-- whose signature does not verify under the key it expects (§3),
+- whose `key` is not the one configured for the source, or whose signature does not verify
+  under it (§3),
+- whose `net_id` is not that of the client's own network (§4.3): a list of another network is
+  no use, and the public network's lists must not lead into a test network,
 - whose `created` is more than 30 days *(initial)* in the past or more than 1 h in the future.
 
 A list that names more than 200 *(initial)* nodes per family is not refused; the nodes after
@@ -110,14 +115,16 @@ signed with its node key, so that one user can help another who is cut off from 
 
 ## 4. Using a list
 
-- From each list a client takes at most 50 *(initial)* nodes, chosen at random.
+- From each list a client takes at most 50 *(initial)* nodes, chosen at random. One entry per
+  address is used; further entries of an address are dropped before the sample is taken.
 - **A node from a list is a candidate, not a contact.** The client dials it. The handshake
   proves the node ID (T1) and with it the routing ID (§6.3). Only then is it inserted, under
   the rules of §10.2 and [`ip-diversity.md`](ip-diversity.md). A list gives a node no better
   place in the table.
 - At most half of the candidates of a first contact come from one list, as long as a second
   list was received.
-- When 4 *(initial)* nodes have completed a handshake, the client looks up its own ID (§10.3). From then on
+- When 4 *(initial)* nodes have completed a handshake, the client looks up its own routing ID
+  (§6.3, §10.3), once per public address. From then on
   its table is filled by lookups, and the lists are not used again.
 - A node from a list that does not answer is dropped without a second attempt.
 - A list belongs to one network ([`Protocol.md`](../Protocol.md) §4.3). A node of another
@@ -138,7 +145,9 @@ For whoever runs a source:
   named in every list would receive every newcomer.
 - It SHOULD give one requester address the same sample for the life of a list. A requester
   that asks again and again would otherwise collect every node the source knows.
-- The signing key is not a node key in use. It signs lists and nothing else.
+- The signing key is not a node key in use. It signs lists and nothing else. A source that
+  keeps the key off the server serves the samples above from a pool of lists signed in
+  advance.
 
 ---
 

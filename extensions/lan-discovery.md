@@ -90,7 +90,9 @@ message LanAnswer {
 }
 ```
 
-- `LanQuery` is a request/answer exchange (§5.2), sent only to a LAN peer that set `LAN`.
+- `LanQuery` is a request/answer exchange (§5.2), sent only to a LAN peer that set `LAN`. A
+  `LanQuery` with more than 256 roots, or whose `roots` is not a multiple of 16 bytes, is
+  answered `Error{MALFORMED}`.
 - A node answers it only on a connection whose remote address passes the test of §1 of this
   document (Receiving), and with `Error{DENIED}` otherwise.
 - For every set bit the asking node adds the LAN peer as a source of that file and opens a file

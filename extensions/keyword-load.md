@@ -27,7 +27,7 @@ A file is published under every keyword of its name, as in version 1.
 | Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1 uses level 0 |
 | `KadRequest.level` | §10.3 | the level the sender computed the target for; the storing node checks that a keyword of the name gives the target at that level (§10.7) |
 | `KadAnswer.load` | §10.3 | files held under this target, in percent of the level size |
-| `KadAnswer.results` | §10.3 | one result per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED` |
+| `KadAnswer.results` | §10.3 | one result per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER` |
 | `KadAnswer.spill` | §10.3 | the node answered `FULL` for this target within the last record lifetime |
 | `KadAnswer.sites` | §10.3 | per returned file, the publisher sites the node counted; 0 = not counted |
 
@@ -63,6 +63,7 @@ A record for file F arrives under target T:
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
 | The node has no room at all | nothing | `BUSY` |
+| F is held under T with a record that is not older than this one (§10.7) | nothing | `OLDER` |
 
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
@@ -96,7 +97,8 @@ admitted by outranking.
 - Search results are returned in descending rank, leaving entries last. `offset` pages along
   that order. `sites` carries the rank of each returned file.
 - `BUSY` means the node as a whole is out of room. How much a node stores in total is local
-  policy; it SHOULD have room for at least 2 S entries, and no target takes more than S.
+  policy; it SHOULD have room for at least 2 S entries, and no target takes more than S plus
+  its leaving entries (§2.3).
 
 ## 3. Publisher
 

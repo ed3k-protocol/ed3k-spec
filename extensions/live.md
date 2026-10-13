@@ -64,14 +64,16 @@ message Channel {
   string codecs = 6;          // RFC 6381 codecs string, for example "avc1.64001f,mp4a.40.2"
   uint32 kbps = 7;            // typical bit rate
   uint32 segment_ms = 8;      // duration a segment aims at
-  uint32 window = 9;          // segments a viewer keeps; absent = 30
+  uint32 window = 9;          // segments a viewer keeps; 0 or absent = 30
   uint64 created = 10;
 }
 ```
 
 - The signature is over `"ed3k v1 live channel" ‖ body` and is REQUIRED. A reader checks it
   against `key` and refuses the file when it fails.
-- A channel file MUST NOT exceed 64 KiB.
+- A channel file MUST NOT exceed 64 KiB, and `window` is at most 240 *(initial)*: a reader
+  refuses a channel file above that, so the first `LiveState` of §3.1 carries at most that many
+  records and a viewer keeps at most that many segments.
 - It is shared, published under its keywords and downloaded like any file ([`Protocol.md`](../Protocol.md) §10 and §12). A search
   finds channels as it finds files; the suggested name ends in `.ed3klive`.
 - It describes the channel, not a broadcast. It changes only when the description does.
@@ -144,7 +146,9 @@ and is made with the channel key.
   segment. Every node then holds the same bytes under a `seq`, and `have` bits mean the same
   everywhere.
 - `end` closes the broadcast. Nodes forward it, keep it for 30 min *(initial)*, and leave the
-  stream. There is no other way to end a broadcast than this record or silence (§3.4). An `end`
+  stream: they stop storing `LIVE` records at once, and for those 30 min answer a `LiveJoin`
+  with the `end` record and `refusal = LIVE_LEFT`, so that a late viewer learns that the
+  broadcast is over. There is no other way to end a broadcast than this record or silence (§3.4). An `end`
   record has the `seq` after the last segment's, and `root`, `size`, `ms`, `init` and
   `init_size` absent.
 - For one `seq`, a record without `root` loses against one with a `root`, and of two without
@@ -250,7 +254,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
   segment it belongs to, because each segment has an exchange of its own.
 - `Error{NOT_FOUND}` for a segment that the neighbour's last `have` showed counts as a miss
   (§6), unless the segment has left its window since.
-- A node gives up on a request after 4 s *(initial)* and asks another neighbour.
+- A node gives up on a request after 4 s *(initial)* plus 1 s per MiB it asked for, and asks
+  another neighbour.
 
 ### 3.3 The window
 
@@ -334,9 +339,9 @@ For each neighbour a node keeps the outcome of its own last 20 *(initial)* reque
 
 | Outcome | Counts as |
 |---|---|
-| The whole segment, or every block asked for, arrived within 4 s | 1 hit |
+| The whole segment, or every block asked for, arrived within the time of §3.2 (4 s plus 1 s per MiB asked for) | 1 hit |
 | `Error{BUSY}` (with the rule of §6.2), no answer in time, a bad block, an invalid record, or `NOT_FOUND` for a segment shown in `have` | 1 miss |
-| The same for an **urgent** request | 2 hits or 2 misses |
+| The same for an **urgent** request | 1 outcome that counts twice in the rate: 2 hits or 2 misses, in one of the 20 places |
 | A request the node reset itself | nothing |
 
 ```
@@ -364,7 +369,7 @@ rate = hits / (hits + misses)
 All numbers are *(initial)*.
 
 - **Down.** A rate under 50 % with at least 5 outcomes puts a neighbour back to **new**, and
-  its time as a neighbour starts again.
+  its time as a neighbour starts again; the outcomes kept are cleared with it.
 - **Out.** A rate under 20 % with at least 10 outcomes ends it. The node closes the live
   exchange and refuses that node ID with `LIVE_BLOCKED` for 30 min, for this stream only.
 - A request above the number its rank allows is answered `Error{BUSY}`. A node counts a `BUSY`
@@ -508,8 +513,8 @@ shown that they hold the secret (§10.3).
 
 ### 10.3 Neighbours prove the secret
 
-A node that only knows `stream`, for example one that stores the `LIVE` records, must not be
-able to join.
+A node that only knows `stream`, for example one that was sent a `LiveJoin` for the channel,
+must not be able to join. (A storing node sees only `target`, §10.4.)
 
 ```
 LiveJoin.proof   = H("ed3k v1 live private join",   k ‖ joiner's node ID ‖ peer's node ID)[0..16)
@@ -519,8 +524,10 @@ LiveState.proof  = H("ed3k v1 live private answer", k ‖ joiner's node ID ‖ p
 - Both node IDs are those of the authenticated connection ([`Protocol.md`](../Protocol.md) §6.2), so a proof is of no use to
   a third node and cannot be replayed on another connection.
 - A peer answers a `LiveJoin` without a valid proof with `refusal = LIVE_LEFT`, the answer of a
-  node that is not in the stream. It sends nothing else.
-- A joiner closes the exchange when the first `LiveState` has no valid proof.
+  node that is not in the stream. It sends nothing else. A `LIVE_FULL` answer to a valid proof
+  carries `proof` as well, and `peers` as §3.1 asks.
+- A joiner closes the exchange when the first `LiveState` has no valid proof, and reads `peers`
+  from one that has, whatever its `refusal`.
 - `peers`, records and segments go only to neighbours that passed this.
 
 ### 10.4 Finding peers
@@ -530,7 +537,8 @@ Peers publish and look up their `LIVE` records under `target` (§10.1), not unde
 - The target changes every hour. The nodes that store the records of one hour are not those of
   the next, so no set of nodes sees who watches over a long time.
 - A peer stores under the target of the current hour. In the first 10 min *(initial)* of an
-  hour a viewer that finds nothing also looks under the target of the hour before.
+  hour a viewer that finds nothing also looks under the target of the hour before, and in the
+  last 10 min under the target of the hour after, for peers whose clocks are ahead.
 - A storing node sees a target it cannot tie to a channel, and the addresses of the peers that
   publish there. It cannot join (§10.3).
 

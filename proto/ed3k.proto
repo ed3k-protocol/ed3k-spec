@@ -110,7 +110,7 @@ message Relay {               // type 12
 
 message Punch {               // type 11
   bytes   peer_id = 1;        // to the relay: the target; to the target: the initiator; in the target's answer: the initiator   Protocol.md §9.5
-  bytes   ep4 = 2;            // sender's observed endpoints
+  bytes   ep4 = 2;            // sender's observed endpoints; the relay replaces the one of the family it received the Punch on (Protocol.md §9.5 step 2)
   bytes   ep6 = 3;
   uint32  nat = 4;            // sender's class                                 Protocol.md §9.2
   fixed64 nonce = 5;          // chosen by I, random; forwarded unchanged; T copies it into each PROBE as 8 B, big-endian; 0 in T's answer
@@ -186,7 +186,7 @@ message KadAnswer {           // type 4
   repeated Signed notes = 7;  // Protocol.md §10.7
   bool   more = 8;            // further results exist; ask again with `offset`
   repeated bytes  keys = 9;   // 32 B publisher keys, referenced by Signed.key
-  repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored
+  repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored; entries missing from a shorter list read as STORED
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
   repeated uint32 sites = 12; // one per entry of `files`: publisher sites counted; 0 = not counted
   repeated HttpSource http = 13;  // SOURCE search: HTTP sources; 16 per answer   http-source.md §2
@@ -257,7 +257,7 @@ message FileStatus {          // type 6
   uint64 size = 1;            // Protocol.md §12.1
   string name = 2;
   bytes  ed2k = 3;            // Protocol.md §7.4
-  optional bytes  have = 4;   // uploader's piece bitmap; empty = complete file; absent = unchanged / not told
+  optional bytes  have = 4;   // uploader's piece bitmap; missing bits are 1, so an empty bitmap is the complete file; absent = unchanged / not told
   optional uint32 rank = 5;   // queue position; 0 = upload slot granted; absent = unchanged / not told
   repeated Peer sources = 6;  // source exchange
   Note   note = 7;            // uploader's rating/comment on the file
@@ -280,13 +280,13 @@ message BlockRequest {        // type 7
 
 message Block {               // type 8; followed by `size` raw bytes outside the frame
   uint64 offset = 1;          // Protocol.md §12.3
-  uint32 size = 2;            // number of bytes that follow this frame
+  uint32 size = 2;            // number of bytes that follow this frame; the range length when not compressed; at most 256 KiB
   uint32 plain = 3;           // set when those bytes are zstd: length of the file data they hold
 }
 
 message HashRequest {         // type 9
   uint64 first = 1;           // first block index                             Protocol.md §12.4
-  uint32 count = 2;           // number of blocks; at most 32,768
+  uint32 count = 2;           // number of blocks; at most 32,000
 }
 
 message HashAnswer {          // type 10
@@ -344,7 +344,7 @@ message SealedChunk {         // http-source.md §1 (not `Sealed`, the record of
 message HttpResult {
   bytes  url_id = 1;          // H("ed3k v1 http", url)[0..8)                  http-source.md §2.1
   Code   code = 2;
-  uint64 bytes = 3;           // bytes fetched
+  uint64 bytes = 3;           // bytes fetched; sent with OK only                 http-source.md §2.1
 
   enum Code {
     OK = 0;                   // fetched and verified                          http-source.md §2.1
@@ -372,7 +372,7 @@ message SetFile {
   bytes  key = 2;             // optional: 32 B Ed25519 key of the author
   repeated Signature sigs = 3;    // optional: over "ed3k v1 set" ‖ body      file-set.md §2.4
   SignedGrant grant = 4;      // multi-author-set.md §1.1
-  repeated CoSig cosigs = 5;  // each over "ed3k v1 set" ‖ body, as in file-set.md §2.4   multi-author-set.md §1.1
+  repeated CoSig cosigs = 5;  // each over "ed3k v1 set cosig" ‖ body                   multi-author-set.md §1.1
   Cert   cert = 6;            // multi-author-set.md §3.3
 }
 
@@ -446,7 +446,7 @@ message CoSig {
 message Joint {
   bytes  head = 1;            // a serialised Head (file-set.md §5.2)          multi-author-set.md §1.3
   SignedGrant grant = 2;
-  repeated CoSig cosigs = 3;  // each over "ed3k v1 joint head" ‖ target(16) ‖ head
+  repeated CoSig cosigs = 3;  // each over "ed3k v1 joint head" ‖ target(16) ‖ Grant.number(8, big-endian) ‖ head
 }
 
 message Mount {
@@ -523,6 +523,7 @@ message Tube {
   uint64 chain = 1;           // chain ID                                      chaintube.md §2.3
   bytes  contract = 2;        // 20 B address of the contract that holds the entry; the content contract for a video
   bytes  author = 3;          // 20 B address of the account that publishes the set on the chain
+  uint64 content_id = 4;      // ID of the entry at `contract`; 0 = not yet known (the first upload)   chaintube.md §2.3
 }
 
 // ---------------------------------------------------------------------------------------
@@ -568,7 +569,7 @@ message Channel {
   string codecs = 6;          // RFC 6381 codecs string, for example "avc1.64001f,mp4a.40.2"
   uint32 kbps = 7;            // typical bit rate
   uint32 segment_ms = 8;      // duration a segment aims at
-  uint32 window = 9;          // segments a viewer keeps; absent = 30
+  uint32 window = 9;          // segments a viewer keeps; 0 or absent = 30
   uint64 created = 10;
 }
 
@@ -717,7 +718,7 @@ message HopLookupAnswer {     // type 31
 
 message HopStream {           // type 32. First frame of an exchange between two neighbours; followed by raw bytes
   bytes  path = 1;            // as in HopCreate, for this connection          hops.md §2.4
-  uint64 number = 2;          // unique in the path; never 0. Even: opened by the owner. Odd: opened at the last hop
+  uint64 number = 2;          // never 0; greater than every number the opener used before on this path (hops.md §2.4). Even: opened by the owner. Odd: opened at the last hop
 }
 
 message HopConnect {          // type 33. First frame on a stream, read by the last hop
@@ -816,6 +817,7 @@ message NodeList {
   bytes  nodes4 = 2;          // n × 22 B compact nodes (Protocol.md §5.4)
   bytes  nodes6 = 3;          // n × 34 B compact nodes
   string comment = 4;
+  bytes  net_id = 5;          // 16 B: H("ed3k v1 net", name)[0..16) of the network the list is for; empty = the public network   bootstrap.md §2
 }
 
 // ---------------------------------------------------------------------------------------

@@ -86,8 +86,10 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
 
 - **Lazily.** A node verifies a solution only at the point where the contact would otherwise be
   inserted, counted or stored on. It does not verify on receipt of `Hello`.
-- **Never on demand.** A node only verifies contacts it chose to connect to. An inbound peer
-  cannot make a node spend a run by presenting a key.
+- **Never on demand.** A node never verifies on receipt of a `Hello`. An inbound peer cannot
+  make a node spend a run by presenting a key: a contact that dialled in is verified, queued
+  like any other, only when it would be inserted as a dialled-in contact (§10.2), and stays
+  out until then.
 - **One at a time.** A node runs at most one verification at once, so the extension costs 64 MiB
   of memory, not 64 MiB per peer. Pending verifications queue; a lookup does not wait for a
   contact whose check is still queued, it simply does not count that contact yet.

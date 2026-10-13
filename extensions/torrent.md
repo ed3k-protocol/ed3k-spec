@@ -64,7 +64,7 @@ leaves nothing to choose.
 | `files` | the files of the info dictionary, in its order. Version 1 and hybrid: the `files` list, or the one file. Version 2 only: the file tree, in the order of its bencoding |
 | `Member.name`, `Member.dir` | the last component of the file's path, and its directory. The `name` of a torrent with several files is not part of the path |
 | `Member.root`, `Member.size` | BLAKE3 root and length of the file. A file of length 0 has the root of the empty input |
-| `dirs` | each directory once, in the order in which `files` first uses it |
+| `dirs` | every directory of every path, ancestors included, each once; in the order in which `files` first uses them, a parent before its children |
 | `torrent` | every infohash the torrent has, `info` and `info_size` |
 | Everything else | absent: every other field of `FileSet` and of a `Member`, among them `comment`, `created`, `id`, `seq`, `ed2k`, `links`, inner sets and mounts, `sealed`, `open`, `usenet`, `tube`, key and signature |
 
@@ -148,8 +148,9 @@ BLAKE3 without a single ed3k source.
 The user gave a `.torrent` file or a magnet link without an ed3k link in it. **The hashes of
 the torrent are the judge**, and a manifest found in Kad is a claim.
 
-1. The client searches `ALIAS` records for the infohash (§5), in parallel with the
-   BitTorrent download.
+1. The client searches `ALIAS` records for the infohash (§5) once it holds the info
+   dictionary and the torrent is not private (§6.3): from a magnet link that is after the
+   metadata exchange, not before.
 2. For a set it finds, it downloads the manifest and makes the checks of §3. It tries at most
    3 *(initial)* sets per torrent, those named by the most publisher sites first.
 3. It adds the ed3k sources of each member. A block from them is verified under the member's
@@ -194,8 +195,10 @@ An `ALIAS` record ([`alias.md`](alias.md)) leads from the infohash to the manife
 **Publisher**
 
 - A node publishes the record only for a torrent set it shares, and only when it computed the
-  manifest from complete data (§4.2 step 5) or verified every member of it under BLAKE3
-  (§4.1).
+  manifest itself from complete data that it checked against the info dictionary (§4.2
+  step 5). Verifying the members under BLAKE3 alone is not enough: that proves the manifest,
+  not the infohash, and a node that published on that ground would repeat a false claim as
+  its own (the publisher rule of [`alias.md`](alias.md)).
 - It MUST NOT publish one for a private torrent.
 
 Because the manifest is canonical, all honest publishers of a torrent name the same root, and
@@ -282,7 +285,7 @@ magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the ma
 | Hashing | every member is hashed with BLAKE3 once, which a node does for any file it shares |
 | Storage | the manifest, about 80 B per file, and the info dictionary, 20 B per piece |
 | Kad | one `ALIAS` record per infohash, next to the `SOURCE` records of the manifest, the info dictionary and the members |
-| What a storing node learns | that a node has a torrent. The target is a hash of the infohash, so the node can test infohashes it knows |
+| What a storing node learns | that a node has a torrent, and its infohash: the `ALIAS` record carries `id` in clear ([`alias.md`](alias.md) §1) |
 | What BitTorrent peers learn | nothing about ed3k |
 
 ---

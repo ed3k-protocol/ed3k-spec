@@ -14,13 +14,16 @@ concatenation; integers in a layout are big-endian (§0).
 | address | `124.31.75.21` |
 | sample file | the 16 ASCII bytes `ed3k test vector` |
 | set `id` | the 4 ASCII bytes `sid1` |
-| issuer key | 32 bytes, byte *i* = `0xa5 XOR i`: `a5a4a3a2a1a09f9e9d9c9b9a999897969594939291908f8e8d8c8b8a8988` |
+| issuer key | 32 bytes, byte *i* = `0xa5 XOR i`: `a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba` |
 | secret | 32 bytes, byte *i* = `0x37 XOR i`: `37363534333231303f3e3d3c3b3a393827262524232221202f2e2d2c2b2a2928` |
 | request value `r` | `1122334455667788` |
 | alias `id` | `5a5b58595e5f5c5d5253505156575455` |
 | period | day 20739 (2026-10-13 UTC) as 8 bytes: `0000000000005103` |
 | salt | `0102030405060708` |
 | network name | the 9 ASCII bytes `ed3k test` |
+
+The one sample key serves as the node key and as the key of a set, a channel or a topic: `key`
+in the preimages below is it.
 
 ## Identity (§6.1, §4.3)
 
