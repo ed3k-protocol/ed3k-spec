@@ -30,7 +30,10 @@ message BrowseAnswer {
 - A node sends `Browse` only to a peer that set `BROWSE` in its `Hello`. A node without the
   capability answers `Error{UNSUPPORTED}`.
 - `dir` names one directory. The empty string asks for the top level. The answer lists the
-  directories directly below it in `dirs` and the files directly in it in `files`.
+  directories directly below it in `dirs`, as names of one component each (the rules of
+  [`file-set.md`](file-set.md) §2.2 for a component apply), and the files directly in it in
+  `files`. The requester lists one of them with `dir` ‖ `/` ‖ name, or the name alone at the
+  top level.
 - Directory names are those the answering node chooses to show. They need not be paths of its
   file system.
 - Whom a node answers is local policy: everyone, friends only, or nobody. A refused request is

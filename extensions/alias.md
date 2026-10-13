@@ -196,7 +196,7 @@ How networks fit under these rules. The last column says where, or that nothing 
 | File hosters | `url`; `b3` for archives | `SAME`, `SET`, `PACKED` | a resolver that turns a link into a byte stream | [`hoster.md`](hoster.md) |
 | Magnet links with `urn:sha1`, download pages with a checksum | `sha1`, `md5`, `sha256` | `SAME` | ed3k sources | §4.1 |
 | Usenet | `nzb`, `nzb-file`; `b3` for archives | `SET`, `SAME`, `PACKED` | news servers; the checksum of an article is a foreign check (rule 5) | [`usenet.md`](usenet.md) |
-| A catalogue on a chain (a video site) | none: the chain names the set, and the set names the chain | — | ed3k sources; the site's gateway as an HTTP source | [`chaintube.md`](chaintube.md) |
+| A catalogue on a chain (a video site) | none: the chain names the set, and the set names the chain | — | ed3k sources; the site's server or an IPFS gateway as an HTTP source. A content ID in the link is a place, not a name | [`chaintube.md`](chaintube.md) |
 | A network with a tree hash of its own (a content ID over a block graph, a tiger tree) | a scheme for that ID | `SAME` for one file, `SET` for a directory | its peers or gateways; its own hashes check parts, as eD2K part hashes do | no |
 
 ---

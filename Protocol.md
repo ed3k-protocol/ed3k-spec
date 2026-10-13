@@ -1,6 +1,6 @@
 # ed3k Protocol Specification
 
-**Status:** draft 0.1 (2026-10-10). Nothing in this document is implemented yet.
+**Status:** draft 0.2 (2026-10-13). Nothing in this document is implemented yet.
 **Wire version:** 1 (ALPN `ed3k/1`).
 
 ed3k is a peer-to-peer file sharing protocol in the tradition of eD2K and Kad. It keeps their
@@ -36,6 +36,17 @@ read as in RFC 2119.
   ([`docs/wire-format-comparison.md`](docs/wire-format-comparison.md) section 2.4).
 - Numbers marked *(initial)* are tuning values. They are collected in Appendix A and may change
   without a wire version bump.
+- A field declared `optional` has explicit presence: a reader tells an absent field from one
+  that is set to its default. Where a document gives an absent optional field a meaning, it is
+  "unchanged" or "not told". A field without `optional` that is absent reads as its default
+  (0, empty), as proto3 does, and MUST NOT be given a meaning that differs from its default's.
+- **Canonical serialisation.** Where a document requires it, a message is written with its
+  fields in ascending field number, each once, repeated fields in order, every varint in its
+  shortest form, a field at its default value left out, and no unknown fields. Everywhere else
+  serialisation is not canonical, and a reader MUST accept any valid encoding.
+- The protobuf fragments in this document and in the extensions are excerpts.
+  [`proto/ed3k.proto`](proto/ed3k.proto) is the normative definition of every message, field
+  and enum of wire version 1, extensions included.
 
 ---
 
@@ -92,7 +103,9 @@ Every participant is a **node**. A node announces what it does with capability b
 | 17 | `LINKS` | Optional extension: understands links at file hosters as sources ([`extensions/hoster.md`](extensions/hoster.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
-so a node learns a peer's capabilities after it has connected.
+so a node learns a peer's capabilities after it has connected. A bit that changes while a
+connection is open, such as `RELAY` when the relay slots are full (§9.4), is not announced on
+that connection; `Error{BUSY}` is the signal there.
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -159,6 +172,20 @@ and a path to close it are described in [`docs/transport-bindings.md`](docs/tran
 - A node MUST accept a Retry packet (RFC 9000 §8.1.2) and repeat its Initial with the token. A
   node MAY answer an Initial with Retry at any time (§4.6).
 
+**Close codes.** An application close (`CONNECTION_CLOSE` with an application error code,
+RFC 9000 §10.2) uses one of:
+
+| Code | Name | When |
+|---|---|---|
+| 0 | `CLOSED` | normal end: idle, or the node shuts down |
+| 1 | `NO_KEY` | the handshake carried no client key |
+| 2 | `WRONG_PEER` | the peer's node ID is not the expected one (§6.1, §14.2) |
+| 3 | `DENIED` | the peer is banned (§4.6) or refused by the policy of a network |
+| 4 | `PROTOCOL` | the first exchange was not `Hello`, a frame did not parse, or a body exceeded 1 MiB (§5.2) |
+| 5 | `BUSY` | the node is out of connections |
+
+A code this table does not name is read as `PROTOCOL`.
+
 ### 4.2 Why obfuscation is required
 
 QUIC encrypts its payload but not its shape. The Initial packet is protected with a key derived
@@ -200,12 +227,15 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ body )
 obf_id   = NodeID[0..12)                    of the node that ACCEPTED the connection
 net_id   = H("ed3k v1 net", name)[0..16)                   empty in the public network
 key      = H("ed3k v1 obfs", net_id ‖ obf_id ‖ dir ‖ salt) dir = 0x00 to that node, 0x01 from it
-stream   = BLAKE3 keyed XOF (key), as many bytes as masked
+stream   = BLAKE3 keyed XOF (key, empty message), as many bytes as masked
 mask(x)  = x XOR stream
 ```
 
 `obf_id` is 12 bytes, not 16, so that it can be learned from an eD2K user hash (§14.2). A `PROBE`
-is always keyed to its receiver with `dir = 0x00`.
+is always keyed to its receiver with `dir = 0x00`. The keystream is the extendable output of
+BLAKE3 in keyed mode, with `key` as the 32-byte key and an empty message. The seven values that
+`salt[0]` never takes are a statistical fingerprint, weak but real; the list is as short as
+sharing a port with eD2K allows (§14.1), and a later `magic` can change it.
 
 **Networks.** The public network has no name, and `net_id` is empty there. Any other network
 has a `name` of 1 to 32 bytes that all its nodes are configured with.
@@ -232,15 +262,20 @@ CPU cost on the bulk path at one BLAKE3 block per packet.
 
 - A sender SHOULD split each `HANDSHAKE` datagram into 2–4 `FRAGMENT`s of random sizes, each with
   random padding, and MAY send it whole with random padding instead. Receivers MUST support both.
+- The layer adds 13 bytes and the padding: `13 + pad_len + QUIC datagram` MUST NOT exceed the
+  UDP payload the path carries. An unsplit `HANDSHAKE` that carries an Initial (1200 bytes)
+  therefore uses `pad_len` of at most 19 while the path MTU is not known (1232 − 13 − 1200).
 - Fragments are reassembled per (source address, `msg_id`). A receiver keeps at most 4
   *(initial)* incomplete messages per source address and drops them after 3 s *(initial)*.
 - `DATA` datagrams SHOULD carry `pad_len = 0` once the packet is larger than 256 bytes; smaller
-  ones SHOULD be padded randomly.
+  ones SHOULD be padded randomly. A `DATA` datagram whose QUIC datagram is at the maximum size
+  MUST carry `pad_len = 0`.
 - **Anti-amplification.** The layer only ever adds bytes, so a reassembled datagram is never
   larger than what arrived on the wire, and QUIC's 3× limit (RFC 9000 §8.1) stays conservative.
   A receiver MUST NOT answer a `PROBE` and MUST NOT emit anything for an incomplete fragment set.
-- The QUIC maximum datagram size MUST be set 13 bytes below the path limit. An unsplit Initial is
-  then 1213 bytes, which fits the IPv6 minimum MTU (1232 bytes of UDP payload).
+- The QUIC maximum datagram size MUST be set 13 bytes below the path limit. An unsplit Initial
+  without padding is then 1213 bytes, which fits the IPv6 minimum MTU (1232 bytes of UDP
+  payload); with padding it fits up to `pad_len = 19`.
 
 This follows the approach of Hysteria 2's Salamander (salted XOR mask) and Gecko (fragmenting
 long-header packets), with a real keystream instead of a repeating 32-byte pad and without a
@@ -249,13 +284,28 @@ change without touching QUIC or the messages.
 
 ### 4.5 Receiving
 
-1. If the source address belongs to a live connection, unmask with that connection's key.
-2. Otherwise unmask the first 5 bytes with the node's own `obf_id` and `dir = 0x00`. If `magic`
-   matches, process it as a new flow.
-3. Otherwise the datagram is not ed3k. Drop it, or hand it to another protocol sharing the socket
+The steps are tried in order; a datagram that fails one goes to the next. Each step unmasks
+the first 5 bytes only and checks `magic`.
+
+1. If the source address belongs to a live connection, unmask with that connection's key: the
+   `obf_id` and `dir` the peer uses towards this node (the salt enters the key per datagram).
+   On a match, hand the datagram to that connection.
+2. Otherwise unmask with the node's own `obf_id` and `dir = 0x00`. On a match, process it as a
+   new flow, or as a `PROBE`. A `PROBE` is always keyed this way, also when it comes from an
+   address that has a connection, which is why step 1 falls through. A packet of an existing
+   connection whose client side changed its address lands here too; QUIC's connection ID then
+   migrates it.
+3. Otherwise, for each connection this node opened itself, unmask with that peer's `obf_id`
+   and `dir = 0x01`. On a match, hand the datagram to QUIC, whose connection ID confirms the
+   migration. This is how a connection survives an address change of its **server** side,
+   which after a hole punch (§9.5) is the NATed node. There is at most one connection per
+   peer (§4.6), so the step costs at most one short BLAKE3 per dialled peer, and only for a
+   datagram that failed steps 1 and 2.
+4. Otherwise the datagram is not ed3k. Drop it, or hand it to another protocol sharing the socket
    (§14.1).
 
-A random datagram passes step 2 with probability 2⁻³².
+A random datagram passes step 2 with probability 2⁻³², and step 3 with 2⁻³² per connection
+tried.
 
 ### 4.6 Connection budget
 
@@ -296,7 +346,10 @@ len  varint     length of body in bytes
 body            protobuf message of that type
 ```
 
-`Block` (§12.3) is the only message followed by raw bytes outside the frame.
+`Block` (§12.3) and `HopStream` ([`extensions/hops.md`](extensions/hops.md) §2.4) are the only
+messages followed by raw bytes outside the frame. An extension that adds such a message says so
+here; a node that does not support it answers the frame with `Error{UNSUPPORTED}` and closes
+the exchange (§5.2), so the bytes that follow are never read as frames.
 
 Types 1–63 keep the tag at one byte.
 
@@ -355,18 +408,22 @@ rule and profile (§12.3).
 Profile:
 - magicless zstd frames, no content checksum, no content size field
 - window size at most 1 MiB
-- dictionary `ed3k-v1`, dictionary ID 1, shipped with this specification (`dict/ed3k-v1.dict`,
-  trained on a corpus of real messages before the format is frozen)
+- no dictionary (no `Dictionary_ID` in the frame header, or 0), or the dictionary `ed3k-v1`,
+  dictionary ID 1, shipped with this specification (`dict/ed3k-v1.dict`, trained on a corpus
+  of real messages before the format is frozen)
 - each body is compressed on its own; no context is carried between messages
 - a receiver MUST stop and answer `Error{MALFORMED}` when the output exceeds 1 MiB
 
-**Later dictionaries.** A dictionary never changes once published; a better one gets the next ID.
-Every zstd frame carries the ID of the dictionary it needs, so a receiver always knows which one
-to use. A sender learns what the peer holds from `Hello.dict` (§5.5):
+**Dictionaries.** A dictionary never changes once published; a better one gets the next ID.
+Every zstd frame that uses a dictionary carries its ID in the frame header, so a receiver always
+knows which one to use; a frame without a dictionary is always accepted. A sender learns what
+the peer holds from `Hello.dict` (§5.5):
 
-- A node that announces `dict = n` MUST hold every dictionary from 1 to n.
+- A node that announces `dict = n` MUST hold every dictionary from 1 to n. A node SHOULD hold
+  dictionary 1 as soon as it is published; `dict` absent or 0 says that it holds none, which is
+  expected of an incomplete implementation only.
 - A sender MUST NOT use a dictionary with an ID above the peer's `dict`. Until the peer's `Hello`
-  has arrived it uses dictionary 1 or sends uncompressed.
+  has arrived it sends without a dictionary or uncompressed.
 - A receiver answers a frame that needs a dictionary it does not hold with `Error{UNSUPPORTED}`.
 
 A new dictionary therefore needs no flag day, no capability bit and no new wire version: nodes
@@ -385,6 +442,9 @@ An extension that adds secrets to a message MUST send that message uncompressed.
 
 ### 5.4 Common types
 
+The fragments below and in every extension are excerpts of
+[`proto/ed3k.proto`](proto/ed3k.proto), which is normative (§0).
+
 ```protobuf
 syntax = "proto3";
 package ed3k.v1;
@@ -398,17 +458,19 @@ message Peer {
   bytes ep6 = 3;              // endpoint, 18 B
   bytes relays4 = 4;          // n × 22 B compact nodes; only for a leaf
   bytes relays6 = 5;          // n × 34 B compact nodes; only for a leaf
+  // field 6 is reserved for other transport bindings (docs/transport-bindings.md)
 }
 
 message FileInfo {
   bytes  root = 1;            // 32 B BLAKE3 root (§7)
   uint64 size = 2;
-  string name = 3;
+  string name = 3;            // at most 255 bytes of UTF-8 (§10.7)
   bytes  ed2k = 4;            // 16 B eD2K MD4 hash; see §7.4
   uint32 sources = 5;         // complete sources known to the sender
   uint32 duration = 6;        // media length in seconds, 0 = unknown
   uint32 bitrate = 7;         // kbit/s, 0 = unknown
   // fields 8 and 9 belong to the optional file set extension (§13.1)
+  uint32 partial = 10;        // sources known to the sender that hold the file in part (§10.3)
 }
 ```
 
@@ -429,8 +491,8 @@ message Hello {
   bytes  ep6 = 5;
   uint32 nat = 6;             // 0 unknown, 1 open, 2 cone, 3 symmetric (§9.2)
   string nick = 7;            // optional
-  // 8 and 9 are reserved (§10.6, §6.3)
-  uint32 dict = 10;           // highest zstd dictionary ID held (§5.3); absent = 1
+  // 8, 9 and 11 are reserved (§10.6, §6.3, docs/transport-bindings.md)
+  uint32 dict = 10;           // highest zstd dictionary ID held (§5.3); 0 or absent = none
 }
 ```
 
@@ -448,14 +510,17 @@ message Error {
     NOT_FOUND = 3;            // file not shared
     BUSY = 4;                 // queue full, store full, no relay slot
     DENIED = 5;               // banned, filtered, not allowed
-    NOT_RESPONSIBLE = 6;      // Kad store refused: target outside this node's zone
+    // 6 is reserved (was NOT_RESPONSIBLE; a store at a node that is not responsible is
+    // answered with contacts, §10.3)
   }
   Code   code = 1;
   uint32 retry_after = 2;     // seconds; 0 = do not retry
 }
 ```
 
-An `Error` is never answered with an `Error`. Unknown codes read as `UNKNOWN`.
+An `Error` is never answered with an `Error`. Unknown codes read as `UNKNOWN`. `MALFORMED` is
+for a frame or a body that does not parse, or breaks a size rule of §5; a record that fails a
+check of its content is answered per record (§10.3, §10.7), not with an `Error`.
 
 ---
 
@@ -532,7 +597,10 @@ inserted into a routing table, handed out in answers, counted towards lookup ter
 used as storage targets. Verification costs nothing extra, because every node that is queried is
 connected to anyway.
 
-Private, loopback and link-local addresses are exempt, for LAN and test networks.
+Private, loopback, link-local and unique-local addresses are exempt, for LAN and test
+networks: such an address is acceptable there although §8.2 (7) rejects it elsewhere, the
+check of the top 21 bits is skipped, and the routing ID of a node at such an address is its
+node ID. The diversity limits exempt them too ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1).
 
 **Test vectors** (CRC32C of the masked address; the first three match BEP 42):
 
@@ -581,6 +649,21 @@ of subnets can sit next to any target); key grinding until the hash matches the 
 2²¹ key generations at every address change, and the identity would change with the address);
 a signed short-lived routing key under the identity key (a second key, a certificate and a grind
 per address change).
+
+### 6.4 The identity key in a key agreement
+
+Where a document uses a node's Ed25519 key for X25519 (finding a known node, anonymous paths,
+the datagram binding), the key is converted the standard way:
+
+```
+x_private = clamp( SHA-512(ed25519_seed)[0..32) )
+x_public  = (1 + y) / (1 − y)  mod 2²⁵⁵−19          y = the Ed25519 public key's y coordinate
+```
+
+(libsodium: `crypto_sign_ed25519_sk_to_curve25519`, `crypto_sign_ed25519_pk_to_curve25519`.)
+A node MUST refuse a shared secret that is all zero. Using one key for signatures and, after
+conversion, for X25519 is established practice; the context strings of each use keep the
+results apart.
 
 ---
 
@@ -672,10 +755,15 @@ starts small. Fully separate instances per family were rejected outright.
 5. The endpoint of the family a connection arrived on is **observed** and therefore trusted for
    routing. An endpoint of the other family is **claimed** until dialled.
 6. Abuse limits count per IPv4 address and per IPv6 /64.
-7. An address is acceptable only if it is global unicast. For IPv6 this excludes at least
-   `::/128`, `::1`, `fe80::/10`, `fc00::/7`, `::ffff:0:0/96`, `64:ff9b::/96`, `2001::/32`
-   (Teredo), `2002::/16` (6to4), `2001:db8::/32` and `ff00::/8`. An IPv4-mapped address is
-   normalised to IPv4 on receipt.
+7. An address is acceptable only if it is global unicast. For IPv4 this excludes at least
+   `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`,
+   `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.168.0.0/16`, `198.18.0.0/15`,
+   `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4` and `240.0.0.0/4`. For IPv6 it
+   excludes at least `::/128`, `::1`, `fe80::/10`, `fc00::/7`, `::ffff:0:0/96`,
+   `64:ff9b::/96`, `100::/64`, `2001::/32` (Teredo), `2001:2::/48`, `2001:10::/28`,
+   `2002::/16` (6to4), `2001:db8::/32` and `ff00::/8`. An IPv4-mapped address is normalised
+   to IPv4 on receipt. In a LAN or test network, private, loopback, link-local and
+   unique-local addresses are acceptable (§6.3).
 
 ### 8.3 Dialling
 
@@ -753,16 +841,29 @@ because one can come through a mapping that an earlier exchange left open.
 message ReachTest {
   bytes  target_id = 1;       // set when forwarded: node to probe
   bytes  target_ep = 2;       // set when forwarded: endpoint to probe
-  fixed64 nonce = 3;          // random; goes into the PROBE as 8 B, big-endian
+  fixed64 nonce = 3;          // chosen by the asker; goes into the PROBE as 8 B, big-endian
   bool   ok = 4;              // answer: a prober was asked
 }
 ```
 
-A node asks a peer A to have it tested. A picks a `ROUTER` contact B that has no connection with
-the asker, and forwards the request with `target_id` and `target_ep` filled in; `target_ep` MUST
-be the asker's observed endpoint as A sees it, never a value from the asker. B sends one `PROBE`
-datagram (§4.3) with the nonce to that endpoint. If it arrives, the asker is `open` in that
-family. A and B rate-limit these to 1 per asker address per minute *(initial)*.
+1. The asker sends `ReachTest{nonce}` to a peer A, on a connection the asker opened in the
+   family to test. `nonce` is random and chosen by the asker, so that it can recognise the
+   `PROBE`.
+2. A picks a `ROUTER` contact B of its routing table in that family that is not the asker and
+   that A believes has no connection with it, and forwards the request to B on a new exchange
+   with `target_id`, `target_ep` and the asker's `nonce`. `target_ep` MUST be the asker's
+   observed endpoint as A sees it, never a value from the asker. A request that arrives with
+   `target_id` set is never forwarded again.
+3. B sends one `PROBE` datagram (§4.3) with the nonce to `target_ep`, which MUST be a global
+   unicast address, and answers A with `ReachTest{ok = true}`. It answers `ok = false` when it
+   does not probe, and `Error{BUSY}` with `retry_after` at its limit.
+4. A answers the asker with `ReachTest{ok}`: `ok = true` when a B agreed to probe, `ok = false`
+   when A found no B or B declined.
+5. The asker waits 5 s *(initial)* after the answer for a `PROBE` with its nonce. One that
+   arrives shows that the asker is `open` in that family; a `PROBE` with a nonce the node did
+   not ask for is ignored.
+
+A and B rate-limit these to 1 per asker address per minute *(initial)*.
 
 ### 9.4 Relays
 
@@ -807,7 +908,8 @@ lookups.
 2 relays, and a relay serves many leaves. A `ROUTER` SHOULD be able to serve at
 least 8 *(initial)* leaves at the same time, one reservation per leaf node ID, and MAY serve
 more. When all are taken it answers `Error{BUSY}` and clears `RELAY` in its `Hello` until one
-is free.
+is free. A peer that is already connected does not see the cleared bit; for it `Error{BUSY}`
+is the signal (§2).
 
 **Forward limit.** Every forwarded `Punch` makes the leaf send probes for 5 s (§9.5), so a
 relay limits what it forwards:
@@ -943,9 +1045,12 @@ target (§10.7). `Query` (§10.3) matches against words.
 | `Straße.ﬁnal.txt` | `strasse` `final` `txt` | `strasse` `final` |
 | `東京物語 Tokyo Story.avi` | `東京` `京物` `物語` `tokyo` `story` `avi` | `東京` `京物` `物語` `tokyo` `story` |
 
-- The Unicode stability policy keeps normalisation and case folding of an assigned character
-  fixed across Unicode versions. A code point that an implementation does not know is treated
-  as a separator.
+- An implementation MUST use the tables of Unicode 16.0.0 or later; the examples above are
+  checked against that version. The Unicode stability policy keeps normalisation and case
+  folding of an assigned character fixed across Unicode versions. A code point that an
+  implementation does not know is treated as a separator, so a storing node with older tables
+  than a publisher can refuse a record whose keyword uses a character assigned later; keeping
+  the tables current bounds that.
 - **2 bytes is the limit of the protocol; 3 bytes is the suggested default.** Two-byte words
   are few and very common (`of`, `to`, `la`, `de`), so they are the most crowded targets. By
   default a publisher SHOULD publish a file under its keywords of 3 bytes and more, and under
@@ -960,7 +1065,8 @@ target (§10.7). `Query` (§10.3) matches against words.
 
 Buckets of K = 10 *(initial)* verified contacts, ordered by XOR distance between routing IDs. Each
 entry is one (node ID, endpoint) pair; a dual-stack node contributes two entries at two positions.
-Only `ROUTER` nodes are inserted. A contact is dropped when a connection attempt fails twice.
+Only `ROUTER` nodes are inserted. A contact is dropped when two connection attempts to it fail
+in a row; a completed connection resets the count.
 Insertion is subject to the per-bucket and per-table limits of
 [`extensions/ip-diversity.md`](extensions/ip-diversity.md). The limits hold for the contacts in
 the table at all times: if they ever become stricter, the node checks the table again and takes
@@ -983,7 +1089,7 @@ enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; L
 
 message KadRequest {
   bytes  target = 1;          // 16 B
-  uint32 want = 2;            // bit 0: IPv4 contacts, bit 1: IPv6 contacts
+  uint32 want = 2;            // bit 0: IPv4 contacts, bit 1: IPv6 contacts; 0 = no contacts
   Kind   kind = 3;            // NONE = find nodes only
   Query  search = 4;          // search for records of `kind`
   Store  store = 5;           // store records of `kind`
@@ -997,7 +1103,7 @@ message Query {
   uint64 max_size = 4;
   uint32 min_sources = 5;
   string ext = 6;             // extension of the name (§10.1)
-  uint32 offset = 7;          // skip this many results
+  uint32 offset = 7;          // skip this many results, in the order of the paging rule below
 }
 
 message Store {
@@ -1005,7 +1111,8 @@ message Store {
   repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword (§10.7)
   Signed   note = 3;          // NOTE (§10.7)
   // field 4 belongs to the optional HTTP source extension (§13.1)
-  // fields 5 to 7 belong to the optional file set extension (§13.1)
+  // fields 5 and 7 belong to the optional file set extension (§13.1)
+  bytes    signer = 6;        // 32 B key under which the signed records of this Store are checked and counted, when it is not the key of the connection (§10.7)
   bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record (§10.4); at most 256
   // field 9 belongs to the optional extension for finding a known node (§13.1)
   // field 10 belongs to the optional extension for anonymous paths (§13.1)
@@ -1045,6 +1152,7 @@ enum StoreResult {
   BUSY = 2;                   // no room on this node; says nothing about the target
   REJECTED = 3;               // failed a check (§10.7) or a flood limit
   FAR = 4;                    // a target of `also` this node is not responsible for
+  OLDER = 5;                  // a newer or winning record is held under this target; nothing changed (§10.7)
 }
 ```
 
@@ -1068,6 +1176,18 @@ Rules:
 - **Responsibility.** A node is responsible for a target when it knows fewer than
   K verified contacts closer to the target than one of its own routing IDs. It sets
   `responsible`, executes a `search`, and accepts a `store`.
+- A request with `want = 0` asks for records only: the node returns no contacts. It is for a
+  requester that already knows the responsible nodes, such as a client of an index node (§11).
+- **Paging.** The results of a search have one order: records by the `root` of their file as
+  bytes, then by publisher key; sources by node ID. An answer holds at most 100 *(initial)*
+  `files`, 100 `notes` or 100 `sources`; `offset` counts records in that order and `more` says
+  that records remain. The node keeps no state between pages; what changes in between can be
+  missed or seen twice, and the searcher merges by publisher and file. An extension that pages
+  its own records says how many an answer holds.
+- **Every `ROUTER` stores every record kind of version 1**, those of extensions included,
+  whether or not it sets the extension's capability: a kind that comes into use later then
+  needs no network upgrade. The content and the storing-node checks of each kind are in the
+  document that defines it, and a `ROUTER` implements those checks for every kind (§13.1).
 - **`HEAD` and `MEMBER`** are the record kinds of file sets. Every `ROUTER` MUST store and return
   them, whether or not it sets `SETS`. Their content and checks are in
   [`extensions/file-set.md`](extensions/file-set.md) §5 and §6.
@@ -1096,8 +1216,8 @@ Rules:
 - **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
   which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the `ANON`
-  records of the target. A `Store` of kind `KEYWORD`, `NOTE`, `ANON` or `GATE` MAY carry
-  `signer`; the record is then checked under that key in place of the key of the connection.
+  records of the target. A `Store` of a signed kind MAY carry `signer` (§10.7); the record is
+  then checked under that key in place of the key of the connection.
   Every `ROUTER` MUST do all of this, whether or not it sets `ANON`
   ([`extensions/hops.md`](extensions/hops.md) §4).
 - A node that does not know the `kind` of a request answers as a node that is not responsible.
@@ -1108,8 +1228,16 @@ Rules:
   `responsible`. Only the closest verified nodes hold the payload; an answer from a node further
   out is a waypoint.
 - **Source records are bound to the connection.** The storing node takes the source's node ID
-  from the authenticated connection and its endpoint from the observed address. A node can
-  therefore publish only itself, and source lists cannot be filled with invented peers.
+  from the authenticated connection and the endpoint of the connection's family from the
+  observed address, replacing what `source` says for that family. An endpoint of the other
+  family is stored as claimed (§8.2 (5)); it MUST be global unicast (§8.2 (7)), else the record
+  is `REJECTED`. A node can therefore publish only itself, and source lists cannot be filled
+  with invented peers. A connection that has no observed address, such as a session through
+  a path ([`extensions/hops.md`](extensions/hops.md) §3), cannot store a source record: the
+  answer is `REJECTED`, and a node that hides publishes `ANON` records instead.
+- **Partial files are sources.** A node MAY store a `SOURCE` record for a file it holds in
+  part; its `FileStatus.have` tells a downloader what it has (§12.1). `FileInfo.sources`
+  counts complete sources and `FileInfo.partial` the others.
 - **Source records are not signed.** A searcher has only the storing node's word for a source
   until it dials it. Dialling is the verification: the handshake proves that the node at that
   address holds the key behind the node ID in the record (T1), and a source that fails it is
@@ -1132,8 +1260,12 @@ Rules:
   for is answered `FAR`, and every target after the 256th *(initial)* `REJECTED`. `nodes4` and
   `nodes6` refer to the target of the request. Fields that belong to one file, such as HTTP
   sources, apply to the target of the request only. How a publisher uses this is in §10.4.
-- A `store` is answered per record in `results`. What a keyword target holds, and what a
-  publisher does when it is full, is in §10.8.
+- A `store` is answered per record in `results`: one entry per record, in the order of the
+  fields of `Store` by field number and, within a repeated field, in its order, followed by one
+  per target of `also`. A record that fails a check (§10.7), that does not belong to `kind`, or
+  that comes with no record for `kind`, is `REJECTED`; a record that is not newer than the one
+  held, for a kind that keeps one record per key or target, is `OLDER`. What a keyword target
+  holds, and what a publisher does when it is full, is in §10.8.
 
 ### 10.4 Lookup
 
@@ -1238,7 +1370,7 @@ message Record {
 }
 
 message Signature {
-  uint32 alg = 1;             // 1 = Ed25519
+  uint32 alg = 1;             // 1 = Ed25519; 0 (absent) is invalid
   bytes  sig = 2;
   // field 3 is reserved for a batch form: one signature over many records
 }
@@ -1257,12 +1389,19 @@ Each signature is computed over
 ```
 
 `kind` and `target` are those of the request, so they are signed without being sent, and a
-record cannot be replayed under another keyword or file.
+record cannot be replayed under another keyword or file. One kind signs a value in the place of
+`target` that does not change with the day: `HIDDEN`
+([`extensions/hidden-set.md`](extensions/hidden-set.md) §3).
 
 **Signatures**
 
 - The publisher signs with its identity key (§6.1). In a `Store` the key is the one of the
-  connection. In a `KadAnswer` it is `keys[key]`, sent once per publisher.
+  connection, or `signer` when the `Store` carries it: a `Store` of any signed kind MAY carry
+  `signer`, and its records are then checked and counted under that key. This is how a
+  follower stores another's head again ([`extensions/file-set.md`](extensions/file-set.md)
+  §5.2) and how a last hop stores for a node that hides
+  ([`extensions/hops.md`](extensions/hops.md) §4.2). Source records, which are bound to the
+  connection, never use it. In a `KadAnswer` the key is `keys[key]`, sent once per publisher.
 - `sigs` is a list from version 1 on. It holds at most one signature per algorithm.
 - A record is **valid** when every signature of an algorithm the verifier knows verifies, and
   every *required* algorithm is present. In version 1 the required set is Ed25519 alone. The
@@ -1277,14 +1416,18 @@ record cannot be replayed under another keyword or file.
 
 | | Storing node, on `Store` | Searcher, on `KadAnswer` |
 |---|---|---|
-| Signature | valid under the connection's key | valid under `keys[key]` |
+| Signature | valid under the connection's key, or under `signer` | valid under `keys[key]` |
 | `expires` | later than now, and at most the lifetime of the kind plus 1 h *(initial)* ahead | later than now minus 1 h |
 | Content | `file` for `KEYWORD`, `note` for `NOTE`, nothing else | the same |
+| Size | `file.name` is 1 to 255 bytes of UTF-8; `file.root` is 32 bytes | the same |
 | Keyword | one keyword of `file.name` (§10.1) gives the target of the request at its `level` | one keyword of `file.name` gives the target that was searched |
 | Count | one record per publisher and file under a keyword; one note per publisher and file | duplicates by publisher and file are merged |
 
-A record that fails a check is rejected (`Error{MALFORMED}`) or dropped. There are no unsigned
-keyword or note records. A storing node deletes a record at `expires`.
+A record that fails a check on the storing node is answered `REJECTED` in `results` (§10.3);
+one that is not newer than the record held, for a kind that keeps one per key or target, is
+answered `OLDER`. `Error{MALFORMED}` is for a frame or a body that does not parse (§5.6). A
+searcher drops a record that fails. There are no unsigned keyword or note records. A storing
+node deletes a record at `expires`.
 
 The publisher's node ID, `H("ed3k v1 node id", key)[0..16)`, is the author of the record. It is
 what a client counts once, ignores, or trusts. Why this helps against spam, and where it does
@@ -1302,7 +1445,8 @@ same few nodes. Version 1 bounds that as follows.
 - While a target is full, a record for a file the node already holds is renewed (`STORED`), and
   a record for a new file is refused (`FULL`).
 - `BUSY` means the node as a whole is out of room. It says nothing about the target.
-- `load` and `spill` MUST be set as defined in §10.3. `sites` MAY be left at 0.
+- `load` and `spill` MUST be set, as §10.3 defines them, in every answer of a responsible node
+  to a request of kind `KEYWORD`; for other kinds both are 0. `sites` MAY be left at 0.
 
 **Publisher**
 
@@ -1320,7 +1464,8 @@ same few nodes. Version 1 bounds that as follows.
 **Levels.** The keyword target includes a level (§10.1), and version 1 uses level 0 only: a node
 MUST send `level = 0` and MUST NOT publish or search at another level. A storing node treats a
 target of level 1 to 15 like any other keyword target, so that upgraded publishers can use those
-levels on nodes that have not upgraded; it rejects a record with `level` above 15. A later network upgrade
+levels on nodes that have not upgraded; it answers a record with `level` above 15 with
+`REJECTED`. A later network upgrade
 lets a full keyword spill to further levels and ranks files by the number of publisher sites, so
 that the most widely shared files are at level 0. Every field it needs is defined above;
 capability bit 8 is reserved for it. The rules are in
@@ -1371,7 +1516,7 @@ decides whether it stays open (§12.5).
 ```protobuf
 message FileRequest {
   bytes  root = 1;            // 32 B; only in the first FileRequest of the stream
-  bytes  have = 2;            // my piece bitmap, LSB first; empty = nothing or not told
+  optional bytes have = 2;    // my piece bitmap, LSB first; absent = unchanged (first message: not told); missing bits are 0
   uint32 want_sources = 3;    // max number of sources wanted, 0 = none
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf (§12.5)
   bytes  relays6 = 5;         // n × 34 B
@@ -1385,11 +1530,11 @@ message FileStatus {
   uint64 size = 1;
   string name = 2;
   bytes  ed2k = 3;            // §7.4
-  bytes  have = 4;            // uploader's piece bitmap; empty = complete file
-  uint32 rank = 5;            // queue position; 0 = upload slot granted, send BlockRequest
+  optional bytes have = 4;    // uploader's piece bitmap; empty = complete file; absent = unchanged
+  optional uint32 rank = 5;   // queue position; 0 = upload slot granted, send BlockRequest; absent = unchanged
   repeated Peer sources = 6;  // source exchange
   Note   note = 7;            // uploader's rating/comment on the file
-  uint32 recheck = 8;         // queued: 0 = stay connected, else ask again after this many seconds (§12.5)
+  optional uint32 recheck = 8; // queued: 0 = stay connected, else ask again after this many seconds (§12.5); absent = unchanged
   // field 9 belongs to the optional HTTP source extension (§13.1)
   // field 10 belongs to the optional file set extension (§13.1)
   // field 11 belongs to the optional credit extension (§13.1)
@@ -1402,8 +1547,11 @@ message SlotOffer {
 ```
 
 - The uploader answers the first `FileRequest` with a full `FileStatus`, or `Error{NOT_FOUND}`.
-- Later `FileStatus` messages carry only changed fields; `size`, `name` and `ed2k` are sent
-  once. When they are sent is limited by §12.5.
+  Full means that `have`, `rank` and `recheck` are present, and `size`, `name`, `ed2k` and
+  `note` as far as the uploader knows them and `brief` did not leave them out.
+- Later `FileStatus` messages carry only changed fields: `have`, `rank` and `recheck` are
+  `optional` and absent means unchanged (§0); `size`, `name` and `ed2k` are sent once. When
+  they are sent is limited by §12.5. The same holds for `have` in a later `FileRequest`.
 - The downloader sends a new `FileRequest` to update `have` or to ask for sources again.
 - Either side ends by closing the exchange. There is no cancel message.
 - Sources in `FileStatus` MUST be peers the uploader has itself had a verified connection with
@@ -1450,7 +1598,10 @@ Per-block overhead is about 8 bytes on 256 KiB.
 Text, databases, disk images and file set manifests gain a lot. A sender MAY therefore compress
 a block, and every node MUST be able to receive one.
 
-- Profile: one magicless zstd frame per block as in §5.3, without a dictionary. Each block is
+- **One `Block` per range.** A `Block` answers exactly one range of a `BlockRequest`, with that
+  range's `offset` and length; the uploader MAY send the ranges of a request in any order and
+  MUST NOT split or merge them. Compression is over the bytes of that `Block` alone.
+- Profile: one magicless zstd frame per `Block` as in §5.3, without a dictionary. Each range is
   compressed on its own, so blocks can be asked for in any order and from any source.
 - `plain` is the length of the block after decompression and is at most 256 KiB. A receiver
   stops when the output would exceed `plain`. Output of another length, or input that does not
@@ -1488,7 +1639,7 @@ is known exactly. The downloader discards the block and asks another source for 
 ```protobuf
 message HashRequest {
   uint64 first = 1;           // first block index
-  uint32 count = 2;           // number of blocks
+  uint32 count = 2;           // number of blocks; at most 32,768 (1 MiB of values)
 }
 
 message HashAnswer {
@@ -1497,11 +1648,37 @@ message HashAnswer {
 }
 ```
 
-`cvs` are the BLAKE3 chaining values of the 256 KiB subtrees `first .. first+count-1`. `proof`
-holds the sibling chaining values needed to recompute the root from that range, ordered from the
-lowest tree level upwards and left to right within a level. The receiver recomputes parent nodes
-up to the root and compares with `root`; the root node is finalised with BLAKE3's `ROOT` flag, all
-others without. A request for all blocks has an empty proof.
+`cvs` are the BLAKE3 chaining values of the 256 KiB subtrees (blocks) `first .. first+count−1`,
+in order. `count` is at most 32,768 *(initial)*; a downloader asks for more in several
+requests. `proof` holds the sibling values needed to recompute the root from that range.
+
+**The tree.** Let n = ceil(size / 256 KiB) be the number of blocks. Level 0 holds their n
+chaining values. Each level above halves the count:
+
+```
+count(0) = n                    count(k) = ceil(count(k−1) / 2)
+node(k, j) = parent( node(k−1, 2j), node(k−1, 2j+1) )     if both exist
+           = node(k−1, 2j)                                 if it is the last and has no partner
+```
+
+`parent` is BLAKE3's parent node function. The level with one node is the root, level L; it is
+finalised with the `ROOT` flag and equals the file's root. Every other parent is computed
+without that flag. This is the tree BLAKE3 itself builds (§7.2): a node without a partner is
+carried up unchanged, which puts the largest power of two on the left.
+
+**The proof.** The range covers the nodes `a(k) .. b(k)` of level k, with `a(0) = first`,
+`b(0) = first + count − 1`, `a(k) = floor(a(k−1) / 2)` and `b(k) = floor(b(k−1) / 2)`. For
+k = 0, 1, … up to the level below the root, `proof` holds, in this order:
+
+- `node(k, a(k) − 1)` when `a(k)` is odd (the left sibling of the range's first node),
+- `node(k, b(k) + 1)` when `b(k)` is even and that node exists (the right sibling of its last).
+
+A level contributes nothing when the range spans it whole. The receiver recomputes level by
+level up to the root and compares with `root`. A request for all blocks has an empty proof. A
+file of one block (n = 1) needs no hash exchange: its root is the block's own output finalised
+as root (§7.2). A file of size 0 has the root of the empty input, no block and no hash
+exchange; it is complete once created. `HashRequest` is answered `Error{MALFORMED}` when
+`first + count` exceeds n or `count` exceeds its limit.
 
 ### 12.5 Waiting in the queue
 
@@ -1514,12 +1691,15 @@ downloader has at most one file stream open to an uploader. Opening a file strea
 file replaces the request and keeps the position, or the slot if one is granted (see "Several
 files in one turn" below).
 
-**Stay or come back.** Every `FileStatus` to a queued downloader carries `recheck`:
+**Stay or come back.** The first `FileStatus` to a queued downloader carries `recheck`, and a
+later one carries it when it changes:
 
 | `recheck` | Meaning |
 |---|---|
 | 0 | Stay connected. The uploader expects to serve this downloader soon |
 | 1800 to 14400 | Close the file stream and open a new one after this many seconds |
+
+A value from 1 to 1799 is read as 1800 and a value above 14400 as 14400.
 
 - The uploader chooses the value per downloader, shorter near the front of the queue. How many
   downloaders it keeps connected is local policy.
@@ -1540,7 +1720,7 @@ files in one turn" below).
 - to change `recheck`,
 - while the downloader holds a slot, for a changed `have`, at most once per 5 min *(initial)*,
 - every 30 min *(initial)* as a **ping**: with `rank` and `have` if they changed, empty
-  otherwise.
+  otherwise (an empty `FileStatus` changes nothing, §0).
 
 The downloader answers a ping with a `FileRequest` within 30 s, empty unless its own `have`
 changed. If it does not, or the connection is lost, the uploader closes the stream. The entry is
@@ -1628,13 +1808,16 @@ program of its own next to an ordinary node, and no further role (§11).
 | Other names of a file | none | record kind 13; a field in `Record`, `Store` and `KadAnswer` | [`extensions/alias.md`](extensions/alias.md) |
 | Torrents as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; `bt` in `ed3k:file` links | [`extensions/torrent.md`](extensions/torrent.md) |
 | Usenet posts as file sets | none (`SETS`) | two schemes of `ALIAS`; a field in a manifest; an article list file format | [`extensions/usenet.md`](extensions/usenet.md) |
-| Videos named on a chain | none (`SETS`) | a field in a manifest; `b3` and `sz` in `ed3k:set` links; a layout for a set; contracts on a chain of their own, reached by RPC | [`extensions/chaintube.md`](extensions/chaintube.md) |
+| Videos named on a chain | none (`SETS`) | a field in a manifest; `b3`, `sz` and `ipfs` in `ed3k:set` links; a layout for a set that an IPFS gateway or a web server can serve as it is; contracts on a chain of their own, reached by RPC | [`extensions/chaintube.md`](extensions/chaintube.md) |
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
 | First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
-ignores the fields (§16).
+ignores the fields (§16), with one exception that §10.3 states: a `ROUTER` stores, checks and
+returns the records of every kind in this table, and the fields of `Store` that belong to a
+source record (HTTP sources, links at hosters), whether or not it sets the bit. The record
+kinds of version 1 are therefore 0 to 13, and the documents above define their checks.
 
 ### 13.2 Links
 
@@ -1649,7 +1832,7 @@ also defines `ed3k:cache`, a link to a cache server. The file set extension adds
 `ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
 set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the extension for links at file hosters adds `hl` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
 extension for finding a known node defines `ed3k:friend`. The extension for videos named on a
-chain adds `b3` and `sz` to `ed3k:set`.
+chain adds `b3`, `sz` and `ipfs` to `ed3k:set`.
 
 ### 13.3 Not carried over
 
@@ -1683,9 +1866,10 @@ as the TCP port; otherwise ed3k has a socket of its own. Sharing works as follow
 - It **can** be told reliably by a keyed check. Plaintext eD2K datagrams start with one of
   `0xE3 0xE4 0xE5 0xC5 0xD4 0xA3 0xB2`, which an ed3k salt never does (§4.3). For every other
   datagram the receiver runs §4.5 first: a live ed3k flow from that source address, else the
-  4-byte `magic` under its own key. Only if both fail does the datagram go to the eD2K trial
-  decryption, which has its own 32-bit magic. A datagram is misrouted with probability 2⁻³²
-  in either direction.
+  4-byte `magic` under its own key, else under the keys of the connections it opened (steps 1
+  to 3). Only if all fail does the datagram go to the eD2K trial decryption, which has its own
+  32-bit magic. A datagram is misrouted with probability 2⁻³² per key tried, in either
+  direction.
 - A legacy client that receives a stray ed3k datagram fails its trial decryption and drops it, as
   it does with any noise.
 
@@ -1808,7 +1992,9 @@ inside messages, and all packets that exist only as a second way to do the same 
 - **Network rules** (who counts as verified, record lifetimes, an ID puzzle) change by upgrade: a
   capability bit announces support, and a date fixed in the specification switches enforcement.
 - Anything that is ever signed MUST travel as `bytes` and be verified over exactly those bytes.
-  Protobuf serialisation is not canonical.
+  Serialisation is not canonical, except where a document requires the canonical form of §0.
+- [`proto/ed3k.proto`](proto/ed3k.proto) holds every message; an extension adds its fields and
+  messages there, at the numbers its document names.
 
 Reserved for later: further signature algorithms and the batch form (§10.7), the key puzzle of §6.3, the Kad datagram
 binding of §10.6, keyword levels and ranking (§10.8), a data relay and symmetric-NAT probing (§9.4), dropping the eD2K alias (§7.4).
@@ -1826,9 +2012,10 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Fragment reassembly: messages per source, timeout | 4, 3 s |
 | Compression threshold | 64 B |
 | Maximum frame body | 1 MiB |
+| Padding of an unsplit Initial, at most | 19 B |
 | Address reports: needed for the lead, counted for, lead over any other endpoint | 3, 60 min, 2 to 1 |
 | Unasked connections that show `open`: number, from hosts not sent to for, within | 2 from different sites, 60 min, 60 min |
-| Reach tests per asker address | 1 per minute |
+| Reach tests per asker address; `PROBE` awaited after the answer | 1 per minute; 5 s |
 | Reach test: repeated every, retry after a test without prober | 60 min, 30 s doubling up to 60 min |
 | Reach test: tests without `PROBE` before `open` is dropped | 2 |
 | Relays per node that is not open in a family | 2 |
@@ -1846,11 +2033,13 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Diversity: new node ID per host group | 1 per hour |
 | Diversity: `SOURCE` records per file, per host / site | 8 / 32 |
 | Diversity: failed source dials per file and hour, per host / site / block | 2 / 4 / 8 |
-| Record lifetimes: source (also anonymous) and friend, keyword, note, member, live, subscriber, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, up to 7 days |
+| Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias, live, subscriber, gate, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
+| Search answer: keyword records, notes, sources at most | 100, 100, 100 |
 | Keyword: files per target (level size), levels in use, highest level accepted | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
 | Block, piece | 256 KiB, 4 MiB |
+| Hash exchange: block values per request at most | 32,768 |
 | Outstanding block ranges | 16 |
 | Block compression: least saving, blocks skipped after a miss | 1/8, 15 |
 | Bad block: source not used for that file | 4 h |
@@ -1871,20 +2060,53 @@ A hybrid post-quantum key exchange for the QUIC binding is evaluated in
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
 | Anonymous paths, a hop: paths per neighbour, streams per path, held per stream and direction, base rate, lookups per path | 8, 64, 256 KiB, 16 KiB/s, 20 per minute |
 | Anonymous paths: `ANON` records per target, `GATE` lifetime and renewal, session idle time | 64, 1 h and 45 min, 10 min |
+| Anonymous paths: hops known before a path is built, reach a new hop within, `HopJoin` per gate and host, give and take measured over | 20, 10 s, 10 per minute, 7 days |
+| Browse: entries per answer | 1,000 |
+| Chat: message ids of a sender remembered for | 10 min |
+| HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed | 8, 3, 16; 3; 3 |
+| HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per file and hour, per host / site / block | 2; 2 / 4 / 8 |
+| File sets, a manifest at most: size, `files`, `dirs`, path component, components in a path, depth, files with all inner sets | 4 MiB, 65,536, 65,536, 1–255 B, 32, 8, 1,000,000 |
+| File sets: head `expires` at most, follower stores the head every, check a followed set at most / suggested | 7 days (+1 h), 24 h, 1 per hour / 1 per 6 h |
+| File sets: `MEMBER` sets per file and publisher, sets per target, records per answer | 4, 64, 16 |
+| Hidden sets: head `expires` at most, follower stores within the first, sealed `data` at most, record dropped after its day | 7 days (+1 h), 6 h, 256 B, 48 h |
+| Sets with several authors: grant keys, signatures required, mounts per manifest, issuers, changes, part (size, files, manifest), `PART` records per target / per answer, parts read per set | 8, 4, 64, 8, 4,096, 64 MiB / 256 / 64 KiB, 1,024 / 16, 1,024 |
+| Live: `start` at most ahead, `end` kept, `have` update, sign of life, neighbour gone after, `peers` seen within, give up on a request after | 1 h, 30 min, 1 per s, 10 s, 30 s, 10 min, 4 s |
+| Live: join behind the newest, neighbours aimed at / kept, interrupted after, leave after, `LIVE` record stored every | 3 segments, 6 / 3–8, 60 s, 10 min, 5 min |
+| Live, rating: outcomes kept, urgent within, probe after, steady (age, outcomes, rate), core (age, outcomes, rate), requests at a time new / steady / core | 20, 3 segments, 60 s, 2 min / 5 / 80 %, 5 min / 10 / 90 %, 1 / 2 / 4 |
+| Live, rating: down (rate, outcomes), out (rate, outcomes), `BLOCKED` for, core per site / block, sudden loss (share, within, hold), returning within | 50 % / 5, 20 % / 10, 30 min, 1 / 2, 1/3 / 2 min / 2 min, 30 min |
+| Live, private channel: look under the previous hour during the first | 10 min |
+| Publish and subscribe: `peers` seen within, bad neighbour refused for, items passed on per topic, neighbours aimed at / kept, topics pushed | 1 h, 24 h, 1 per 10 s, 3 / 2–4, 16 |
+| Publish and subscribe: on-air notice `expires` after `issued` at most, sent every; `SUB` record stored every | 15 min, 5 min; 30 min |
+| Local network: group IPv4 / IPv6, port, announce every, reply wait up to, replies per node, replies per minute, LAN peer kept, LAN peers at most, new per minute | 239.255.101.51 / ff02::6533:6b, 6533, 5 min, 1 s, 1 per 5 min, 10, 15 min, 256, 10 |
+| Local network: `LanQuery` per peer, once more on a new download, roots per query | 1 per 10 min, 1 per minute, 256 |
 | Other names: records per root and scheme, roots per target, records per answer, roots tried per name | 4, 64, 16, 3 |
+| Torrents: `info_size` at most, sets tried per torrent | 32 MiB, 3 |
 | Usenet: article list at most, sets tried per NZB, `nzb-file` records per post | 32 MiB, 3, 256 |
-| Videos on a chain: files per upload set, subtitles and picture at most, link at most, blocks per log read | 64, 1 MiB, 512 B, 2,048 |
-| Videos on a chain, shown at most: title, tag, tags, comment | 256 B, 64 B, 16, 8,192 B |
+| Videos on a chain: files per upload set, subtitles, picture and playlist at most, link at most, blocks per log read, gateways per video | 64, 1 MiB, 512 B, 2,048, 3 |
+| Videos on a chain, shown at most: title, tag, tags, comment; avatar picture at most | 256 B, 64 B, 16, 8,192 B; 1 MiB |
+| Filter lists: list file at most, lists followed, list files per set | 4 MiB, 32, 64 |
+| First contact: saved contacts, fetch lists when fewer than N answered / at most, list at most, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered, listed nodes reachable for | 200, 10 / 1 per 6 h, 32 KiB, 30 days, 200, 4 / 2, 50, 4, 24 h |
+| Finding a known node: friends, open links, request stored every / for, request place searched every, records per target, record stored every, lookup of a friend at most | 64, 4, 4 h / 7 days, 30 min, 8, 4 h, 1 per 30 min |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots at most, time for a payment, bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
 | Credits: a bid ends a turn that has more left than, rate measured over; uploader's share of a payment | 60 s, 10 s; 10 % |
 | Credits, ledger: grace, decay, floor, burned on transfer, settle within | 3 days, 10 % per day, 10 credits, 10 %, 48 h |
+| Credits: receipts per `CreditRelay`, `floor` at least, `tick`, gas reward; open payments of a client at most | 32, 1,000,000 µ per MiB, 10,000 µ per MiB, 2 × the gas of a receipt; 80 % of the balance |
+| Credits, ledger: receipt age at settlement, `kib` per receipt, minted per issuer and 7 days, maturity (age, contribution, issuers) | 60 days, 50 GiB, 100 GiB, 30 days / 1 GiB / 3 |
+| Flood protection: Retry token, return token valid for; per second per host / site / block: Retry packets, handshakes without token | 10 s, 24 h; 4 / 16 / 64, 4 / 16 / 64 |
+| Flood protection: validated handshakes per minute per site / block while guarded; Kad datagrams per second per host / site / block: `CHALLENGE`s, key derivations | 120 / 480; 4 / 16 / 64, 8 / 32 / 128 |
+| Keyword levels (reserved): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |
+| Kad datagrams (reserved): `INIT` at least, cookie secret replaced every, request timer, `CHALLENGE`s per second and address, key derivations per second and address, exchanges outstanding (total / per responder), `INIT` fallback to QUIC after | 70 B, 1 h, 1 s, 4, 8, 16 / 2, 300 ms |
+| Key puzzle (reserved): leading zero bits, memory, epoch | 13, 64 MiB, 30 days |
 
 ## Appendix B — open points
 
 - BLAKE3 test vectors for node ID, routing ID, keyword target, user hash and obfuscation key are
   to be added under `tests/` with the first implementation.
-- The zstd dictionary does not exist yet; it needs a message corpus.
+- The zstd dictionary does not exist yet; it needs a message corpus. Until it is published
+  every node announces `dict = 0` and sends frames without a dictionary (§5.3).
+- The field numbers of every message are collected in `proto/ed3k.proto`; a change in a
+  document has to be made there as well.
 - Raw-public-key support has to be confirmed in the TLS library chosen by each implementation.
 - The numbers in §10.5 and §15 are estimates.
 

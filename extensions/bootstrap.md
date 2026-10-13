@@ -29,7 +29,7 @@ A client tries these in order and stops when its lookups work:
 5. **Node lists** (§2 to §4).
 
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the
-sources above answered, and at most once per 6 h *(initial)*.
+sources above completed a handshake, and at most once per 6 h *(initial)*.
 
 ---
 
@@ -68,8 +68,10 @@ A reader refuses a list
 
 - that does not start with the 8 bytes, or is larger than 32 KiB *(initial)*,
 - whose signature does not verify under the key it expects (§3),
-- whose `created` is more than 30 days *(initial)* in the past or more than 1 h in the future,
-- that names more than 200 *(initial)* nodes per family; the nodes after the 200th are ignored.
+- whose `created` is more than 30 days *(initial)* in the past or more than 1 h in the future.
+
+A list that names more than 200 *(initial)* nodes per family is not refused; the nodes after
+the 200th of a family are ignored.
 
 The file SHOULD be named `nodes.ed3knod`.
 
@@ -115,7 +117,7 @@ signed with its node key, so that one user can help another who is cut off from 
   place in the table.
 - At most half of the candidates of a first contact come from one list, as long as a second
   list was received.
-- When 4 *(initial)* nodes have answered, the client looks up its own ID (§10.3). From then on
+- When 4 *(initial)* nodes have completed a handshake, the client looks up its own ID (§10.3). From then on
   its table is filled by lookups, and the lists are not used again.
 - A node from a list that does not answer is dropped without a second attempt.
 - A list belongs to one network ([`Protocol.md`](../Protocol.md) §4.3). A node of another
@@ -175,6 +177,7 @@ received by hand, or a proxy.
 
 - Who runs the sources, and how a client decides which signers it ships.
 - A second transport binding ([`docs/transport-bindings.md`](../docs/transport-bindings.md))
-  needs a way to say which binding a listed node speaks. `NodeList` has no field for it yet.
+  needs a way to say which binding a listed node speaks. `NodeList` has no field for it yet;
+  `Hello.bindings = 11` and `Peer.bindings = 6` are reserved for it (`Protocol.md` §5.4, §5.5).
 - A node whose clock is far off refuses every list. The date of the HTTPS answer could tell it.
 - All numbers are first values.

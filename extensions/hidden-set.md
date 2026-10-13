@@ -93,13 +93,15 @@ message Sealed {
 | Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | `seq` | not lower than the one held | the highest of all answers wins |
-| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires` | among equal `seq` the lower `data`, as on the storing node |
+| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires`; a valid record that does not replace it is answered `OLDER` | among equal `seq` the lower `data`, as on the storing node |
 | Content | `sealed` and nothing else | `data` opens to a `Head` whose `seq` is the one outside |
 
 - A storing node deletes the record at `expires`, and at the latest 48 h after the day of its
   target began.
 - **Only the author can make a record.** The target follows from the key that signs, so nobody
   can take the place first with a record under a key of their own.
+- An author SHOULD store the same sealed bytes each time it stores one version again: a fresh
+  nonce changes `data`, and with it the tie-break between two records of one `seq`.
 
 **Storing**
 

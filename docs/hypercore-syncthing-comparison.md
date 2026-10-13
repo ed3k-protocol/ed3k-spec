@@ -116,7 +116,7 @@ window of about 30 segments ([`live.md`](../extensions/live.md) §2.2, §3.3).
 Syncthing devices send what they have newly got of a file in progress every 5 seconds, as
 additions to what they sent before.
 
-In ed3k a downloader sends a changed bitmap at most once per 5 min (§12.5).
+In ed3k the uploader sends a changed bitmap to a downloader that holds a slot at most once per 5 min (§12.5); the downloader reports its own in a `FileRequest` when it changes.
 
 | Pro | Con |
 |---|---|

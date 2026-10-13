@@ -214,7 +214,7 @@ In ed3k a chat message needs a connection ([`chat.md`](../extensions/chat.md)).
 | RetroShare | Certificates in the format of PGP | a key is an identity (§6.1) |
 | RetroShare | One exchange system under forums, channels, identities and circles | ed3k has files, sets and records. Each use is specified on its own |
 | GNUnet | Anonymous file sharing: requests that look the same whether a peer asks or forwards, cover traffic, content that moves between peers | as above |
-| GNUnet | Trust earned by serving, as part of the protocol | credits are local policy and never on the wire (§12.5) |
+| GNUnet | Trust earned by serving, as part of the protocol | credits are local policy (§12.1); credits that count everywhere are an optional extension with a ledger outside ed3k ([`extensions/credit.md`](../extensions/credit.md)) |
 | GNUnet | Several transports under one peer identity | one binding ([`transport-bindings.md`](transport-bindings.md)) |
 
 ## 6. Open points

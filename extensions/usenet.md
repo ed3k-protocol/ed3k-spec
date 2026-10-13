@@ -53,8 +53,8 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 | `nzb` | the post id | `SET` | the manifest of the post (§3) |
 | `nzb-file` | the file id | `SAME` | the file |
 
-Two NZB files that list other subsets of a post have two post ids. The file ids are the same
-in both, so every file is still found.
+Two NZB files that list other subsets of a post have two post ids. The file id of a file is the
+same in both when both list the same parts for it, so such a file is still found.
 
 ---
 
@@ -85,9 +85,7 @@ message Post {
 - **The list does not say which bytes an article holds.** Each article says so itself, in its
   `=ypart` line (`begin`, `end`). A client that wants a range asks for the part the range
   falls in when all parts have the size of the first, and corrects itself from the answer.
-- The list is written in the canonical serialisation of [`torrent.md`](torrent.md) §2: fields
-  in ascending number, each once, repeated fields in order, shortest varints, defaults left
-  out.
+- The list is written in the canonical serialisation of `Protocol.md` §0.
 - The list is at most 32 MiB *(initial)*. It is shared as an ordinary file with a `SOURCE`
   record, and MUST NOT get `KEYWORD` records.
 - Groups are not in the list. An article is asked for by its message ID.

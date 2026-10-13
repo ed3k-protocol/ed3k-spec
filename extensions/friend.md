@@ -42,8 +42,8 @@ ss  = X25519(my private key, the friend's public key)
 k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the reading node)       32 bytes
 ```
 
-- The Ed25519 node keys are used for X25519 through the conversion of
-  [`kad-datagram.md`](kad-datagram.md) §3.1. A node MUST refuse an `ss` that is all zero.
+- The Ed25519 node keys are used for X25519 through the conversion of `Protocol.md` §6.4. A
+  node MUST refuse an `ss` that is all zero.
 - Both nodes compute the same `ss`. Each direction has a `k` of its own: one for the record A
   stores for B, one for the record B stores for A.
 - **The link is not a secret.** Whoever has a node's key and was not added by that node can
@@ -86,8 +86,8 @@ was given the link can ask to be added, without a second link going back by hand
 ```
 target = H("ed3k v1 friend request target", key ‖ r ‖ period(8))[0..16)       key and r of the node that is asked
 
-sealed = e(32) ‖ nonce(12) ‖ ChaCha20(k_req, nonce, serialised FriendRequest)
-k_req  = H("ed3k v1 friend request", X25519(e's private key, the asked node's public key) ‖ e ‖ key)
+sealed = e(32) ‖ nonce(12) ‖ ChaCha20-Poly1305(k_req, nonce, serialised FriendRequest)       RFC 8439, 16-byte tag
+k_req  = H("ed3k v1 friend request", X25519(e's private key, the asked node's public key) ‖ e ‖ key)     key = the asked node's key
 ```
 
 ```protobuf
@@ -95,7 +95,7 @@ message FriendRequest {
   bytes  key = 1;             // 32 B node key of the asking node
   string text = 2;            // at most 96 B
   uint64 issued = 3;          // Unix time in seconds
-  repeated Signature sigs = 4;  // by the asking node, over "ed3k v1 friend request" ‖ asked key(32) ‖ issued(8) ‖ text
+  repeated Signature sigs = 4;  // by the asking node, over "ed3k v1 friend request signature" ‖ asked key(32) ‖ issued(8) ‖ text
 }
 ```
 
@@ -106,9 +106,10 @@ target of the current day. It stores it again every 4 h *(initial)*, until it fi
 node's record for it (§1) or 7 days *(initial)* have passed.
 
 **The asked node** searches its request place when it starts and then once per 30 min
-*(initial)*: the target of the current day, and of the day before.
+*(initial)*: the targets of the day before, the current day and the day after, so that an
+asking node whose clock is ahead is found.
 
-- It drops a request that does not open, whose signature does not verify under `key`, or whose
+- It drops a request whose tag fails, whose signature does not verify under `key`, or whose
   `issued` is more than 7 days old.
 - It shows the rest to the user, each key once. A request is never accepted without the user.
 - When the user accepts, the node adds the key. Both are then friends by §1.
@@ -144,7 +145,7 @@ For §1 and §2:
 ```
 k_rec   = H("ed3k v1 friend record", k)                                   32 bytes
 target  = H("ed3k v1 friend target", k ‖ period(8))[0..16)                period = Unix time / 86400, rounded down, big-endian
-sealed  = nonce(12) ‖ ChaCha20(k_rec, nonce, serialised FriendRecord)     RFC 8439 cipher, counter from 0
+sealed  = nonce(12) ‖ ChaCha20-Poly1305(k_rec, nonce, serialised FriendRecord)     RFC 8439, 16-byte tag
 ```
 
 A request (§3) has its own target and its own `sealed`, and travels in the same fields.
@@ -168,8 +169,8 @@ A request (§3) has its own target and its own `sealed`, and travels in the same
 **The node that looks**
 
 1. Searches `FRIEND` at the target of the current day. If nothing is found, it searches the
-   day before.
-2. Opens every record with `k_rec`. One that does not parse is dropped.
+   day before, and then the day after (the friend's clock may be ahead).
+2. Opens every record with `k_rec`. One whose tag fails is dropped.
 3. Takes the record with the latest `issued` that is not more than 1 h in the future, and
    dials: directly, or through the relays as in §9.4 and §9.5.
 4. **The handshake is the proof.** The node at that address has to hold `key` (T1). A record

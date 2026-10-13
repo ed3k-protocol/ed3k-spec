@@ -10,7 +10,7 @@ looks at the other direction: whether the callbacks of eD2K can bring two firewa
 nodes together.
 
 **Result:** tag ID `0xE3` for the hello, the server login, the server ident and extended source
-exchange; the string name `"e3"` in Kad; the token `e3=` in links. All are unused in the seven
+exchange; the string name `"e3"` in Kad; the token `b3=` in links. All are unused in the seven
 eMule source trees that were checked. The tags stay outside the specification, because a
 dual-protocol client is complete without them. The rendezvous of an eD2K server can serve as
 the signal for an ed3k hole punch; the Kad buddy callback cannot (section 5).
@@ -22,7 +22,7 @@ the signal for an ed3k hole punch; the Kad buddy callback cannot (section 5).
 | Certainty | a hint: one legacy hash in 65,536 matches | authoritative |
 | Carries | the first 12 bytes of the node ID | the full node ID, or the wire version |
 | Passes legacy servers and relaying clients | yes | no |
-| Reaches a server | no | yes, in the login |
+| Reaches a server | yes: `OP_LOGINREQUEST` carries the user hash | yes, in the login, with the full node ID |
 
 A tag from the list below means "ed3k version `n`, port rule of §14.1".
 
@@ -35,7 +35,7 @@ A tag from the list below means "ed3k version `n`, port rule of §14.1".
 | Extended source exchange record | tag `CT_ED3K` = `0xE3`, UINT8 = wire version | only to peers that skip unknown tags |
 | Server login (`OP_LOGINREQUEST`) | tag `CT_ED3K` = `0xE3`, HASH type, value = the node ID | lets an ed3k-aware server mark sources and advertise an index node |
 | Server ident (`OP_SERVERIDENT`) | tag `ST_ED3K` = `0xE3`, string, value = the server's `ed3k:node?…` link (§13.2) | how a client learns of a server's index node (§11) |
-| eD2K link | token `e3=<base32 root>` | MUST be placed before the `sources` block, where legacy parsers stop reading |
+| eD2K link | token `b3=<root, base32 lower case, no padding>`, the parameter name of `ed3k:file` links (§13.2) | MUST be placed before the `sources` block, where legacy parsers stop reading |
 
 **Binding the identities.** The hello tag ties the eD2K identity to the ed3k one after an eD2K
 connection: if secure identification passed and the tag's node ID yields the peer's user hash
@@ -53,7 +53,7 @@ lists of tags that some clients treat as a mark of a leecher mod.
 | `0xA0`–`0xAF` | not usable: a family of mod tags, partly assigned and partly reserved by their owner |
 | `0xE3` | free in all seven trees, as a client tag, an eMule info tag and a server tag. Not on any leecher-tag list |
 | `"e3"` as a Kad tag name | unused; the string names in use are `"ip"`, `"port"`, `"ip6"`, `"bi6"` and the five HTTP Cache names |
-| `e3=` as a link token | unused; the tokens in use are `p=`, `h=`, `s=` and `s6=` |
+| `b3=` as a link token | unused; the tokens in use are `p=`, `h=`, `s=` and `s6=` |
 
 Other numbers free in every tree, should `0xE3` turn out to be taken elsewhere: `0xC0`–`0xC3`,
 `0xC5`, `0xC6`, `0xDB`–`0xE2`, `0xE4`, `0xE5`, `0xE7`–`0xEB`.
@@ -121,6 +121,12 @@ Three mechanisms exist. They are named here by their opcodes.
 | Who dials | not said | not said | a role byte in `0x61` |
 | Address families | IPv4. The server has no IPv6 | IPv4 and IPv6, IPv6 preferred when both have it | the server accepts clients over IPv6, but `0x60` names the target by its 4-byte client ID and `0x61` has a 4-byte address field. The punch is IPv4 |
 | Peers | on the same server | any two registered hashes, also on different servers | on the same server |
+
+Two things stand in the way of building any of them as they are. The protocol byte `0xF1` is
+not in the list of first bytes an ed3k salt avoids (§4.3); a dual-protocol client that adopts
+that rendezvous has to add it there, which is a sender-side rule and needs no wire change.
+And the opcodes `0xA6`/`0xA7`, `0x9F` and `0x60`–`0x62` collide with stock eD2K opcodes, so
+their packets need layouts of their own before anything is built (section 6).
 
 All three fill the needs of 5.1 when two conditions hold:
 

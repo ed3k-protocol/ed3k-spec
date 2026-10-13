@@ -61,8 +61,8 @@ that two nodes use when both have it.
   // in Peer:   repeated Binding bindings = 6;
   ```
 
-  The field numbers are proposals; nothing is reserved in version 1. An old node ignores unknown
-  fields (§16), so the addition is compatible.
+  Both field numbers are reserved in version 1 (`Protocol.md` §5.4, §5.5). An old node ignores
+  unknown fields (§16), so the addition is compatible.
 - Kad contacts stay as they are. A node learns a peer's other bindings from the `Hello` of a
   `quic-obfs` connection, or from the `Peer` record of a source.
 

@@ -57,8 +57,10 @@ Neither group nor port is registered.
 - A node announces on each interface it listens on: when it starts, when the interface gets a
   new address, and every 5 min *(initial)*.
 - A node that hears an announce from a node it did not know answers with one announce sent to
-  that node alone, with `reply` set, after a random wait of up to 1 s. It answers a given node
-  at most once per 5 min. A newcomer then knows the others at once.
+  the group, with `reply` set, after a random wait of up to 1 s. It answers a given node at most
+  once per 5 min and sends at most 10 *(initial)* replies per minute; replies do not count
+  against the limit below. A newcomer then knows the others at once, and so does everyone else
+  on the link, as in BEP 14.
 - A node sends at most 1 multicast announce per minute and interface.
 
 **Receiving**
@@ -69,7 +71,7 @@ Neither group nor port is registered.
 - It remembers (node ID, address, port) as a **LAN peer** for 15 min *(initial)* after the last
   announce.
 - An announce is not a reason to connect. A node dials a LAN peer when it has something to ask
-  (§2).
+  (§2 of this document).
 - An announce proves nothing. The handshake does (T1): a LAN peer whose key does not give the
   announced node ID is dropped. A false announce costs one dial inside the local network.
 - A node keeps at most 256 *(initial)* LAN peers and takes at most 10 new ones per minute.
@@ -89,8 +91,8 @@ message LanAnswer {
 ```
 
 - `LanQuery` is a request/answer exchange (§5.2), sent only to a LAN peer that set `LAN`.
-- A node answers it only on a connection whose remote address passes the test of §1
-  (Receiving), and with `Error{DENIED}` otherwise.
+- A node answers it only on a connection whose remote address passes the test of §1 of this
+  document (Receiving), and with `Error{DENIED}` otherwise.
 - For every set bit the asking node adds the LAN peer as a source of that file and opens a file
   stream as usual (§12.1).
 - A node asks a LAN peer at most once per 10 min *(initial)*, and once more when it starts a new
@@ -138,8 +140,8 @@ A node that only shares never needs to ask. It is found by the nodes that downlo
 | A LAN peer that is asked | 16 bytes of the root of each file the asking node looks for |
 | Nobody outside the network | anything. The datagrams do not leave the link |
 
-This is why the announce names no files, and why §4 turns the extension off in a public
-network.
+This is why the announce names no files, and why §4 of this document turns the extension off
+in a public network.
 
 ---
 

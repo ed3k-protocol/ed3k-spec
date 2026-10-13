@@ -71,10 +71,12 @@ leaves nothing to choose.
 - **Padding files** (attribute `p`) are not members. Their bytes are zeros and exist only in
   the piece space of the torrent.
 - **Names.** Where the dictionary has a key with the suffix `.utf-8`, that one is used. A name
-  that is not valid UTF-8 is not repaired.
-- **Serialisation.** Fields are written in ascending field number, each once, repeated fields
-  in order, varints in their shortest form, and a field at its default value is left out. The
-  file is the 8 bytes of a manifest followed by a `SetFile` that has `body` only.
+  that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8, as [`usenet.md`](usenet.md)
+  §2 does; `Member.name` is a protobuf string and has to be UTF-8.
+- **Serialisation.** The canonical serialisation of `Protocol.md` §0: fields in ascending field
+  number, each once, repeated fields in order, varints in their shortest form, a field at its
+  default value left out. The file is the 8 bytes of a manifest followed by a `SetFile` that
+  has `body` only.
 - **No canonical manifest exists** for a torrent
   - that is marked private (§6.3),
   - whose paths or counts break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2,

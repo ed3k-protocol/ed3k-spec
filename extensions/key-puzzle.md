@@ -71,7 +71,8 @@ during it; there is no moment at which all routers must solve at once.
 - The field is 12 bytes. Compact contacts in `KadAnswer` do not carry solutions: a contact is
   verified by connecting to it (§6.3), and the `Hello` of that connection brings the solution.
 - With the datagram binding ([`kad-datagram.md`](kad-datagram.md)) there is no `Hello`. The
-  solution then follows the responder's public key in `CHALLENGE`, 12 bytes more.
+  solution then follows the responder's public key in `CHALLENGE`, 12 bytes more; an `INIT` is
+  at least 70 bytes so that this fits ([`kad-datagram.md`](kad-datagram.md) §2.1).
 
 ## 4. Verification
 

@@ -63,15 +63,17 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ type(1) ‖ txid(4) �
 The responder does not need to know who the requester is to mask its reply.
 
 **Receiving.** Step 2 of §4.5 accepts either magic. A node that receives a datagram from an
-address with a pending exchange unmasks it with that responder's key and `dir = 0x01`. If a
-datagram from an address with a live QUIC connection fails the `magic` check under the
-connection key, the node tries its own key before dropping it.
+address with a pending exchange unmasks it with that responder's key and `dir = 0x01`. A
+datagram from an address with a live QUIC connection that fails the `magic` check under the
+connection key goes on to the next step of §4.5, as any datagram does.
 
 A datagram of this binding MUST NOT exceed 1200 bytes of UDP payload.
 
 ### 2.1 `INIT` (48)
 
-No payload. `pad_len` MUST be at least 40, so the datagram is at least 58 bytes.
+No payload. `pad_len` MUST be at least 52, so the datagram is at least 70 bytes: a `CHALLENGE` that
+carries a key-puzzle solution ([`key-puzzle.md`](key-puzzle.md) §3) is then never longer than
+the `INIT` it answers.
 
 ### 2.2 `CHALLENGE` (49)
 
@@ -111,23 +113,18 @@ seal_ans( nf(1) ‖ [cookie(8)] ‖ tag ‖ body )
 
 ### 3.1 Keys
 
-Each node's Ed25519 identity key is used for X25519 through the standard conversion:
-
-```
-x_private = clamp( SHA-512(ed25519_seed)[0..32) )
-x_public  = (1 + y) / (1 − y)  mod 2²⁵⁵−19          y = the Ed25519 public key's y coordinate
-```
-
-(libsodium: `crypto_sign_ed25519_sk_to_curve25519`, `crypto_sign_ed25519_pk_to_curve25519`.)
+Each node's Ed25519 identity key is used for X25519 through the conversion of `Protocol.md`
+§6.4.
 
 ```
 ss            = X25519(own x_private, peer x_public)        reject an all-zero result
 k_req ‖ k_ans = H("ed3k v1 kad dgram", ss ‖ requester_public_key ‖ responder_public_key)   64 bytes
 ```
 
+The two keys in the derivation are the Ed25519 keys as they are sent, not the converted ones.
 Both sides compute the same `ss`; the two keys depend on who asks, so the two directions of an
 exchange, and the two roles a pair of nodes can take towards each other, never share a key.
-A node SHOULD cache `k_req ‖ k_ans` per peer key.
+A node SHOULD cache `k_req ‖ k_ans` per peer key and role.
 
 ### 3.2 Sealing
 
@@ -139,13 +136,14 @@ aad   = type(1) ‖ txid(4) ‖ everything in the payload before the ciphertext
 seal_req uses k_req, seal_ans uses k_ans
 ```
 
-`salt` is fresh for every datagram, including retransmissions, so a nonce never repeats under a
-key in practice (96 random bits).
+`salt` is fresh for every datagram, retransmissions included, so a nonce never repeats under a
+key in practice: 64 random bits, and the `txid` tells exchanges apart. A retransmission is
+sealed again under its new salt, never sent as the same bytes.
 
 ### 3.3 Cookie
 
 ```
-cookie = BLAKE3_keyed(secret_e, ip ‖ port)[0..8)
+cookie = BLAKE3_keyed(secret_e, ip ‖ port(2, big-endian))[0..8)
 ```
 
 `secret_e` is a random 32-byte value the responder replaces every hour *(initial)*. A cookie made
@@ -187,7 +185,8 @@ A verified contact from this binding has the same standing as one verified by a 
 
 1. Without the responder's public key: send `INIT`. With key but without cookie: also `INIT`.
 2. Send `REQUEST`. Start a timer of 1 s *(initial)*, or twice a known round-trip time.
-3. On `CHALLENGE` with the same `txid`: store cookie and key, send the `REQUEST` again once.
+3. On `CHALLENGE` with the same `txid`: store cookie and key, send the `REQUEST` again once,
+   with the same `txid` and a new `salt`.
 4. On timeout: retransmit once with a new `salt` and the same `txid`. After the second timeout
    the exchange has failed; the contact counts one failure as in §10.2.
 5. Accept the first valid `ANSWER` for a `txid` and ignore later ones.

@@ -40,7 +40,7 @@ All numbers are *(initial)* and are repeated in Appendix A of the main document.
 | Whole routing table (§2.1) | 1 | 10 | 20 |
 | One `KadAnswer` (§2.2) | 1 | 2 | 4 |
 | One lookup, nodes queried (§2.2) | 1 | 2 | 4 |
-| Closest set (§2.3) | 1 | 1 | 1, as a preference |
+| Closest set (§2.3) | 1 | — | 1, as a preference |
 | Failed or pending source dials per file and hour (§2.5) | 2 | 4 | 8 |
 
 ### 2.1 Routing table

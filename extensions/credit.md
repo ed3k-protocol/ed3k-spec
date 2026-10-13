@@ -52,7 +52,7 @@ received, and the uploader earns credits for it.
 | **issuer** | the downloader that signs a receipt |
 | **holder** | the uploader a receipt is signed for |
 | **µ** | 10⁻⁶ credit, the unit of every amount on the wire and in the ledger |
-| **tranche** | 4 MiB of file data, one piece (`Protocol.md` §7.2) |
+| **tranche** | each 4 MiB of verified file data of a turn, counted from the start of the turn (one piece, `Protocol.md` §7.2); the last tranche of a turn can be shorter |
 | **day** | `floor(unix_time / 86400)` |
 | **mature** | an account whose receipts mint credits (§6.3) |
 
@@ -62,7 +62,7 @@ The node key of `Protocol.md` §6.1 is Ed25519. The EVM verifies secp256k1 signa
 3,000 gas and has no Ed25519 function. So a node that takes part has a second key.
 
 - The **credit key** is a secp256k1 key. Its address is the last 20 bytes of the Keccak-256
-  hash of the public key.
+  hash of the uncompressed public key without its `0x04` prefix (64 bytes), as in Ethereum.
 - It signs receipts (§3) and the node's transactions on the ledger (§7).
 - **There is no signature that ties it to the node ID.** A node states its credit address on a
   file stream. The connection is authenticated (`Protocol.md` §6.2), so the statement comes
@@ -87,7 +87,7 @@ Receipt(address issuer, address holder, uint32 day, uint64 kib, uint64 spent)
 |---|---|
 | `issuer` | credit address of the downloader |
 | `holder` | credit address of the uploader |
-| `day` | the day of the signer's clock |
+| `day` | the day of the signer's clock; the holder accepts today, yesterday and tomorrow by its own clock (§4.2) |
 | `kib` | KiB of file data the issuer received from the holder **on that day**, verified, over all files; cumulative |
 | `spent` | µ the issuer spent at the holder **on that day**; cumulative |
 
@@ -122,10 +122,15 @@ like the credits of `Protocol.md` §12.1. It MUST still serve nodes without `CRE
 In a priority slot (§5) the downloader pays **one tranche ahead**:
 
 ```
-due = Σ price of each tranche delivered in this turn × its size
-    + price now × 4 MiB                                    prices as in §5.2
+due = Σ ceil(price of each tranche delivered in this turn × its bytes / 2²⁰)
+    + ceil(price now × 4 MiB / 2²⁰)                        prices in µ per MiB, as in §5.2
 spent ≥ spent at the start of the turn + due
 ```
+
+- Amounts are whole µ, rounded up per tranche, so both sides compute the same `due`.
+- The counters start at 0 on a new day (§3), but what was paid stays paid: the uploader carries
+  the byte mark up to which the turn is paid across the day boundary, and the new day's `spent`
+  covers the tranches from the next unpaid one on.
 
 - The first receipt of a priority turn carries the payment for the first tranche. The uploader
   serves `BlockRequest`s only up to the end of the tranche that is paid.
@@ -154,11 +159,11 @@ message CreditBid {
 
 message CreditOffer {
   bytes  payee = 1;           // 20 B, the uploader's credit address; sent once per stream
-  uint64 floor = 2;           // µ per MiB, lowest bid taken; absent = no priority slots
+  optional uint64 floor = 2;  // µ per MiB, lowest bid taken; absent = no priority slots
   uint64 clearing = 3;        // µ per MiB a bid has to reach to get the next priority slot
   uint32 used = 4;            // priority slots in use
   uint32 slots = 5;           // priority slots at most (§5.1)
-  uint64 price = 6;           // µ per MiB charged from the next tranche on; with rank = 0 only
+  optional uint64 price = 6;  // µ per MiB charged from the next tranche on; with rank = 0 only; absent = unchanged
   Receipt last = 7;           // the latest receipt of today I hold from `payer`, if any
 }
 ```
@@ -193,7 +198,7 @@ message Receipt {             // type 35, downloader → uploader, on the file s
 `issuer` and `holder` are `payer` and `payee` of the stream. The uploader verifies the
 signature and that
 
-- `day` is today or yesterday by its own clock,
+- `day` is today, yesterday or tomorrow by its own clock,
 - `kib` is not above what it delivered to this node on that day, and not below the receipt
   before,
 - `spent` is not below the receipt before, and covers what is due (§3.2) in a priority turn.
@@ -321,7 +326,9 @@ remaining = bytes left of that turn / its rate over the last 10 s (initial)
 - It SHOULD NOT bid at an uploader whose `floor` is above its limit.
 - Its exposure is one tranche per uploader it holds a priority slot at.
 - A downloader that signed more `spent` in total than it has is **overdrawn** once the
-  receipts are settled (§6.4). A client MUST keep the sum of open payments below its balance.
+  receipts are settled (§6.4). A client MUST keep the sum of its open payments at or below
+  80 % *(initial)* of its balance as last read, so that two days of decay (§6.5) and the 48 h
+  a holder has to settle (§6.2) cannot leave it short.
 
 ## 6. The ledger
 
@@ -473,7 +480,8 @@ transactions uses it up.
 | RPC endpoints | a list in the client's configuration; none is built into the protocol |
 
 A network with a name (`Protocol.md` §4.3) has its own ledger or none. A node of such a
-network MUST NOT use the ledger of the public network.
+network MUST NOT use the ledger of the public network. Until both parameters are assigned no
+receipt can be signed or verified, and the test vectors of this extension wait on that.
 
 ### 7.2 The chain
 

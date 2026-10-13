@@ -43,9 +43,14 @@ example the number of handshakes in progress or of Initials per second. While gu
 
 **Tokens**
 
-```
-token = time(4) ‖ BLAKE3_keyed(secret, kind(1) ‖ time(4) ‖ host)[0..12)
-```
+A token is opaque to the initiator; its layout is the node's own, and usually the QUIC
+library's. It MUST let the node check without state that the token was issued by this node
+within the validity time (a time stamp and a keyed hash under `secret`), that the Initial
+comes from the address the token was issued to (and, for a Retry token, the port), and, for a
+Retry token, which destination connection ID the first Initial carried: the handshake has to
+prove it in `original_destination_connection_id` (RFC 9000 §7.3), so a Retry token carries
+that ID, encrypted or alongside its hash. A Retry token is about 40 bytes, a return token
+about 16.
 
 | Token | Issued in | Valid for *(initial)* | Bound to |
 |---|---|---|---|

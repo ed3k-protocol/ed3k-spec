@@ -25,11 +25,11 @@ message HttpSource {
   uint64 offset = 2;          // position in the file of the first byte this source holds
   uint64 length = 3;          // number of file bytes it holds; 0 = up to the end of the file
   uint64 expires = 4;         // Unix time after which the URL may be gone; 0 = unknown
-  Sealed sealed = 5;          // absent = plain source
+  SealedChunk sealed = 5;     // absent = plain source
   string hashes = 6;          // optional: URL of the file's hash body (§3.1)
 }
 
-message Sealed {
+message SealedChunk {         // not `Sealed`, the record of hidden-set.md
   uint32 alg = 1;             // 1 = AES-256-CBC with PKCS#7 padding, SHA-256 over the ciphertext
   bytes  key = 2;             // 32 B
   bytes  iv = 3;              // 16 B
@@ -53,7 +53,8 @@ message Sealed {
   ciphertext of 16,777,232 bytes. A reader MUST refuse a sealed chunk with a larger `length`.
 - A sealed chunk SHOULD start on a piece boundary and cover whole pieces (§7.2), or end with
   the file. The default is 4 pieces; a publisher uses fewer when the server accepts less (§4).
-- A chunk made for eD2K covers one eD2K part of 9,728,000 bytes and is equally valid here.
+- A chunk made for eD2K covers one eD2K part of 9,728,000 bytes and is equally valid here; its
+  edges are not block-aligned, which §6 covers.
 
 ## 2. Where sources travel
 
@@ -67,8 +68,10 @@ message Sealed {
 | Link | `wh=<url>` in `ed3k:file` (§13.2) | hash body of the file (§3.1) |
 | Link | `ed3k:cache` | a cache server and its upload key (§4.1) |
 
-A node sends these fields only to a peer that set `HTTP`. A node without the extension ignores
-them (§16), so nothing else changes for it.
+A node sends these fields on a file stream only to a peer that set `HTTP`. A storing node keeps
+and returns `Store.http` whether or not it sets the bit, checking the limits and nothing else,
+as it does for every record of an extension (§10.3). A node without the extension ignores the
+fields elsewhere (§16), so nothing else changes for it.
 
 ### 2.1 In the file stream
 
@@ -145,9 +148,9 @@ root at the end; a failure then cannot be located.
 blocks. A reader fetches the parts it needs with `Range` requests and can verify each part as
 it arrives.
 
-**The tree.** Let n = ceil(size / 256 KiB) be the number of blocks. Level 0 holds the chaining
-values of the blocks, the values `HashAnswer.cvs` carries (§12.4). Each level above halves the
-count:
+**The tree** is the one of §12.4. Let n = ceil(size / 256 KiB) be the number of blocks. Level 0
+holds the chaining values of the blocks, the values `HashAnswer.cvs` carries. Each level above
+halves the count:
 
 ```
 count(0) = n                    count(k) = ceil(count(k−1) / 2)
@@ -308,6 +311,7 @@ server: 2 per host, 4 per site, 8 per block *(initial)*.
 | Plain source, a block fails BLAKE3 | the URL: it is dropped. The node that named it is told `CORRUPT` and not banned, since it may have passed the URL on in good faith |
 | Sealed chunk, ciphertext does not match `digest`, or bad padding | nobody: a broken server and a wrong description look the same. `CORRUPT` is reported |
 | Sealed chunk, ciphertext matches `digest`, a block fails BLAKE3 | the peer that gave the description: it vouched for exactly these bytes. Treated like a peer that sent a corrupt block |
+| Sealed chunk, a block that lies partly outside the chunk fails | nobody: the describer vouched for the chunk's bytes only, and the rest of the block came from elsewhere. The block is fetched again from an ed3k source |
 | Source from Kad or a link | nobody; the URL is dropped |
 
 The cache server is never blamed for a sealed chunk. It holds bytes it cannot read, and the

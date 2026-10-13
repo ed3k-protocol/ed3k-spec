@@ -1,7 +1,7 @@
 # Extension: file sets (`file-set`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §5.4, §10.3, §10.7, §12.1, §13.1 and §13.2. Section numbers (§) refer to that document.
+**Extends:** [`Protocol.md`](../Protocol.md) §5.4, §10.3, §10.7, §12.1, §13.1 and §13.2. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 10, `SETS`. No message types; one file format, two Kad record kinds and fields in existing messages.
 **Required of every `ROUTER`:** storing and returning the record kinds `HEAD` and `MEMBER` (§5.2, §6). The rest is optional.
 
@@ -10,7 +10,7 @@ downloader has to find each one. This extension adds a **file set**: a list of f
 paths that is published, found and downloaded as one item.
 
 A set is described by a **manifest**. The manifest is an ordinary file. It is shared, searched,
-verified and transferred like any other, and its BLAKE3 root (§7.1) is the identity of the set.
+verified and transferred like any other, and its BLAKE3 root (`Protocol.md` §7.1) is the identity of the set.
 Every file it lists stays an ordinary ed3k file with a root of its own.
 
 What this gives:
@@ -73,14 +73,14 @@ message Member {
 }
 ```
 
-`Signature` is the type of §10.7.
+`Signature` is the type of `Protocol.md` §10.7.
 
 - The manifest SHOULD be named `<title>.ed3kset`. A client recognises a manifest by its first 8
   bytes, not by its name.
 - `dirs` holds each directory once, so a path is not repeated per file. A directory without
   files is listed too and is created by the downloader.
 - The order of `files` is fixed by the manifest. Entry numbers in §4 refer to it.
-- A member's `size` is a claim, as everywhere in ed3k: the root does not commit to it (§7.1).
+- A member's `size` is a claim, as everywhere in ed3k: the root does not commit to it (`Protocol.md` §7.1).
 - The manifest is immutable. A changed set is a new manifest with a new root. §5 says how the
   new one is found from the old one.
 
@@ -134,8 +134,8 @@ A manifest MAY be signed by its author. Each signature is computed over
 "ed3k v1 set" ‖ body
 ```
 
-with the key in `key`. The rules for `sigs` are those of §10.7. The author's node ID is
-`H("ed3k v1 node id", key)[0..16)` (§6.1).
+with the key in `key`. The rules for `sigs` are those of `Protocol.md` §10.7. The author's
+node ID is `H("ed3k v1 node id", key)[0..16)` (`Protocol.md` §6.1).
 
 - A signed manifest with a signature that does not verify MUST be refused.
 - The signature says who made the list. It says nothing about the files.
@@ -198,11 +198,11 @@ cheapest for a set that is small or never changes.
 ## 3. Publishing and finding
 
 - **The manifest** is published like any shared file: a `SOURCE` record under its root and
-  `KEYWORD` records under the keywords of its name (§10.1). The extension `ed3kset` is the
+  `KEYWORD` records under the keywords of its name (`Protocol.md` §10.1). The extension `ed3kset` is the
   extension of the name, so `Query.ext` finds sets.
 - **Members** are ordinary shared files of the node. Whether it publishes each one under its
   own root and name is the node's normal policy.
-- **`FileInfo`** (§5.4) gains two fields for the manifest's record, so that a search result can
+- **`FileInfo`** (`Protocol.md` §5.4) gains two fields for the manifest's record, so that a search result can
   show what the set holds:
 
   ```protobuf
@@ -212,7 +212,7 @@ cheapest for a set that is small or never changes.
   ```
 
   Both are claims of the publisher. A storing node without this extension keeps them, because a
-  record is stored as signed bytes (§10.7). `size` stays the size of the manifest, so
+  record is stored as signed bytes (`Protocol.md` §10.7). `size` stays the size of the manifest, so
   `Query.min_size` and `max_size` filter on that and not on the set.
 - **Sources of members.** A node that shares a set usually has its members. A downloader
   SHOULD ask the sources of the manifest for the members first, and look up `SOURCE` records
@@ -222,7 +222,7 @@ cheapest for a set that is small or never changes.
 
 A set of a thousand small files would cost a thousand source lookups, file requests and queue
 entries if nothing were added. Two rules avoid that. The first needs `SETS` on the uploader; the
-second is part of §12.5.
+second is part of `Protocol.md` §12.5.
 
 ### 4.1 Member bitmap
 
@@ -245,7 +245,7 @@ For 10,000 members the bitmap is 1.25 KiB.
 
 ### 4.2 One turn, several files
 
-§12.5 gives a downloader one queue entry per uploader and one file stream at a time. It also
+`Protocol.md` §12.5 gives a downloader one queue entry per uploader and one file stream at a time. It also
 lets a downloader that holds a slot open a file stream for another file and keep the slot, so
 the members of a set are fetched one after the other within one turn. That rule holds for
 every node and does not need `SETS`.
@@ -253,7 +253,7 @@ every node and does not need `SETS`.
 - The downloader sets `brief`: it has size and name from the manifest.
 - A turn stays 16 MiB or 1 h, so a set gives no more than a single file does.
 
-A member of at most one block (256 KiB) needs no hash exchange (§7.2): one `FileRequest`, one
+A member of at most one block (256 KiB) needs no hash exchange (`Protocol.md` §7.2): one `FileRequest`, one
 `BlockRequest` and the data.
 
 ## 5. Sets that change
@@ -281,10 +281,10 @@ Anyone who holds one version of the manifest can compute the target and find the
 ### 5.2 The record
 
 ```protobuf
-// in enum Kind (§10.3):
+// in enum Kind (Protocol.md §10.3):
 HEAD = 4;
 
-// in Record (§10.7):
+// in Record (Protocol.md §10.7):
 Head head = 4;
 
 message Head {
@@ -295,23 +295,24 @@ message Head {
   string name = 5;            // its file name
 }
 
-// in Store (§10.3):
-Signed head = 5;              // HEAD
-bytes  signer = 6;            // HEAD: 32 B key that signed `head`, when it is not the key of the connection
+// in Store (Protocol.md §10.3):
+Signed head = 5;              // HEAD; also HIDDEN (hidden-set.md §3) and PART (multi-author-set.md §3.4)
+// Store.signer = 6 (Protocol.md §10.3) carries the author's key when the node that stores is not the author
 
-// in KadAnswer (§10.3):
-repeated Signed sets = 14;    // answer to a search of kind HEAD or MEMBER
+// in KadAnswer (Protocol.md §10.3):
+repeated Signed sets = 14;    // answer to a search of kind HEAD, MEMBER, HIDDEN or PART
 ```
 
-The record is a `Signed` (§10.7) of kind `HEAD`, signed by the author's key.
+The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the author's key.
 
 | | Storing node, on `Store` | Searcher, on `KadAnswer` |
 |---|---|---|
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
 | Target | `H("ed3k v1 set head", signing key ‖ head.id)[0..16)` is the target of the request | the same, with the key and `id` it searched for |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| `seq` | not lower than the one held | the highest of all answers wins; among equal ones the lower `root` |
-| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `root`; and by one with the same `seq` and `root` and a later `expires` | |
+| Size | `id` 1 to 32 B, `root` 32 B, `name` at most 255 B of UTF-8; else `REJECTED` | the same |
+| `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins; among equal ones the lower `root` |
+| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `root`; and by one with the same `seq` and `root` and a later `expires`. A valid record that does not replace it is answered `OLDER` (`Protocol.md` §10.3) | |
 
 - **Two heads with one `seq`.** An author who publishes from two machines, or two co-owners,
   can sign two versions with the same `seq`. The one with the lower `root`, compared as a byte
@@ -321,10 +322,10 @@ The record is a `Signed` (§10.7) of kind `HEAD`, signed by the author's key.
 - **Only the author can make a head**, because the target contains the key.
 - **Anyone can store it again.** A node that follows a set SHOULD store the head it holds once
   per 24 h *(initial)* on the closest nodes, with `signer` set. The record then outlives the
-  storing nodes that leave, and the author need not be online. This is the one place where a
-  `Store` carries a record that the connection's key did not sign.
+  storing nodes that leave, and the author need not be online. `signer` is how a `Store`
+  carries a record that the connection's key did not sign (`Protocol.md` §10.7).
 - **An old head can be shown again** until its `expires`, to a storing node that never saw the
-  newer one. A searcher asks R nodes (§10.4) and takes the highest `seq`. An author who wants
+  newer one. A searcher asks R nodes (`Protocol.md` §10.4) and takes the highest `seq`. An author who wants
   old versions to go quickly sets a short `expires` and stores more often.
 - A set whose head has expired everywhere is not lost. Every version is still a file with
   sources; only the pointer to the newest is gone until someone stores it again.
@@ -368,7 +369,8 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
 - An `ed3k:set` link with `s` in place of `id` names a hidden set
   ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
 - Unknown parameters of an `ed3k:set` link are ignored. [`chaintube.md`](chaintube.md) §3.1
-  adds `b3` and `sz`, which name one version of the manifest.
+  adds `b3` and `sz`, which name one version of the manifest, and `ipfs`, which names a copy in
+  IPFS.
 
 ## 6. From a member to its sets
 
@@ -376,10 +378,10 @@ A user who has one episode wants the season. A `MEMBER` record under a file's ro
 that contains the file.
 
 ```protobuf
-// in enum Kind (§10.3):
+// in enum Kind (Protocol.md §10.3):
 MEMBER = 5;
 
-// in Record (§10.7):
+// in Record (Protocol.md §10.7):
 SetRef member = 5;
 
 message SetRef {
@@ -390,12 +392,12 @@ message SetRef {
   uint64 set_size = 5;
 }
 
-// in Store (§10.3):
+// in Store (Protocol.md §10.3):
 repeated Signed members = 7;  // MEMBER
 ```
 
 The target is `root[0..16)` of the member, as for `SOURCE` and `NOTE`. The record is signed by
-its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
+its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(initial)*.
 
 **Publisher**
 
@@ -410,6 +412,7 @@ its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
 
 - One record per publisher, file and set. At most 64 *(initial)* different sets per target;
   further ones get `FULL`.
+- `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
   sites first, one record per set. A site is the group of
@@ -451,7 +454,7 @@ its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
 | Member record | about 150 B per file and set, once per 24 h, on the connections of the source lookup |
 | Per member in a turn | one `FileRequest` / `FileStatus` pair |
 
-- The manifest travels as file data. A sender may compress its blocks (§12.3), but a stored
+- The manifest travels as file data. A sender may compress its blocks (`Protocol.md` §12.3), but a stored
   manifest is as large as it is written. Directory paths are stored once for that reason.
 - Members are hashed and verified one by one. There is no hash over the whole set other than
   the manifest's root, which commits to every member root.
@@ -464,7 +467,7 @@ its publisher like a keyword record (§10.7). Lifetime 24 h *(initial)*.
 | **A new record kind in Kad for the list** | The list would live for a record lifetime and be limited to the record size. As a file it has sources as long as someone shares it, and needs no new storage rule |
 | **A message that transfers the list between peers** | It would be a second way to move bytes that the file stream already moves, with its own verification |
 | **A link that lists all members** | Works for a handful of files. A link of 100 KB is not something users pass around |
-| **Compressing the manifest** | Halves a file that is small already, at the cost of a decompression limit in the reader. Left out of the format; `dirs` removes the largest repetition, and block compression (§12.3) covers the transfer |
+| **Compressing the manifest** | Halves a file that is small already, at the cost of a decompression limit in the reader. Left out of the format; `dirs` removes the largest repetition, and block compression (`Protocol.md` §12.3) covers the transfer |
 | **Paths as one string per file** | Simpler to read, but repeats the directory for every file |
 | **Updates by a note under the old manifest** | Needs no new record kind, but a follower that missed versions walks from manifest to manifest, and only the author could store it |
 | **A pointer to the previous version in the manifest** | Gives a history, not a way forward. May be added later; nothing depends on it |

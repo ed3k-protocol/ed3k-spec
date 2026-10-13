@@ -33,7 +33,7 @@ places; where this note differs from it, the code was followed.
 | Transport | uTP over UDP, own obfuscation, own channel encryption | QUIC with TLS 1.3, obfuscation layer (§4) |
 | Node ID | SHA-256 of an EC key, folded to 128 bits; not bound to the address | BLAKE3 of an Ed25519 key; routing ID bound to the address (§6.3) |
 | Kad messages | a stream and a handshake per queried node | one request/answer exchange per node (§10.3) |
-| Record kinds | free: a path and a payload, handled by scripts | fixed: `SOURCE`, `KEYWORD`, `NOTE` |
+| Record kinds | free: a path and a payload, handled by scripts | fixed: 13 kinds in version 1 (§10.3), each with the checks of the document that defines it |
 | Peers find each other | by identity and a rendezvous area in the DHT; data runs through relay nodes | by address; relays carry signalling only (§9.4) |
 | File hash | SHA-256 tree, 256 KB leaves, top 12 levels kept | BLAKE3 tree, 256 KiB blocks, all levels (§7) |
 | Multi-file | cross hash over a set, list fetched from peers or the DHT | manifest file (extension) |
@@ -65,7 +65,7 @@ This is the feature that led to [`extensions/file-set.md`](../extensions/file-se
 | A member alone | a normal file | a normal file |
 | Empty files | the whole set is refused | allowed |
 | Limit | 100,000 entries | 65,536 entries, 4 MiB |
-| From a member to its sets | a DHT record | not defined (open point) |
+| From a member to its sets | a DHT record | a `MEMBER` record under the file's root ([`extensions/file-set.md`](../extensions/file-set.md) §6) |
 
 What was taken:
 
@@ -257,7 +257,7 @@ and completing a file without a hash.
 
 | | NeoKad | ed3k |
 |---|---|---|
-| Own address | 3 peers asked; 60 % must agree on the address | 3 peers at different addresses must agree (§9.2) |
+| Own address | 3 peers asked; 60 % must agree on the address | 3 counted reports from different sites, twice as many as for any other endpoint (§9.2) |
 | Reachability test | a peer asks a third node to send to the tested address; that node refuses when it has a connection to it | the same (§9.3) |
 | Address that is tested | **given by the asker** | the asker's observed address, never a value from the asker |
 | Test repeated | every 60 min; after a test nobody completed, 30 s doubling up to 60 min | the same, and at once on an address change (§9.2) |
@@ -363,8 +363,9 @@ Considered and not adopted:
 
 ## 10. Open points
 
-- A way from a file to the sets that contain it (NeoKad's nesting record) is listed as open in
-  the file set extension.
+- A way from a file to the sets that contain it (NeoKad's nesting record) is the `MEMBER`
+  record of the file set extension (§6 there); what is open is whether its limits hold for
+  files in very many sets.
 - NeoShare's part selection for streaming is local policy, but an implementation note for
   eMuleQt could reuse its numbers: the first 8 MB or a tenth of the file, and the last 2 MB or
   a twentieth.

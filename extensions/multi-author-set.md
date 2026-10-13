@@ -93,7 +93,7 @@ stored again with a new `expires`; what counts are the `cosigs`.
 | Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request | the same |
 | Record signature | by a key of the grant | the same |
 | `cosigs` | at least `required` different keys of the grant, each valid | the same |
-| Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires` | the highest in this order wins |
+| Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires`; a valid record that does not replace it is answered `OLDER` | the highest in this order wins |
 | `expires` | as for any head | as for any head |
 
 - Once a storing node holds a joint head, a head signed by the owner key alone no longer
@@ -127,8 +127,8 @@ message Mount {
 ```
 
 - The member is an inner set (`file-set.md` §2.5). Its `root` and `size` name the version the
-  outer author knew when it wrote the manifest. `root` MAY be empty; the directory then stays
-  empty until a head is found.
+  outer author knew when it wrote the manifest. `root` MUST name a version (32 bytes, as
+  `file-set.md` §2.1 demands of every member): a set that has no version yet cannot be mounted.
 - A reader follows the set (`key`, `id`) as any set that changes, by its own head. A newer
   version replaces the one named in the outer manifest when it is valid and inside the limits.
   A version that is not keeps the one before.
@@ -249,15 +249,16 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
 travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search is paged with
-`offset` and `more` like a keyword search.
+`offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
 | Target | the one above, from the fields of the record | the one it searched |
+| Size | `set_key` 32 B, `id` 1 to 32 B, `root` 32 B; else `REJECTED` | the same |
 | Certificate | when present: valid under `cert.issuer` for the signing key, and not expired | the same, and the issuer is one of the rules |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| Count | one record per author under a target; a higher `seq` replaces it, and so does the same `seq` with a lower `root`; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
+| Count | one record per author under a target; a higher `seq` replaces it, and so does the same `seq` with a lower `root`; a valid record that does not replace is answered `OLDER`; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
 
 - **With an issuer, the storing node keeps the door.** The target contains the issuer's key,
   and the node checks the certificate against it. A key without a certificate of that issuer

@@ -68,7 +68,7 @@ exchange**; after that both sides are equal.
 message TopicJoin {
   bytes     topic = 1;        // 16 B
   TopicType type = 2;
-  uint64    held = 3;         // order number of the item I hold, 0 = none
+  uint64    held = 3;         // order number (seq) of the item I hold, 0 = none; the peer sends its item when its number is not below this
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
@@ -94,7 +94,8 @@ never sent: both sides know it, or they could not have computed `topic`.
 ### 2.1 The topic exchange
 
 - A subscriber opens an exchange and sends `TopicJoin`. The peer answers with `TopicState`: its
-  item if that is newer than `held`, and peers if asked.
+  item if its order number is at least `held`, so that an item of the same number can win by
+  the tie-break of its type (§4), and peers if asked.
 - A peer that does not take the subscriber answers with `refusal` set and closes. With
   `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
   to the topic, or does not know the type, answers `TOPIC_LEFT`.
@@ -191,7 +192,8 @@ message OnAir {
 
 The item is a `Signed` whose body is a `Record` with `expires` and `on_air`. It is signed with
 the channel key over the bytes of [`Protocol.md`](../Protocol.md) §10.7, with kind `LIVE` and
-the channel's `stream` as the target.
+the channel's `stream` as the target. `LIVE` serves as the domain of the signature only: no
+signed record of that kind is ever stored, so the notice cannot be replayed as a Kad record.
 
 | Check | |
 |---|---|

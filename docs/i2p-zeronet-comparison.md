@@ -224,7 +224,7 @@ publishes records that every storing node refuses, and nothing tells it why.
 | Pro | Con |
 |---|---|
 | a field in `Hello` would let a node notice and correct | peers learn each other's clock, which the live extension avoids on purpose |
-| | `Error{MALFORMED}` on a store, from several nodes, is already a hint a client can act on |
+| | `REJECTED` on a store, from several nodes, is already a hint a client can act on |
 
 ### 4.4 Positions that change every day
 

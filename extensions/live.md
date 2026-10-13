@@ -138,9 +138,14 @@ and is made with the channel key.
   `start` than the newest it has seen, and a `start` more than 1 h *(initial)* ahead of its
   clock. An old broadcast can therefore not be played back into a running one.
 - **Two records for one `seq`** of one broadcast with different content are proof that the
-  channel key signed both. A node keeps the first and ignores the other.
+  channel key signed both. The one with the lower `root`, compared as a byte string, wins: a
+  node keeps it, passes it on and drops the other, also when it had already fetched that
+  segment. Every node then holds the same bytes under a `seq`, and `have` bits mean the same
+  everywhere.
 - `end` closes the broadcast. Nodes forward it, keep it for 30 min *(initial)*, and leave the
-  stream. There is no other way to end a broadcast than this record or silence (§3.4).
+  stream. There is no other way to end a broadcast than this record or silence (§3.4). An `end`
+  record has the `seq` after the last segment's, and `root`, `size`, `ms`, `init` and
+  `init_size` absent.
 - A record carries no wall-clock time of the segment. `seq` gives the order, and a time stamp
   would only expose the broadcaster's clock.
 
@@ -187,9 +192,9 @@ message LiveJoin {
 }
 
 message LiveState {
-  uint64 start = 1;           // broadcast this state is about
-  uint64 first = 2;           // seq of bit 0 of `have`
-  bytes  have = 3;            // segments I hold completely, LSB first
+  optional uint64 start = 1;  // broadcast this state is about; absent = unchanged
+  optional uint64 first = 2;  // seq of bit 0 of `have`; absent = unchanged
+  optional bytes have = 3;    // segments I hold completely, LSB first; absent = unchanged
   repeated LiveRecord records = 4;
   repeated Peer peers = 5;    // other peers of this stream
   string media = 6;           // answer to want_channel
@@ -198,7 +203,7 @@ message LiveState {
   bytes  proof = 9;           // private channel: 16 B, in the first answer (§10.3)
 }
 
-enum Refusal { NONE = 0; FULL = 1; LEFT = 2; BLOCKED = 3; }
+enum Refusal { LIVE_NONE = 0; LIVE_FULL = 1; LIVE_LEFT = 2; LIVE_BLOCKED = 3; }   // prefixed: enum values share one scope per package
 
 message LiveGet {
   bytes  stream = 1;
@@ -210,9 +215,9 @@ message LiveGet {
 
 - A viewer opens an exchange and sends `LiveJoin`. The peer answers with `LiveState`: its
   window, the records of every segment in it, and peers if asked.
-- A peer that does not take the viewer answers with `refusal` set and closes. With `FULL` it
+- A peer that does not take the viewer answers with `refusal` set and closes. With `LIVE_FULL` it
   SHOULD still fill `peers`, so the viewer has somewhere else to go. A peer that is not in the
-  stream answers `LEFT`.
+  stream answers `LIVE_LEFT`.
 - After the first answer **both sides send `LiveState`** on the exchange whenever one of these
   happens:
   - It learns a new valid record: it sends the record at once to every neighbour that has not
@@ -228,10 +233,13 @@ message LiveGet {
 
 Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 
-- The node opens a **new exchange per segment** and sends `LiveGet`. It then uses
-  `BlockRequest`, `Block`, `HashRequest` and `HashAnswer` exactly as `Protocol.md` §12.2 to §12.4, with
-  offsets inside the segment. There is no queue and no `rank`: a neighbour serves at once or
-  answers `Error{BUSY}`.
+- The node opens a **new exchange per segment** and sends `LiveGet`, which has no answer of
+  its own: it names the segment of this exchange. The node then sends `BlockRequest`s and
+  `HashRequest`s on the same exchange without waiting, as in `Protocol.md` §12.2 to §12.4,
+  with offsets inside the segment and at most 16 ranges outstanding; the neighbour answers
+  with `Block`s and `HashAnswer`s. There is no queue and no `rank`: a neighbour serves at
+  once, or answers `Error{BUSY}`, `Error{NOT_FOUND}` or `Error{DENIED}` and closes the
+  exchange.
 - `LiveGet` is accepted only from a neighbour, that is while a live exchange with that node is
   open. Anything else is answered `Error{DENIED}`.
 - A segment of more than one block may be fetched from several neighbours at once, by block.
@@ -324,7 +332,7 @@ For each neighbour a node keeps the outcome of its own last 20 *(initial)* reque
 | Outcome | Counts as |
 |---|---|
 | The whole segment, or every block asked for, arrived within 4 s | 1 hit |
-| `Error{BUSY}`, no answer in time, a bad block, an invalid record, or `NOT_FOUND` for a segment shown in `have` | 1 miss |
+| `Error{BUSY}` (with the rule of §6.2), no answer in time, a bad block, an invalid record, or `NOT_FOUND` for a segment shown in `have` | 1 miss |
 | The same for an **urgent** request | 2 hits or 2 misses |
 | A request the node reset itself | nothing |
 
@@ -355,9 +363,10 @@ All numbers are *(initial)*.
 - **Down.** A rate under 50 % with at least 5 outcomes puts a neighbour back to **new**, and
   its time as a neighbour starts again.
 - **Out.** A rate under 20 % with at least 10 outcomes ends it. The node closes the live
-  exchange and refuses that node ID with `BLOCKED` for 30 min, for this stream only.
-- A request above the number its rank allows is answered `Error{BUSY}`. That answer does count
-  as a miss for the node that sent too many, which is its own doing.
+  exchange and refuses that node ID with `LIVE_BLOCKED` for 30 min, for this stream only.
+- A request above the number its rank allows is answered `Error{BUSY}`. A node counts a `BUSY`
+  as a miss only when it had at most one request outstanding at that neighbour, the allowance
+  of every rank; a `BUSY` for a further request is its own doing and counts nothing.
 - **Core limits.** At most 1 **core** neighbour per site and 2 per block. A further one stays
   **steady**. One network can then not hold a node's whole inner circle.
 - **Sudden loss.** A node that loses more than a third of its **core** neighbours within 2 min
@@ -506,7 +515,7 @@ LiveState.proof  = H("ed3k v1 live private answer", k ‖ joiner's node ID ‖ p
 
 - Both node IDs are those of the authenticated connection ([`Protocol.md`](../Protocol.md) §6.2), so a proof is of no use to
   a third node and cannot be replayed on another connection.
-- A peer answers a `LiveJoin` without a valid proof with `refusal = LEFT`, the answer of a
+- A peer answers a `LiveJoin` without a valid proof with `refusal = LIVE_LEFT`, the answer of a
   node that is not in the stream. It sends nothing else.
 - A joiner closes the exchange when the first `LiveState` has no valid proof.
 - `peers`, records and segments go only to neighbours that passed this.

@@ -130,9 +130,11 @@ id        = H("ed3k v1 url", canonical)                          32 B
 | Part | Canonical form |
 |---|---|
 | Scheme | `http` or `https`. Not part of `canonical` |
-| Host | lower case, in its ASCII form; a leading `www.` is removed; no port, no user name |
-| Path | as in the link. Percent-escapes of letters, digits, `-`, `.`, `_` and `~` are decoded, other escapes are written with upper case digits. An empty path is `/` |
-| Query, fragment | as in the link, each left out when empty. The fragment stays: some hosters keep the key of the file there |
+| Host | lower case, in its ASCII form (an internationalised name through IDNA, UTS 46 non-transitional); a leading `www.` is removed; no port, no user name |
+| Path | as in the link. Percent-escapes of letters, digits, `-`, `.`, `_` and `~` are decoded, other escapes are written with upper case digits, and a character outside ASCII is written as the percent-escapes of its UTF-8 bytes. An empty path is `/` |
+| Query, fragment | as in the link, with the escaping rule of the path, each left out when empty. The fragment stays: some hosters keep the key of the file there |
+
+`canonical` is hashed as its bytes; after these rules it is ASCII.
 
 | Relation | Meaning | `root` |
 |---|---|---|

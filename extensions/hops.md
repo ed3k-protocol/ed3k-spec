@@ -119,7 +119,8 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
    path on this link, and its stream number is 0 (§2.4).
 2. To add a hop, the owner sends `HopExtend` on the control stream. The last hop connects to
    `node` as to any node, opens an exchange, sends `HopCreate` with a `path` of its own, and
-   passes the `HopCreated` back. From then on it forwards.
+   passes the `HopCreated` back to the owner as a frame on the control stream, inside the
+   layers of the hops before it. From then on it forwards.
 3. The owner checks `proof` (§2.3). A wrong proof means that the new hop is not the node the
    owner chose; the owner closes the path.
 
@@ -132,8 +133,7 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
 ### 2.3 Keys and layers
 
 For each hop the owner makes a fresh X25519 pair `(x, e)`. The hop makes `(y, f)`. The hop's
-node key is used for X25519 through the conversion of [`kad-datagram.md`](kad-datagram.md)
-§3.1.
+node key is used for X25519 through the conversion of `Protocol.md` §6.4.
 
 ```
 ss1   = X25519(x, node key of the hop)        the hop computes X25519(its node key, e)
@@ -155,7 +155,10 @@ k_in  = H("ed3k v1 hop in", k)                for bytes that move towards the ow
 ChaCha20(key = k_out or k_in of the hop, nonce = 0x00000000 ‖ stream number(8), counter from 0)      RFC 8439
 ```
 
-The key stream runs on over the whole stream in that direction.
+The key stream runs on over the whole stream in that direction. On the control stream the
+stream number is 0, and the layer of a hop starts, with its counter at 0, at the first byte
+after that hop's `HopCreated`; on any other stream a layer starts at the first byte after
+`HopStream`.
 
 - Away from the owner: the owner applies the layer of the last hop first and the layer of the
   first hop last. Each hop removes its own.
@@ -173,7 +176,7 @@ A stream of a path is one exchange on each link, joined end to end by the hops.
 ```protobuf
 message HopStream {           // type 32. First frame of an exchange between two neighbours
   bytes  path = 1;            // as in HopCreate, for this connection
-  uint64 number = 2;          // unique in the path. Even: opened by the owner. Odd: opened at the last hop
+  uint64 number = 2;          // unique in the path and never 0 (the control stream). Even: opened by the owner. Odd: opened at the last hop
 }
 ```
 
@@ -181,7 +184,8 @@ message HopStream {           // type 32. First frame of an exchange between two
   It is, with `Block`, a message that is followed by raw bytes.
 - A hop that receives `HopStream` opens an exchange on the other side of the path with its
   own `path` value and the same `number`, and copies in both directions. A half-close and a
-  reset are passed on.
+  reset are passed on. A `HopStream` with `number = 0`, or with a number in use on the path,
+  is answered `Error{MALFORMED}`.
 - **A hop keeps little.** It holds at most 256 KiB *(initial)* per stream and direction. When
   the next link does not take data, it stops reading from the link before. The flow control of
   the exchanges carries this back to the sender. Nothing is acknowledged twice and nothing is
@@ -273,14 +277,20 @@ path.
 
 ```
 key     = H("ed3k v1 hop session stream", k_s ‖ number(8) ‖ dir(1))     dir = 0x00 from A, 0x01 from B
-record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12), up to 16,384 bytes)
+record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12), plaintext of at most 16,384 bytes)
 ```
 
-The first stream has the number 0, and its records follow the three messages of §3.2.
+`len` is the length of the ciphertext with its 16-byte tag, big-endian, 16 to 16,400. Records
+are numbered from 0 per stream and direction; the number is the nonce and is not sent. The
+first stream has the number 0, and its records follow the three messages of §3.2.
 
-- A record of length 0 is the end of a direction. A direction that ends without it was cut;
-  the receiver treats the exchange as reset.
-- A record that fails its check ends the stream.
+- A record whose plaintext is empty (`len` = 16) is the end of a direction, and is
+  authenticated like any record. A direction that ends without it was cut; the receiver treats
+  the exchange as reset.
+- A record with `len` below 16 or above 16,400, or that fails its check, ends the stream.
+- A session has no observed address, so a `Store` with `source` over it is answered `REJECTED`
+  (`Protocol.md` §10.3); a node that hides publishes `ANON` and `GATE` records through a
+  `HopLookup` (§4).
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
 - The first exchange is `Hello`. A node under its anonymous key sends no `observed`, `ep4`,
@@ -312,6 +322,10 @@ message HopLookupAnswer {     // type 31
 
 - The last hop runs the lookup of `Protocol.md` §10.4 with the request as it is, under its own
   key, and returns the answers of the closest set.
+- It answers `Error{DENIED}` to a `HopLookup` whose `store` carries `source`, `also`, `http`,
+  `links` or `sealed`: those records are bound to the connection (`Protocol.md` §10.3) and
+  would name the last hop as a source. It refuses in the same way a `store` with a signed
+  record and no `signer`, which would be counted under its own key.
 - It allows 20 *(initial)* lookups per minute and path, and answers `Error{BUSY}` above that.
 - **The last hop sees what is searched and stored. It does not see by whom.** An owner SHOULD
   spread its lookups over its paths.
@@ -324,9 +338,8 @@ A storing node takes the key of a record from the connection (`Protocol.md` §10
 that a last hop stores for someone else is signed with a key that is not the one of the
 connection.
 
-- A `Store` of kind `KEYWORD`, `NOTE`, `ANON` or `GATE` MAY carry `signer`, the field of
-  [`file-set.md`](file-set.md) §5.2. The storing node then checks the signature under
-  `signer`, and counts the record for that key.
+- A `Store` of any signed kind MAY carry `signer` (`Protocol.md` §10.7). The storing node then
+  checks the signature under `signer`, and counts the record for that key.
 - Its limits per address ([`ip-diversity.md`](ip-diversity.md) §2.4) count the address the
   request came from. Many nodes that store through one last hop share its allowance, so an
   owner uses several paths.
@@ -365,7 +378,7 @@ Signed gate = 17;             // GATE search
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |
-| Count | one per key and target; at most 64 *(initial)* per target | one per target; replaced by a later `issued` |
+| Count | one per key and target; at most 64 *(initial)* per target | one per target; replaced by a later `issued`, else answered `OLDER` |
 | Returned | in `anon`, with every search of kind `SOURCE` at that target | in `gate`, with the key in `keys` |
 
 - **Two steps on purpose.** Gates change whenever a path breaks. A node with 10,000 files
