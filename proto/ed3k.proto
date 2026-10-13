@@ -83,7 +83,7 @@ message Error {               // type 2
   enum Code {
     UNKNOWN = 0;
     UNSUPPORTED = 1;          // message type or option not handled
-    MALFORMED = 2;            // a body does not parse, or a frame or body breaks a size rule; a frame header that does not parse closes the connection (Protocol.md §5.6)
+    MALFORMED = 2;            // a body does not parse or breaks a size rule; a frame header that does not parse, a `len` above 1 MiB included, closes the connection (Protocol.md §5.6)
     NOT_FOUND = 3;            // file not shared
     BUSY = 4;                 // queue full, store full, no relay slot
     DENIED = 5;               // banned, filtered, not allowed
@@ -259,7 +259,7 @@ message FileStatus {          // type 6
   uint64 size = 1;            // Protocol.md §12.1
   string name = 2;
   bytes  ed2k = 3;            // Protocol.md §7.4
-  optional bytes  have = 4;   // uploader's piece bitmap; missing bits are 1, so an empty bitmap is the complete file; absent = unchanged / not told
+  optional bytes  have = 4;   // uploader's piece bitmap, LSB first; missing bits are 1, so an empty bitmap is the complete file; absent = unchanged / not told
   optional uint32 rank = 5;   // queue position; 0 = upload slot granted; absent = unchanged / not told
   repeated Peer sources = 6;  // source exchange; at most `want_sources` of the request, and at most 50
   Note   note = 7;            // uploader's rating/comment on the file
@@ -462,7 +462,7 @@ message Mount {
 message Open {
   string dir = 1;             // directory of the set under which the parts appear; not empty   multi-author-set.md §3.1
   repeated Issuer issuers = 2;    // empty = every key may add a part
-  uint64 max_size = 3;        // per part, when there is no issuer; 0 = the caps of §3.1 only
+  uint64 max_size = 3;        // per part, when there is no issuer; 0 = the caps of multi-author-set.md §3.1 only
   uint32 max_files = 4;       // 0 = likewise
   repeated Change changes = 5;    // decisions about single authors
 }
@@ -470,7 +470,7 @@ message Open {
 message Issuer {
   bytes  key = 1;             // 32 B Ed25519 key                              multi-author-set.md §3.1
   string name = 2;            // shown with the names it certifies
-  uint64 max_size = 3;        // per part of an author with a certificate of this issuer; 0 = the caps of §3.1 only
+  uint64 max_size = 3;        // per part of an author with a certificate of this issuer; 0 = the caps of multi-author-set.md §3.1 only
   uint32 max_files = 4;       // 0 = likewise
 }
 
@@ -578,7 +578,7 @@ message Channel {
 
 message LiveRecord {
   bytes body = 1;             // a serialised LiveSegment, verified over exactly these bytes   live.md §2.2
-  repeated Signature sigs = 2;    // over "ed3k v1 live" ‖ stream(16) ‖ body
+  repeated Signature sigs = 2;    // over "ed3k v1 live segment" ‖ stream(16) ‖ body
 }
 
 message LiveSegment {
@@ -782,7 +782,7 @@ message SignedHold {          // the arguments of holdFor                      c
   bytes  payer = 1;           // 20 B
   bytes  payee = 2;           // 20 B
   uint64 amount = 3;          // µ
-  uint64 nonce = 4;           // above every nonce this payer used before
+  uint64 nonce = 4;           // above every nonce this payer used for this payee
   uint64 deadline = 5;        // Unix time in seconds; the ledger refuses the hold after it
   bytes  sig = 6;             // 65 B, by the credit key of `payer`
 }

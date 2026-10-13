@@ -397,8 +397,8 @@ digest proves they are the ones the publisher stored.
 
 ## 9. Open points
 
-- Test vectors for the hash body, for files of 2, 3, 5 and 4,096 blocks, are to be added with
-  the first implementation.
+- Test vectors for the hash body, for files of 2, 3, 5 and 4,096 blocks, are in
+  [`tests/vectors-v1.md`](../tests/vectors-v1.md).
 - A cipher that needs no padding and can be read at any offset (`alg` 2). It would remove the
   derived length and the chaining rule, at the cost of chunks that eD2K nodes cannot read.
 - Whether a storing node should refuse a URL whose host is a literal private address. It cannot

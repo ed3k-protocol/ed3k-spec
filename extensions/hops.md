@@ -211,6 +211,8 @@ message HopOk {}              // type 39. Status frame: accepted, raw bytes foll
   received the `HopStream` sends it, without a layer, as soon as it has accepted or refused
   for itself; it does not wait for the next link. The neighbour that opened the exchange
   reads it and does not pass it on. After `HopOk` come the bytes of the stream, in layers.
+  An opener that has no status frame 10 s *(initial)* after `HopStream` or `HopJoin` resets
+  the exchange.
 - A hop that receives `HopStream` opens an exchange on the other side of the path with the
   `path` value of that link and the same `number`, and copies in both directions. A
   half-close and a reset are passed on. A hop that receives an `Error` as status frame, or a
@@ -334,7 +336,9 @@ path.
   hop that sends a stream a second time is refused so.
 - A stream with an unknown `sid`, or whose first byte is neither 0x01 nor 0x02, is reset. An
   opener whose further stream is reset before a record came back on it drops the session and
-  opens a new one with the three messages above.
+  opens a new one with the three messages above. A reset carries no reason (`Protocol.md`
+  §5.2), so the opener does the same whether the `sid` was unknown, the number was seen or
+  the path broke.
 
 ### 3.3 What a stream of a session carries
 
@@ -487,7 +491,7 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Paths from one neighbour | 8 |
 | Paths in total, and the share of its upload | the user's choice. A client SHOULD offer the share as a setting and start with a quarter |
 | Streams per path | 64 |
-| Exchanges on the connection to one neighbour | 64 opened by the peer (`Protocol.md` §4.1), and 65 more for each path accepted from that neighbour: its 64 streams and the control stream |
+| Exchanges on the connection to one neighbour | 64 opened by the peer (`Protocol.md` §4.1), and 65 more for each path between them, in both directions: its 64 streams and the control stream |
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
 | Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |

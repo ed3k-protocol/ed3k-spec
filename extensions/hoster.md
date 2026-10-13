@@ -147,15 +147,19 @@ invalid has no `id`: no `ALIAS` record of it is published or looked up.
    groups as `::`, and always in hexadecimal groups, never with a dotted IPv4 part. Anything
    else in brackets makes the link invalid. Steps 4 to 6 are skipped.
 4. **Name.** Any other host is not percent-decoded. It goes through UTS 46 `ToASCII` with
-   non-transitional processing, `UseSTD3ASCIIRules` = true, `CheckHyphens` = true,
-   `CheckBidi` = true, `CheckJoiners` = true and `VerifyDnsLength` = false. The result is
+   non-transitional processing, `UseSTD3ASCIIRules` = true, `CheckHyphens` = false (real host names have hyphens in the
+   third and fourth place),
+   `CheckBidi` = true, `CheckJoiners` = true and `VerifyDnsLength` = false, with the tables of Unicode 16.0.0 for a code point which that
+   version assigns, as `Protocol.md` §10.1 does. The result is
    lower case ASCII. **A host that fails makes the link invalid**; a `%` in a host fails here.
 5. **Dot and length.** One trailing `.` is removed. The host is then 1 to 253 bytes, in
    labels of 1 to 63 bytes; otherwise the link is invalid.
 6. **IPv4 or `www.`** When the last label consists of digits only, or starts with `0x`, the
    host is an IPv4 address. It MUST then be dotted decimal: exactly four numbers from 0 to
    255, without a leading zero. Every other form (fewer parts, hexadecimal, octal, one number)
-   makes the link invalid. For any other host a leading `www.` is removed.
+   makes the link invalid. For any other host a leading `www.` is removed, and again while the
+   host still begins with one: `www.www.example.com` is `example.com`. A `canonical`, read as
+   a link once more, then gives itself.
 7. **Path, query and fragment** are each written by one pass over their bytes, from left to
    right. What the pass has written is never read again, so the pass gives the same output
    when it is run on its own output.
@@ -376,8 +380,7 @@ every volume, and the file that came out has the root in `id`.
   ([`alias.md`](alias.md) §4.1).
 - **A record from an archive to what is inside,** for a user who has the volumes and wants to
   know before unpacking.
-- **Test vectors for `canonical`** (§4), and the version of the UTS 46 tables they are made
-  with: two versions of Unicode can map one name differently.
+- Test vectors for `canonical` (§4) are in [`tests/vectors-v1.md`](../tests/vectors-v1.md).
 - Whether `NEEDS_USER` should say which of its four causes it was. It would tell an uploader
   more, and a peer something about the user.
 - All numbers are first values.

@@ -51,7 +51,7 @@ Neither group nor port is registered.
 - A `LanAnnounce` whose `port` is 0 or above 65,535 is dropped.
 - Several nodes on one host share the port; each binds it for shared use.
 - The mask has a key that everyone can compute. It only keeps the datagram free of fixed
-  bytes. Anyone in the network who knows this document can read it (§5).
+  bytes. Anyone in the network who knows this document can read it (§5 of this document).
 
 **Sending**
 

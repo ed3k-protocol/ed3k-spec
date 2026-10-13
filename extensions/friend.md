@@ -3,7 +3,7 @@
 **Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §9, §10.1, §10.3 and §13.2. Section numbers (§) refer to that document unless this one is named.
 **Capability:** none. Record kind 10. One field in `Store`, one in `KadAnswer`, one link.
-**Required of every `ROUTER`:** storing and returning the record kind `FRIEND` (§4). The rest is optional.
+**Required of every `ROUTER`:** storing and returning the record kind `FRIEND` (§4 of this document). The rest is optional.
 
 A node is found through what it shares: its source records. A node that a user *knows*, a
 friend, cannot be found at all once its address has changed. Chat
@@ -148,7 +148,7 @@ message FriendRecord {
 }
 ```
 
-For §1 and §2:
+For §1 and §2 of this document:
 
 ```
 k_rec   = H("ed3k v1 friend record", k)                                   32 bytes
@@ -181,13 +181,15 @@ padding is encrypted and a record and a request have one length on the wire:
 
 - It is bound to the connection: one record per publishing node under a target, and a new one
   replaces the old.
-- It holds at most 32 *(initial)* records under one target, at most 8 per host and 16 per site
-  ([`ip-diversity.md`](ip-diversity.md) §1), and answers `FULL` after that; a holder of the
-  link then needs several sites to lock the real node out of its place.
+- It holds at most 32 *(initial)* records under one target and answers `FULL` after that, and
+  at most 8 per host and 16 per site ([`ip-diversity.md`](ip-diversity.md) §1), answered
+  `REJECTED` beyond (`Protocol.md` §10.8); a holder of the link then needs several sites to
+  lock the real node out of its place.
 - The lifetime is 5 h *(initial)*.
 - It checks the size and nothing else: a `sealed` above 384 bytes is `REJECTED`. It cannot
   read the record. All three forms have one length, so it cannot tell them apart by their
-  size. It returns the records of a target without saying who stored them.
+  size. It can tell a request from a record with some effort: a request begins with an
+  X25519 public value, a record with random bytes. It returns the records of a target without saying who stored them.
 
 **The node that wants to be found**
 
@@ -205,7 +207,9 @@ padding is encrypted and a record and a request have one length on the wire:
    friend's clock may be ahead).
 2. Opens every record with `k_rec`. One whose tag fails is dropped.
 3. Tries the records in descending order of `issued`, each once, leaving out those whose
-   `issued` is more than 10 min *(initial)* in the future. For each it dials: directly, or
+   `issued` is more than 1 h *(initial)* in the future, the clock tolerance of `Protocol.md`
+   §10.7. A record with a false `issued` costs one failed dial and no more, since each is
+   tried once. For each it dials: directly, or
    through the relays as in §9.4 and §9.5.
 4. **The handshake is the proof.** The node at that address has to hold `key` (T1). A record
    whose dial or handshake fails is dropped, and the next one is tried. A record
@@ -224,7 +228,7 @@ padding is encrypted and a record and a request have one length on the wire:
 | To whom | What |
 |---|---|
 | A friend, or a holder of an open link | the node's addresses and relays whenever it is online, and so whether it is online |
-| A node that stores a record | the node ID and address of the publisher, as for any record, and that it publishes a `FRIEND` record. Not for whom, and not which form |
+| A node that stores a record | the node ID and address of the publisher, as for any record, and that it publishes a `FRIEND` record. Not for whom. Whether it is a request or a record it can find out (§4 of this document) |
 | The same node | the addresses of those who search that target. It can conclude that they know the publisher. The target moves every day, so no node sees this for long |
 | Someone who has a node's key only | nothing |
 | Someone who has a link with `r` | can leave requests. Cannot read the requests of others |

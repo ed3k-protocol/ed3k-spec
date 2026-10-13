@@ -1,7 +1,7 @@
 # Extension: live streams (`live`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12 and §13. A section number (§) that exists in this document refers to this document; `Protocol.md` is named where its section of the same number is meant. §7.2 and §9 are sections of `Protocol.md`.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12 and §13. A section number (§) that exists in this document refers to this document; `Protocol.md` is named where its section of the same number is meant. §7.2 is a section of `Protocol.md`.
 **Capability:** bit 11, `LIVE`. Message types 19 to 21. Record kind 6.
 **Required of every `ROUTER`:** storing and returning the record kind `LIVE` (§5). The rest is optional.
 
@@ -16,7 +16,7 @@ The extension adds little of its own:
 - The broadcaster signs one small **segment record** per segment. Peers forward it unchanged.
 - A channel is described by a small **channel file**, shared and searched like any file.
 - Peers of a stream are found through one new record kind.
-- NAT traversal (§9), compression and the bad-block rule (both `Protocol.md` §12.3) apply
+- NAT traversal (`Protocol.md` §9), compression and the bad-block rule (both `Protocol.md` §12.3) apply
   unchanged.
 
 The media is opaque to the protocol. Encoding and playing are the application's business.
@@ -130,10 +130,11 @@ message LiveSegment {
 The signature is over
 
 ```
-"ed3k v1 live" ‖ stream(16) ‖ body
+"ed3k v1 live segment" ‖ stream(16) ‖ body
 ```
 
-and is made with the channel key.
+and is made with the channel key. The string is not a prefix of the one that signs the
+channel file (§1.2), nor that one of this.
 
 - A record is about 150 bytes. A `LiveRecord` MUST NOT exceed 1 KiB.
 - A node accepts a record only when the signature is valid, and drops it otherwise. A neighbour
@@ -474,7 +475,7 @@ source and its own description; nothing was run.
 | End | signed end packet, remembered 30 min | `end` record, remembered 30 min |
 | Fairness | three levels by response rate, probes, punctuality near the play position, limits per subnet, an emergency mode | the same ideas, rated locally per node ID (§6) |
 | Peer identity | the user hash, after pointer-keyed state proved unstable | the node ID, proven by the handshake |
-| Firewalled broadcaster | hole punching and a relay of its own | §9, unchanged |
+| Firewalled broadcaster | hole punching and a relay of its own | `Protocol.md` §9, unchanged |
 | Privacy | onion paths with fixed-size cells, cover traffic, striping with Reed-Solomon codes | none beyond the transport |
 
 **Taken from it:** rating by response rate, not by volume; the probe; double weight near the

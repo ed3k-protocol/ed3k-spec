@@ -110,7 +110,7 @@ This extension adds the group budgets to it:
 
 | Per second *(initial)* | host | site | block |
 |---|---|---|---|
-| `CHALLENGE`s sent | 4 (as in `kad-datagram.md` §5) | 16 | 64 |
+| `CHALLENGE`s sent | 4 (as in `kad-datagram.md` §5) | — | — |
 | New key derivations for `REQUEST`s | 8 (as there) | 32 | 128 |
 
 A `REQUEST` with a valid cookie comes from a validated address and proves its key. It is not
@@ -118,7 +118,11 @@ counted by the connection budget of §4.6, which would need state per requester 
 responder does not keep ([`kad-datagram.md`](kad-datagram.md) §1). The `REQUEST` rate of
 [`kad-datagram.md`](kad-datagram.md) §5 bounds it instead: 16 / 64 / 256 `REQUEST`s per second
 per host / site / block *(initial)*, dropped above. The table above bounds only what comes
-before a validated `REQUEST`: `CHALLENGE`s and key derivations.
+before a validated `REQUEST`: `CHALLENGE`s and key derivations. `CHALLENGE`s have no budget
+per site or block: an `INIT` can carry a forged source, and such a budget would let forged
+addresses keep a whole network from getting a cookie, as §3 of this document says of Retry. A `CHALLENGE` is
+never longer than its `INIT`, so the budget per host is enough. Key derivations follow a valid
+cookie, which a forged source cannot have.
 
 ## 5. What it does not do
 
@@ -140,7 +144,7 @@ before a validated `REQUEST`: `CHALLENGE`s and key derivations.
   addresses.
 - **Retry always, as a rule of the protocol.** One more round trip and a second padded Initial
   on every first contact, about 1.2 KB, for all nodes at all times.
-- **Bans for unvalidated packets.** Rejected, see §3.
+- **Bans for unvalidated packets.** Rejected, see §3 of this document.
 
 ## 7. Open points
 

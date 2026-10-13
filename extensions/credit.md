@@ -288,7 +288,7 @@ message SignedHold {          // the arguments of holdFor (§6.5)
   bytes  payer = 1;           // 20 B
   bytes  payee = 2;           // 20 B
   uint64 amount = 3;          // µ
-  uint64 nonce = 4;           // above every nonce this payer used before
+  uint64 nonce = 4;           // above every nonce this payer used for this payee
   uint64 deadline = 5;        // unix time in seconds; the ledger refuses the hold after it
   bytes  sig = 6;             // 65 B, by the credit key of `payer`
 }
@@ -298,9 +298,10 @@ message CreditRelayAnswer {   // type 37, answer
 }
 ```
 
-- Any node with `CREDIT` MAY relay. It answers `Error{BUSY}` with `retry_after` = 0 if it
-  does not, and `Error{DENIED}` if a receipt or a hold does not verify (`MALFORMED` is for a
-  body that does not parse, `Protocol.md` §5.6).
+- Any node with `CREDIT` MAY relay. One that does not answers `Error{BUSY}` without a
+  `retry_after`, and the asker turns to another node. A receipt or a hold that does not verify
+  is answered `Error{DENIED}` (`MALFORMED` is for a body that does not parse, `Protocol.md`
+  §5.6).
 - The relay calls `settle` (§6.2) from its own account. The receipts say who is credited; the
   relay cannot change that. It is paid by the gas reward of §6.6.
 - A relay sends the call when the credits it expects the receipts to mint or take, computed
@@ -349,7 +350,7 @@ When a priority slot is free, the uploader takes the waiting entry with the high
   before: one node per credit address (§2),
 - `holdOf(payer, payee)` on the ledger (§6.5) returns an `amount` of at least
   16 × `max_price` µ, a whole turn of 16 MiB at the bid, and an `until` that lies at least
-  1 h + 10 min *(initial)* ahead: a turn and the age of the read,
+  2 h *(initial)* ahead: a turn, the age of the read, and time to settle after the turn,
 - the account is not `overdrawn` (§6.4),
 - both read through the RPC of §7 no more than 10 min *(initial)* ago.
 
@@ -445,7 +446,7 @@ remaining = bytes left of that turn / its rate over the last 10 s (initial)
 - A downloader that signed more `spent` in total than it has is **overdrawn** once the
   receipts are settled (§6.4). A client MUST keep the sum of its open payments at or below
   80 % *(initial)* of its balance as last read, so that two days of decay (§6.5) cannot
-  leave it short. A receipt that is settled more than 2 days after its `day` takes what is
+  leave it short. A receipt that is settled more than 1 day after its `day` takes what is
   there and does not flag the account (§6.2).
 
 ## 6. The ledger
@@ -495,9 +496,11 @@ Then, in this order:
 
 1. **Take.** The growth of `spent` is taken from the issuer, from `received` first, after its
    decay is applied. If the balance is short, what is there is taken. The account is set
-   `overdrawn` only if the receipt is at most 2 days *(initial)* old, today − `day` ≤ 2 by
+   `overdrawn` only if the receipt is at most 1 day *(initial)* old, today − `day` ≤ 1 by
    the clock of the chain; an older receipt takes what is there without the flag, and the
-   rest is not owed any more. What is taken is also taken out of the issuer's hold for this
+   rest is not owed any more. A payment does not dip into what the
+   issuer holds for other payees (§6.5): it takes at most the balance less those holds, and
+   what is missing then is short like any other. What is taken is also taken out of the issuer's hold for this
    holder (§6.5). **10 % of what is taken goes to the uploader** and arrives in the holder's
    `received`; the rest is burned
    ([`docs/credit-ledger.md`](../docs/credit-ledger.md) §9).
@@ -519,8 +522,8 @@ Then, in this order:
 - A holder MUST settle its other receipts **at least every 48 h** while it has new ones, at a
   random time and not right after a transfer (§9). The 7 days are what the contract takes.
 - A holder that settles a payment late cannot brand the issuer `overdrawn` (§6.4) for a
-  balance that has decayed since the receipt was signed: step 1 sets the flag for 2 days
-  only.
+  balance that has decayed since the receipt was signed: step 1 sets the flag only while the
+  receipt is at most 1 day old.
 
 ### 6.3 Maturity and limits
 
@@ -560,7 +563,7 @@ issuer is **mature**:
 An account that spent more than it had is flagged for good. An uploader does not give it a
 priority slot (§5.2), its receipts mint nothing, and it cannot transfer or place a hold. A
 node in that state starts a new credit address, immature and empty. Only a receipt that is
-settled within 2 days *(initial)* after its `day` sets the flag (§6.2).
+settled by the end of the day after its `day` *(initial)* sets the flag (§6.2).
 
 This bounds what one address can take by signing payments to many uploaders at once: one
 tranche at each. A new address costs the 10 % burn of a transfer (§6.5), so the bound is per
@@ -611,7 +614,8 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   is 6 h *(initial)* after the call. There is one hold per payer and payee; a later call
   replaces it and sets `until` anew.
 - **While a hold runs, its payer can only raise or extend it.** A lower `amount` is refused
-  before `until`. After `until` the payer may lower it, and `amount` = 0 releases it.
+  before `until`. After `until` the payer may lower it, which is checked as a hold placed
+  anew (below), and `amount` = 0 releases it.
 - The payee gives a hold up with `release(payer)`, at any time.
 - When a hold grows, the sum of the payer's holds MUST fit its balance after decay, else the
   call fails. A call that does not raise a running hold is not checked, so a release never
@@ -620,7 +624,8 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   an EIP-712 signature by the payer's credit key over
   `Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)`, with the
   domain and the 65 bytes of a receipt (§3). `nonce` MUST be above every nonce the payer used
-  before (`holdNonces(payer)`); it need not be the next number, so the time in milliseconds
+  for that payee before (`holdNonces(payer, payee)`), so that holds for different uploaders
+  land in any order; it need not be the next number, so the time in milliseconds
   serves and no read is needed. The call is refused after `deadline`, a unix time in seconds.
   A signer SHOULD set it at most 10 min *(initial)* ahead: that is how long a relay can keep
   a hold back.
@@ -702,7 +707,7 @@ function settled(address issuer, address holder, uint32 day) external view retur
 function issuedKib(address issuer, uint32 week) external view returns (uint64);    // week = day / 7
 function pairKib(address issuer, address holder, uint32 week) external view returns (uint64);
 function holdOf(address payer, address payee) external view returns (uint256 amount, uint64 until);
-function holdNonces(address payer) external view returns (uint256);                // highest nonce used in holdFor
+function holdNonces(address payer, address payee) external view returns (uint256);  // highest nonce used in holdFor
 
 struct AccountView {        // the account of §6.1 with decay applied as of now
     uint256 earned;
@@ -749,7 +754,7 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 | A bidder's turn is ended by a higher bid | it loses what it paid ahead, if it gets no other turn that day | one tranche |
 | Farming credits to sell them | credits get a price (§10) | decay, the 10 % on transfer, the limits |
 | A node bids under the `payer` of another | none | not eligible without a receipt signed by that key (§5.2); void bids count per node ID |
-| Uploader settles a payment late | the issuer's balance has decayed | after 2 days the flag is not set (§6.2); the uploader gets what is there |
+| Uploader settles a payment late | the issuer's balance has decayed | a receipt older than 1 day sets no flag (§6.2); the uploader gets what is there |
 | Bidder moves its credits away after the turn | none while the hold runs | the hold cannot be lowered for 6 h; the uploader settles before `until` (§5.2) |
 | A relay drops a request | delay | the asker asks another |
 | A relay keeps a signed hold back and sends it later | credits locked for 6 h that the payer no longer wanted locked | the `deadline`, 10 min; a hold with a higher nonce that lands first |
@@ -839,7 +844,7 @@ node for which that is too much leaves credits off under its anonymous key.
 | RPC reads of an uploader | two calls per bidder per 10 min |
 | Transactions of an uploader | one `settle` per 48 h, with the receipts of that time; one more for receipts with a payment, before their hold runs out; a `holdFor` for each signed hold it relays |
 | Transactions of a bidder | one `hold` per uploader it bids at, every 3 h while it bids; none if it has its holds relayed |
-| Ledger state | one entry per (issuer, holder, day) that was settled, one per (issuer, week) and one per (issuer, holder, week) that minted, one per (payer, payee) that placed a hold and one per payer that used `holdFor`, kept for good |
+| Ledger state | one entry per (issuer, holder, day) that was settled, one per (issuer, week) and one per (issuer, holder, week) that minted, one per (payer, payee) that placed a hold and one per (payer, payee) that used `holdFor`, kept for good |
 
 Gas, from one run on a test chain without the native minter: about 195,000 for the first
 receipt of a pair and day with two new accounts, about 65,000 for a later one of the same pair
@@ -905,13 +910,8 @@ On the bounds against keys that sign for each other (§6.3):
 - **Bootstrap.** At the start only the operators are mature. Maturity spreads only as fast as
   operators download from new nodes. A rule for the first months may be needed.
 - **`overdrawn` for good** is harsh for a client bug. A way back, at a price, was not designed.
-- **The 80 % of §5.4** cover two steps of decay. A receipt sets the flag up to the end of the
-  second day after its `day` (§6.2), and three steps can fall into that time.
-- **A hold bounds transfers, not payments to others.** A payer can sign `spent` for another
-  holder and so empty what it holds for `payee`. It loses those credits, and `payee` one
-  turn. The ledger does not refuse a settlement that dips into the hold of another payee.
-- **The nonce of `holdFor` is per payer.** Signed holds sent through several relays land in
-  any order, and one with a lower nonce is then refused; the bidder has to sign it again.
+- **A hold that ran out still shields its amount** from payments to other holders until it is
+  swept (§6.5). Anyone can sweep it, the holder that waits for its payment first of all.
 - **A hold earns no reward,** so a bidder without coin depends on the uploader to send its
   holds, and an uploader pays gas for bids that never win.
 - **Registration is free.** A receipt with `kib = 0` and a valid signature registers both

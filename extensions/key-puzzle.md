@@ -234,4 +234,5 @@ S/Kademlia (Baumgart and Mies, 2007) defines two puzzles with a plain hash funct
   Whether that is acceptable needs data on how common such routers are.
 - Whether a node may answer as a router to peers that have not upgraded while it has no
   solution. This draft leaves that to the announce step, where nothing is enforced.
-- Test vectors are to be added under `tests/` with the first implementation.
+- Test vectors, one output that is not valid and one solution, are in
+  [`tests/vectors-v1.md`](../tests/vectors-v1.md).

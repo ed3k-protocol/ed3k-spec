@@ -58,7 +58,7 @@ A record for file F arrives under target T:
 | Situation | Action | Result |
 |---|---|---|
 | F is held under T | renew the entry, add the site | `STORED` |
-| F is held but **leaving** (§2.3) | add the site to the candidates | `FULL` |
+| F is held but **leaving** (§2.3 of this document) | add the site to the candidates | `FULL` |
 | F is not held, T has fewer than S entries | create the entry | `STORED` |
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
@@ -78,7 +78,7 @@ A record for file F arrives under target T:
 A displaced entry is **leaving**. The node:
 
 - keeps it and returns it in searches until its last record expires
-- does not renew it; its publishers get `FULL` and move one level down (§3)
+- does not renew it; its publishers get `FULL` and move one level down (§3 of this document)
 - does not count it towards S
 
 A file therefore exists at its old level until its publishers have placed it at the next one.
@@ -98,7 +98,7 @@ admitted by outranking.
   that order. `sites` carries the rank of each returned file.
 - `BUSY` means the node as a whole is out of room. How much a node stores in total is local
   policy; it SHOULD have room for at least 2 S entries, and no target takes more than S plus
-  its leaving entries (§2.3).
+  its leaving entries (§2.3 of this document).
 
 ## 3. Publisher
 
@@ -144,7 +144,7 @@ The rules are a network rule (§16) and come in two steps.
 
 1. **Announce.** Nodes that implement the extension set `LEVELS`. Storing nodes rank and keep
    leaving entries; publishers and searchers use levels among each other.
-2. **Enforce.** From a date fixed in the specification, every node follows §2 to §4.
+2. **Enforce.** From a date fixed in the specification, every node follows §2 to §4 of this document.
 
 What happens in between:
 
@@ -167,7 +167,7 @@ What happens in between:
 
 - **A search with a common word and other words** is filtered on the storing node (§10.3), but
   the file may be at any level. Finding it for certain means walking all levels in use. Pair
-  targets (§8, row 7) would answer that in one lookup.
+  targets (§8 of this document, row 7) would answer that in one lookup.
 - **Deep levels are searched rarely.** A file with one publisher under a very common word is
   stored but seldom seen through that word. It is still found through its other words.
 - **Junk no longer blocks real files.** A flood of one-publisher records fills levels from the
@@ -196,7 +196,7 @@ be added without a change to the messages.
 | 1 | Define `load`; publishers decide over all answers, not the average; no back-off longer than a record lifetime | in version 1 (§10.8) and here (§3) |
 | 2 | Tell "this keyword is full" from "this node is full" | in version 1: `FULL` and `BUSY` |
 | 3 | Publish a file only under its rarer words; searchers target the rarest word of a query | not done; a file is published under all its words. Later if needed: publisher and searcher policy, using `load` |
-| 4 | Storage budget in bytes, each keyword limited to a share | local policy of a storing node (§2.4); later if needed |
+| 4 | Storage budget in bytes, each keyword limited to a share | local policy of a storing node (§2.4 of this document); later if needed |
 | 5 | When full, displace the file with the fewest publisher sites instead of refusing | here (§2) |
 | 6 | One entry per file with a count of publisher sites, instead of every publisher's record | here (§2.1) |
 | 7 | Pair targets: a target from two keywords, used when one of them is crowded | later if needed: a further target derivation that publishers and searchers agree on by network upgrade; no message changes |

@@ -27,7 +27,7 @@ A client tries these in order and stops when its lookups work:
    put into the routing table, but it answers a `KadRequest` with contacts.
 3. **`ed3k:node` links** the user opened (§13.2).
 4. **eD2K peers that also speak ed3k** (§14), for a client of both networks.
-5. **Node lists** (§2 to §4).
+5. **Node lists** (§2 to §4 of this document).
 
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the
 sources above completed a handshake, and at most once per 6 h *(initial)*. The 6 h are counted
@@ -83,7 +83,7 @@ A reader refuses a list
 
 - that does not start with the 8 bytes, or is larger than 32 KiB *(initial)*,
 - whose `key` is not the one configured for the source, or whose signature does not verify
-  under it (§3),
+  under it (§3 of this document),
 - whose `net_tag` is not that of the client's own network: a list of another network is
   no use, and the public network's lists must not lead into a test network,
 - whose `nodes4` is not a multiple of 22 B, or whose `nodes6` is not a multiple of 34 B,
@@ -126,7 +126,7 @@ URL when it asks.
 
 **By hand.** A user can open a node list file directly. Opening it is the user's decision to
 trust it: the client checks the signature against the key in the file and applies the other
-checks of §2. A client SHOULD be able to write such a file from its own verified contacts,
+checks of §2 of this document. A client SHOULD be able to write such a file from its own verified contacts,
 signed with its node key, so that one user can help another who is cut off from every source.
 
 ---
@@ -145,7 +145,8 @@ signed with its node key, so that one user can help another who is cut off from 
 - When 4 *(initial)* nodes have completed a handshake, the client looks up its own routing ID
   (§6.3, §10.3), once per public address. When more than one list was received, at most half
   of the 4 come from one list: further nodes of that list do not count towards the 4, and the
-  client waits for nodes from elsewhere. One list then cannot supply every seed of the first
+  client waits for nodes from elsewhere, for at most 30 s *(initial)* from the first
+  handshake; after that every node counts. One list then cannot supply every seed of the first
   lookup. From then on
   its table is filled by lookups, and the lists are not used again.
 - A node from a list that does not answer is dropped without a second attempt.
@@ -183,7 +184,7 @@ For whoever runs a source:
 | **An old list shown again** | `created` and the 30 days |
 | **A stolen signing key** | nothing in the protocol. The client's next release removes the source |
 | **A list that names a victim's address** many times, to make newcomers send to it | one entry per IP address is used; a newcomer sends one handshake; 50 nodes per list |
-| **Blocking the sources** | sources at several hosts; lists by hand (§3); every other way of §1 |
+| **Blocking the sources** | sources at several hosts; lists by hand (§3 of this document); every other way of §1 of this document |
 
 **What a fetch shows.** The network between client and source sees an HTTPS connection to the
 host of the source, and the source sees the client's address. Anyone who knows the sources

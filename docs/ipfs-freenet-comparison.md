@@ -282,7 +282,8 @@ any target, and the limits are all that protects.
 
 **What ed3k does instead** (`Protocol.md` §10.4): a client takes its targets in sorted order
 and adds the closest set of the last lookup to the candidates of the next. Where two targets
-share their closest nodes, the second lookup ends after one round on open connections. Nothing
+share their closest nodes, the second lookup asks those nodes on open connections and needs
+one node more to reach the minimum of answers M. Nothing
 changes on the wire, and every target stays a request that is counted alone.
 
 ## 5. Not taken, or does not apply

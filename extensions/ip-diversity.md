@@ -94,7 +94,8 @@ A waypoint far from the target therefore uses up nothing. It leaves the closest 
 nodes answer, and the closest nodes of its groups are still queried.
 
 A candidate that was skipped does not count towards termination. It is neither "answered" nor
-"closer and unasked".
+"closer and unasked", and it does not count towards the minimum of answers M (`Protocol.md`
+§10.4).
 
 ### 2.3 Closest set
 

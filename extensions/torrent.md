@@ -318,8 +318,9 @@ magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the ma
   BitTorrent peers passed on over ed3k. Both are weighed in
   [`docs/torrent-signal.md`](../docs/torrent-signal.md), which also says why this extension
   has no capability bit.
-- Test vectors for the canonical manifest: a version 1, a version 2 and a hybrid torrent, with
-  padding files and a file of length 0.
+- Test vectors for the canonical manifest of a version 1, a version 2 and a hybrid torrent,
+  with a padding file and a file of length 0, are in
+  [`tests/vectors-v1.md`](../tests/vectors-v1.md).
 - A torrent with more than 65,536 files, or a manifest over 4 MiB. Inner sets would need a
   canonical way of splitting.
 - Block hashes for a member that no ed3k node has yet. A URL of the hash tree

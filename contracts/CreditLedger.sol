@@ -40,7 +40,7 @@ contract CreditLedger {
     uint64 public constant MAX_RECEIPT_KIB = 50 << 20; // 50 GiB in a day (initial)
     uint32 public constant WINDOW_DAYS = 7; // (initial)
     uint256 public constant HOLD_TIME = 6 hours; // (initial): a bid's hold, credit.md §6.5
-    uint256 public constant OVERDRAW_DAYS = 2; // (initial): a receipt older than this takes without the flag
+    uint256 public constant OVERDRAW_DAYS = 1; // (initial): a receipt older than this takes without the flag
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
     uint256 public constant UPLOADER_SHARE_PCT = 10; // of spent credits; the rest is burned
     uint256 public constant CALLER_REWARD_PCT = 60;
@@ -132,8 +132,8 @@ contract CreditLedger {
     mapping(address => mapping(address => Hold)) private _holds;
     /// payer → sum of its holds; a hold that ran out counts until it is released, swept or replaced
     mapping(address => uint256) private _heldTotal;
-    /// payer → highest nonce used in holdFor
-    mapping(address => uint256) public holdNonces;
+    /// payer → payee → highest nonce used in holdFor
+    mapping(address => mapping(address => uint256)) public holdNonces;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -142,6 +142,7 @@ contract CreditLedger {
     event Overdrawn(address indexed account, uint256 missing);
     event Held(address indexed payer, address indexed payee, uint256 amount, uint64 until);
 
+    error AmountTooLarge();
     error BadDeadline();
     error BadNonce();
     error BadSignature();
@@ -262,15 +263,15 @@ contract CreditLedger {
     }
 
     /// `hold` for a payer that sends no transaction: anyone may hand in its signature.
-    /// `nonce` must be above every nonce used by this payer before. `sig` is 65 bytes, r ‖ s ‖ v.
+    /// `nonce` must be above every nonce used by this payer for this payee. `sig` is 65 bytes, r ‖ s ‖ v.
     function holdFor(address payer, address payee, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata sig)
         external
     {
         if (block.timestamp > deadline) revert BadDeadline();
-        if (nonce <= holdNonces[payer]) revert BadNonce();
+        if (nonce <= holdNonces[payer][payee]) revert BadNonce();
         bytes32 digest = _digest(keccak256(abi.encode(HOLD_TYPEHASH, payer, payee, amount, nonce, deadline)));
         if (payer == address(0) || _recoverSig(digest, sig) != payer) revert BadSignature();
-        holdNonces[payer] = nonce;
+        holdNonces[payer][payee] = nonce;
         _hold(payer, payee, amount);
     }
 
@@ -344,7 +345,8 @@ contract CreditLedger {
         uint256 dayStart
     ) private returns (uint256 taken) {
         _touch(issuer, issuerAddr);
-        taken = _take(issuer, amount);
+        uint256 free = _freeFor(issuer, issuerAddr, holderAddr);
+        taken = _take(issuer, amount < free ? amount : free);
         // dayStart is not after now: the caller refused a day in the future
         if (taken < amount && block.timestamp / 1 days - dayStart / 1 days <= OVERDRAW_DAYS) {
             issuer.overdrawn = true;
@@ -368,6 +370,16 @@ contract CreditLedger {
         }
     }
 
+    /// What `holder` may take: the balance less what the issuer holds for other payees.
+    /// A hold that ran out counts until it is swept.
+    function _freeFor(Account storage issuer, address issuerAddr, address holderAddr) private view returns (uint256) {
+        uint256 total = _heldTotal[issuerAddr];
+        uint256 own = _holds[issuerAddr][holderAddr].amount;
+        uint256 others = total > own ? total - own : 0;
+        uint256 balance = uint256(issuer.earned) + issuer.received;
+        return balance > others ? balance - others : 0;
+    }
+
     /// A payment uses up the hold it was placed for. No event: `Settle` carries what was taken.
     function _useHold(address payer, address payee, uint256 taken) private {
         Hold storage h = _holds[payer][payee];
@@ -383,12 +395,13 @@ contract CreditLedger {
     /// and placing it again is a new hold.
     function _hold(address payer, address payee, uint256 amount) private {
         if (payee == address(0)) revert ZeroAddress();
-        if (amount > type(uint128).max) revert InsufficientBalance();
+        if (amount > type(uint128).max) revert AmountTooLarge();
         Hold storage h = _holds[payer][payee];
         uint256 old = h.amount;
         bool live = block.timestamp < h.until;
         if (live && amount < old) revert HoldLocked();
-        uint256 total = _heldTotal[payer] - old + amount;
+        uint256 held = _heldTotal[payer];
+        uint256 total = (held > old ? held - old : 0) + amount;
         if (amount != 0) {
             Account storage a = _accounts[payer];
             if (a.overdrawn) revert IsOverdrawn();

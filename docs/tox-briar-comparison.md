@@ -89,7 +89,7 @@ other, and a value in the link that the owner can change.
 
 | Choice | Pro | Con |
 |---|---|---|
-| **Stored, not sent** | the asked node need not be findable, which before friendship it is not | storing nodes hold requests; 8 per place |
+| **Stored, not sent** | the asked node need not be findable, which before friendship it is not | storing nodes hold requests; 32 per place, 8 per host and 16 per site |
 | **The value in the place, not only in the content** | a stranger cannot even store a request | 8 bytes that should not be public. They guard against annoyance only, and are replaced at no cost |
 | **Never accepted without the user** | a request is a question | none found |
 

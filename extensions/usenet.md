@@ -38,7 +38,7 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the text of the `segment` element with leading and trailing whitespace removed, without `<` and `>`, as bytes. Whitespace is space (0x20) and tab (0x09), here and in §2 |
+| mᵢ | the message ID of part *i* of the file: the text of the `segment` element with leading and trailing whitespace removed, without `<` and `>`, as bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
 | Order of parts | by the `number` attribute, 1 to n. Where a number occurs twice, the first entry in the NZB counts |
 | fⱼ | the file ids of all files of the NZB, in ascending order of their bytes |
 
@@ -79,7 +79,8 @@ message Post {
 ```
 
 - **`name` and `size` come from the articles,** not from the NZB: the `name` and the `size` of
-  the yEnc header line `=ybegin`, with trailing whitespace (space and tab, §1) removed. All
+  the yEnc header line `=ybegin`, with trailing whitespace (space and tab) removed. `name` is the text after `name=` up to
+  the end of the line, as it stands: quotation marks are part of the name. All
   parts of a file carry the same values; a client takes them from the lowest-numbered part it
   has, and makes no manifest and no `ALIAS` record for a post in which a file's parts
   disagree among the parts it fetched.
@@ -342,8 +343,9 @@ of a type they do not know.
 - A post that is repaired with fewer articles than it has: the file is whole, the list names
   articles nobody can fetch. That is correct and of no use; a mark for dead articles would be
   a local matter.
-- Test vectors: file id, post id, article list and canonical manifest for a post of two
-  files, one with a name that is not UTF-8.
+- Test vectors for file id, post id, article list and canonical manifest of a post of two
+  files, one with a name that is not UTF-8, are in
+  [`tests/vectors-v1.md`](../tests/vectors-v1.md).
 - Whether part sizes that differ inside one file occur often enough to need more than "ask
   and correct".
 - Posting to Usenet from ed3k is not specified.

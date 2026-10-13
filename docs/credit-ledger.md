@@ -150,7 +150,7 @@ Rules that follow from transfers ([`credit.md`](../extensions/credit.md) §6.5):
 | credits move at no cost | 10 % of a transfer is burned, about one day of decay |
 | a pool at an exchange holds credits | every address decays, contracts too |
 | credits shown for a bid are moved away before the uploader settles | a hold (§6.5 there) locks one turn per uploader for six hours; a transfer cannot dip into it, the payer cannot lower it in that time, and the uploader settles before it runs out |
-| a holder settles late, against a balance that has decayed, and the issuer is flagged for good | a receipt older than two days takes what is there and sets no flag (§6.2 there) |
+| a holder settles late, against a balance that has decayed, and the issuer is flagged for good | a receipt older than one day takes what is there and sets no flag (§6.2 there) |
 
 The standard interface is kept so that wallets and explorers show a balance. Two things differ
 from a plain ERC-20 and have to be said to anyone who integrates it: the balance falls without

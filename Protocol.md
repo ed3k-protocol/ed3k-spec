@@ -203,7 +203,7 @@ RFC 9000 §10.2) uses one of:
 | 1 | `NO_KEY` | the handshake carried no client key |
 | 2 | `WRONG_PEER` | the peer's node ID is not the expected one (§6.1, §14.2) |
 | 3 | `DENIED` | the peer is banned (§4.6) or refused by the policy of a network |
-| 4 | `PROTOCOL` | the first frame on the initiator's first stream was not `Hello` (§5.5), or a frame header (`tag`, `len`) did not parse, so that the exchange cannot be read on (§5.1). A body that does not parse or exceeds 1 MiB is answered `Error{MALFORMED}` on its exchange instead (§5.2, §5.6) |
+| 4 | `PROTOCOL` | the first frame on the initiator's first stream was not `Hello` (§5.5), or a frame header (`tag`, `len`) did not parse, a `len` above 1 MiB included, so that the exchange cannot be read on (§5.1). A body that does not parse, or exceeds 1 MiB after decompression, is answered `Error{MALFORMED}` on its exchange instead (§5.2, §5.3, §5.6) |
 | 5 | `BUSY` | the node is out of connections |
 
 A code this table does not name is read as `PROTOCOL`.
@@ -426,8 +426,8 @@ adds such a message says so
 here; a node that does not support it answers the frame with `Error{UNSUPPORTED}` and closes
 the exchange (§5.2), so the bytes that follow are never read as frames.
 
-A frame header does not parse when `tag` or `len` is a varint of more than 10 bytes, or when
-the exchange ends inside it. A varint that is longer than its value needs is accepted (§0).
+A frame header does not parse when `tag` or `len` is a varint of more than 10 bytes, when
+`len` is above 1 MiB (§5.2), or when the exchange ends inside it. A varint that is longer than its value needs is accepted (§0).
 
 Types 1–63 keep the tag at one byte.
 
@@ -475,8 +475,9 @@ Types 1–63 keep the tag at one byte.
   or while the uploader asks the downloader to stay (§12).
 - An answer is never fragmented: the exchange is reliable, so a large answer is simply a long
   frame. A frame body MUST NOT exceed 1 MiB after decompression.
-- Before it reads a body, a receiver checks that `len` is at most 1 MiB and, once the peer has
-  half-closed, that it fits the bytes that remain. A frame that fails is answered
+- A `len` above 1 MiB is a header that does not parse: the connection is closed with
+  `PROTOCOL` (§4.1, §5.1). Once the peer has half-closed, a receiver also checks, before it
+  reads a body, that `len` fits the bytes that remain; a frame that fails is answered
   `Error{MALFORMED}` without its body being read, and the exchange is closed.
 - A responder that does not know a request type answers `Error{UNSUPPORTED}` and closes that
   exchange only.
@@ -629,8 +630,8 @@ An `Error` is never answered with an `Error`. Unknown codes read as `UNKNOWN`. `
 is a hint: the receiver does not ask again sooner. 0 is no hint, and the wait that the section
 concerned names applies (30 min for a relay, §9.4). A receiver reads a value above 24 h
 *(initial)* as 24 h. `MALFORMED` is
-for a body that does not parse, or a frame or body that breaks a size rule of §5; a frame
-header that does not parse closes the connection (§4.1). A record that fails a check of its
+for a body that does not parse, or a body that breaks a size rule of §5; a frame header that
+does not parse, a `len` above 1 MiB included, closes the connection (§4.1, §5.1). A record that fails a check of its
 content is answered per record (§10.3, §10.7), not with an `Error`.
 
 ---
@@ -1493,10 +1494,30 @@ Rules:
    request.
 3. Add returned contacts to the candidates. A contact becomes verified when its connection
    completes (§6.3).
-4. Stop when the R closest verified candidates have all answered and no candidate that may
-   still be queried is closer to the target than the furthest of them. R = 4 for a search, 8
-   for a store *(initial)*. These R nodes are the **closest set**, whether or not they said
-   `responsible`; a store is judged over those of them that did.
+4. Stop when both hold:
+   - the R closest verified candidates have all answered and no candidate that may still be
+     queried is closer to the target than the furthest of them. R = 4 for a search, 8 for a
+     store *(initial)*. These R nodes are the **closest set**, whether or not they said
+     `responsible`; a store is judged over those of them that did;
+   - at least M nodes have answered in this lookup. M = 5 for a search, 9 for a store
+     *(initial)*. A lookup without an operation uses the M of a search.
+
+**Minimum walk.** While the first condition holds and the second does not, the requester
+queries the closest candidate not yet queried, one at a time, although it is further from the
+target than the closest set. What that node returns becomes a candidate like any other
+contact, and a contact closer than the furthest of the closest set is followed as in step 2.
+A node that failed does not count towards M. A lookup that has no candidate left to query
+ends with fewer than M answers.
+
+- Without M a lookup ends as soon as R nodes say that they know nothing closer. Nodes that
+  work together can say so about each other, and the nodes that would name the honest ones
+  near the target are then never asked.
+- The filters of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.2 apply to
+  these queries too. A candidate whose groups are full in the closest set is skipped, so the
+  extra query goes to a node of another host, site or block than the nodes that ended the
+  walk.
+- M does not change the closest set. A node asked for this reason joins it only if it is
+  among the R closest.
 
 A queried node that has not answered within 5 s *(initial)*, counted from the first packet sent
 to it, has failed for this lookup and counts one failed attempt (§10.2). A lookup ends after
@@ -1528,8 +1549,8 @@ the final set are further restricted by [`extensions/ip-diversity.md`](extension
 **Searching sources for many files.** There is no batch for searches; every target is looked
 up. A client that has many targets to search SHOULD take them in sorted order, and SHOULD add
 the closest set of the lookup just ended to the candidates of the next one (step 1). Where two
-targets share their closest nodes, the second lookup then ends after one round on connections
-that are still open. Each target is still a request of its own and counts against the limits
+targets share their closest nodes, the second lookup then asks those nodes on connections
+that are still open, and needs one node more to reach M. Each target is still a request of its own and counts against the limits
 of the answering node on its own. Why a batch was left out is in
 [`docs/ipfs-freenet-comparison.md`](docs/ipfs-freenet-comparison.md) §4.8. For the members of
 a set a client asks the sources of the manifest first
@@ -1548,7 +1569,7 @@ other cost off that number:
 |---|---|
 | Operation rides in the lookup request | The responsible nodes are contacted **once**. eMule Kad walks with `KADEMLIA2_REQ` and then sends the search or publish to the same nodes again; over QUIC the second pass is free only while the connection is still open, and here it does not exist |
 | 16 contacts per answer instead of 11 | Fewer hops. A contact costs 22 bytes, a hop costs a handshake |
-| No speculative queries | A candidate is queried only if it is among the α closest known. Every wasted query costs 2.5 KB, so α stays small and is not raised to hide timeouts |
+| Few queries beyond the closest | A candidate is queried only if it is among the α closest known, or one at a time while fewer than M nodes have answered (§10.4). Every further query costs 2.5 KB, so α stays small and is not raised to hide timeouts, and M is one more than R |
 | First hop is warm | Connections to routing-table contacts stay open while idle (30 s) and resume with 0-RTT afterwards, which saves the round trip though not the padded Initial |
 | One connection per node, many exchanges | Lookups for different targets that pass through the same node share its connection; a client publishing or searching many files orders them by target so neighbouring walks overlap (§10.4) |
 | Keyword records batched per node | All files sharing a keyword go in one `Store` |
@@ -1559,7 +1580,10 @@ other cost off that number:
 Expected cost of a lookup with operation: 3–4 hops and 8–12 nodes contacted, of which 5–9 are new
 connections, so roughly 15–25 KB against 3–5 KB in eMule Kad. That is the price of having one
 authentication and anti-spoofing mechanism instead of two, and of the verified addresses that §6.3
-depends on.
+depends on. The minimum walk adds nothing to that figure: such a lookup has more than M
+answers before the closest set is complete. M costs a query only in a lookup that would
+otherwise end on its first R answers, which is the case it exists for, and on a network of
+only a few nodes.
 
 ### 10.6 Reserved: sessionless Kad datagrams
 
@@ -1782,7 +1806,7 @@ message FileStatus {
   uint64 size = 1;
   string name = 2;
   bytes  ed2k = 3;            // §7.4
-  optional bytes have = 4;    // uploader's piece bitmap; missing bits are 1, so an empty bitmap is the complete file; absent = unchanged
+  optional bytes have = 4;    // uploader's piece bitmap, LSB first; missing bits are 1, so an empty bitmap is the complete file; absent = unchanged
   optional uint32 rank = 5;   // queue position; 0 = upload slot granted, send BlockRequest; absent = unchanged
   repeated Peer sources = 6;  // source exchange; at most `want_sources` of the request, and at most 50
   Note   note = 7;            // uploader's rating/comment on the file
@@ -2065,8 +2089,8 @@ A value from 1 to 1799 is read as 1800 and a value above 14400 as 14400.
 - in a priority turn of the credit extension, for a changed `price` or `due`
   ([`extensions/credit.md`](extensions/credit.md) §3.2).
 
-The downloader answers a `FileStatus` that has `ping` set, and no other, with a `FileRequest`
-within 30 s, empty unless its own `have` changed. If it does not, or the connection is lost, the uploader closes the stream. The entry is
+The downloader answers a `FileStatus` that has `ping` set, and no other but the one that takes
+a slot away (§12.2), with a `FileRequest` within 30 s, empty unless its own `have` changed. If it does not, or the connection is lost, the uploader closes the stream. The entry is
 then kept for 30 min so that the downloader can come back, and removed after that.
 
 **A free slot.** The uploader contacts the next downloader at once.
@@ -2373,7 +2397,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Constant | Value |
 |---|---|
 | Idle timeout (`max_idle_timeout`) | 30 s |
-| Exchanges a peer may have open on a connection, more per accepted path; a request must arrive whole within | 64, 65; 30 s |
+| Exchanges a peer may have open on a connection, more per path between the two (both directions); a request must arrive whole within | 64, 65; 30 s |
 | Keep-alive (PING) by the side that wants a connection kept | 20 s |
 | Fragment reassembly: messages per source, timeout, one message at most, all messages at most, attempts in fragments before an unsplit one | 4, 3 s, 1,500 B, 4 MiB, 2 |
 | Full-size path probes lost before a path is given up | 3 |
@@ -2397,6 +2421,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Punch: probe interval, duration, probes to a claimed endpoint at most, attempts, back-off | 10–200 ms, 5 s, 3, 3, 30 min |
 | Dual-stack head start for IPv6 | 250 ms |
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
+| Kad: nodes that must answer before a lookup may stop, M (search / store) | 5 / 9 |
 | Kad: dialled-in contacts per bucket | 5 |
 | Kad: bucket refreshed after, contact verified again after | 60 min, 60 min |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
@@ -2404,10 +2429,10 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Source records: targets per request, pass over all targets, nodes that must store before a target needs its own lookup | 256, 4 h, 4 |
 | Diversity, per host / site / block: bucket, answer | 1 / 2 / 4 |
 | Diversity, per host / site / block: lookup, counted over its closest set | 1 / 2 / half of R (2 for a search, 4 for a store) |
-| Diversity, closest set | as the lookup (§2.3 there) |
+| Diversity, closest set | as the lookup ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.3) |
 | Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
 | Diversity: a host group whose contact was removed is not admitted under another node ID for; removed host groups remembered for | 1 h; 1 h |
-| Diversity: `SOURCE` records per file, `ANON` records per target, per host / site | 8 / 32, 4 / 8 |
+| Diversity: `SOURCE` records per file, `ANON` records per target, `KEYWORD` and `NOTE` publishers counted per entry, per host / site | 8 / 32, 4 / 8, 1 / 1 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families and relays), per host / site / block | 2 / 4 / 8 |
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias, live, subscriber, gate, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
 | Search answer: keyword records, notes, sources at most; paging secret replaced every | 100, 100, 100; 24 h |
@@ -2441,7 +2466,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
 | Anonymous paths, a hop: paths per neighbour, streams per path, further exchanges per path, held per stream and direction, base rate, lookups per path, dials per path / per neighbour | 8, 64, 65, 256 KiB, 16 KiB/s, 20 per minute, 4 / 16 per minute |
 | Anonymous paths: `ANON` records per target (in total / per host / per site), `GATE` lifetime and renewal, session idle time, failed `GATE` lookups or gates dialled per file and hour | 64 / 4 / 8, 1 h and 45 min, 10 min, 4 |
-| Anonymous paths: hops known before a path is built, reach a new hop or a `HopConnect` node within, `HopJoin` per gate and host, give and take measured over | 20, 10 s, 10 per minute, 7 days |
+| Anonymous paths: hops known before a path is built, reach a new hop or a `HopConnect` node within, status frame awaited, `HopJoin` per gate and host, give and take measured over | 20, 10 s, 10 s, 10 per minute, 7 days |
 | Anonymous paths: replay window for stream numbers of a path and of a session, PING on a path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most | 10 min, 1,024 |
@@ -2468,8 +2493,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Videos on a chain, shown at most: title, tag, tags, comment; avatar picture at most | 256 B, 64 B, 16, 8,192 B; 1 MiB |
 | Videos on a chain, attachments: `media` value at most, files per set, gateways per file; fetched unasked: manifest at most, picture at most, pictures per entry; picture refused above (side, pixels) | 512 B, 64, 3; 64 KiB, 1 MiB, 4; 16,384 px, 64 million |
 | Filter lists: list file at most, lists followed, list files per set | 4 MiB, 32, 64 |
-| First contact: saved contacts, fetch lists when fewer than N answered / at most per first contact, list at most, redirects followed, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (at most half from one list), listed nodes reachable for | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4, 24 h |
-| Finding a known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` at most ahead, record stored every, lookup of a friend at most | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 10 min, 4 h, 1 per 30 min |
+| First contact: saved contacts, fetch lists when fewer than N answered / at most per first contact, list at most, redirects followed, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (at most half from one list, for at most), listed nodes reachable for | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h |
+| Finding a known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` at most ahead, record stored every, lookup of a friend at most | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots at most, time for a payment (from the `FileStatus` with `price` or `due`), bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
 | Credits: void bids before priority is withheld (per node ID), withheld for | 2, 24 h |
@@ -2477,19 +2502,25 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Credits, ledger: grace, decay, floor, burned on transfer, settle within (no payment / with payment) | 3 days, 10 % per day, 10 credits, 10 %, 48 h / before the hold's `until` |
 | Credits: receipts / holds per `CreditRelay`, `floor` at least, `tick`, gas reward; open payments of a client at most | 32 / 8, 1,000,000 µ per MiB, 10,000 µ per MiB, 2 × the gas of a later receipt of a pair and day; 80 % of the balance |
 | Credits, ledger: receipt age at settlement, hold for a bid, `kib` per receipt, minted per issuer and 7 days, minted per issuer and holder and 7 days, maturity (age, contribution, issuers) | 7 days, 6 h, 50 GiB, 100 GiB, 10 GiB, 30 days / 1 GiB / 3 |
-| Credits, hold: amount at least, `until` ahead at least, renewed every, deadline of a signed hold at most, stream kept open for a bidder's first receipt | 16 × `max_price` µ, 1 h + 10 min, 3 h, 10 min, 30 s |
-| Credits, ledger: a short payment sets `overdrawn` up to | 2 days after the receipt's `day` |
+| Credits, hold: amount at least, `until` ahead at least, renewed every, deadline of a signed hold at most, stream kept open for a bidder's first receipt | 16 × `max_price` µ, 2 h, 3 h, 10 min, 30 s |
+| Credits, ledger: a short payment sets `overdrawn` up to | 1 day after the receipt's `day` |
 | Flood protection: Retry token, return token valid for; per second: handshakes without token per host / site / block (Retry above), Retry packets per host (dropped above) | 10 s, 24 h; 4 / 16 / 64, 4 |
-| Flood protection: validated handshakes per minute per site / block while guarded; Kad datagrams per second per host / site / block: `CHALLENGE`s, key derivations | 120 / 480; 4 / 16 / 64, 8 / 32 / 128 |
+| Flood protection: validated handshakes per minute per site / block while guarded; Kad datagrams per second: `CHALLENGE`s per host, key derivations per host / site / block | 120 / 480; 4, 8 / 32 / 128 |
 | Keyword levels (reserved): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |
 | Kad datagrams (reserved): `INIT` at least, cookie secret replaced every, request timer, `CHALLENGE`s per second and address, key derivations per second and address, `REQUEST`s per second per host / site / block, exchanges outstanding (total / per responder), `INIT` fallback to QUIC after | 70 B, 1 h, 1 s, 4, 8, 16 / 64 / 256, 16 / 2, 300 ms |
 | Key puzzle (reserved): leading zero bits, memory, epoch, dialled-in contacts verified per host group, verification queue at most | 13, 64 MiB, 30 days, 1 per hour, 64 |
 
 ## Appendix B — open points
 
-- Test vectors for node ID, routing ID, record and keyword targets, one signed record, user
-  hash, obfuscation keys and the §12.4 tree are in [`tests/vectors-v1.md`](tests/vectors-v1.md). Vectors for the sealed
-  forms and signatures of the extensions are to be added with the first implementation.
+- Test vectors are in [`tests/vectors-v1.md`](tests/vectors-v1.md): node ID, routing ID, record
+  and keyword targets with the edge cases of the tokeniser, one signed record with the
+  signatures and forms §10.7 rejects, user hash,
+  obfuscation keys and whole datagrams of each kind, the §12.4 tree, the key conversion of
+  §6.4, and of the extensions the hop keys, the signatures of a set and its grant, one
+  canonical torrent manifest, the sealed forms of a hidden set and of a friend record, the LAN
+  announce, one live segment record, one exchange of Kad datagrams, the key puzzle, a Usenet
+  post, the `canonical` of hoster links and the hash body. The credit receipts have none yet:
+  they wait on the chain ID ([`extensions/credit.md`](extensions/credit.md) §7.1).
 - The zstd dictionary does not exist yet; it needs a message corpus. Until it is published
   every node announces `dict = 0` and sends frames without a dictionary (§5.3).
 - The field numbers of every message are collected in `proto/ed3k.proto`; a change in a
