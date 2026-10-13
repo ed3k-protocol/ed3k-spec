@@ -120,7 +120,9 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
 2. To add a hop, the owner sends `HopExtend` on the control stream. The last hop connects to
    `node` as to any node, opens an exchange, sends `HopCreate` with a `path` of its own, and
    passes the `HopCreated` back to the owner as a frame on the control stream, inside the
-   layers of the hops before it. From then on it forwards.
+   layers of the hops before it. From then on it forwards. A path MUST NOT be extended while
+   it carries a stream other than the control stream: a hop added later has no layer on those
+   streams. The owner closes them first, or builds a new path.
 3. The owner checks `proof` (§2.3). A wrong proof means that the new hop is not the node the
    owner chose; the owner closes the path.
 
@@ -152,7 +154,7 @@ k_in  = H("ed3k v1 hop in", k)                for bytes that move towards the ow
 **Layers.** Every stream of a path (§2.4) is encrypted once per hop, in each direction:
 
 ```
-ChaCha20(key = k_out or k_in of the hop, nonce = 0x00000000 ‖ stream number(8), counter from 0)      RFC 8439
+ChaCha20(key = k_out or k_in of the hop, nonce = 0x00000000 ‖ stream number(8, big-endian), counter from 0)      RFC 8439
 ```
 
 The key stream runs on over the whole stream in that direction. On the control stream the
@@ -266,7 +268,7 @@ seal(k, m)      = ChaCha20-Poly1305(k, nonce 0, m)                              
 **Further streams** of a session start with
 
 ```
-0x02 ‖ sid(16) ‖ number(8)        number: even when A opens the stream, odd when B does; never used twice
+0x02 ‖ sid(16) ‖ number(8, big-endian)        number: even when A opens the stream, odd when B does; never used twice
 ```
 
 and need no signature. They MAY use another path than the first. **A session therefore
@@ -276,8 +278,8 @@ path.
 ### 3.3 What a stream of a session carries
 
 ```
-key     = H("ed3k v1 hop session stream", k_s ‖ number(8) ‖ dir(1))     dir = 0x00 from A, 0x01 from B
-record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12), plaintext of at most 16,384 bytes)
+key     = H("ed3k v1 hop session stream", k_s ‖ number(8, big-endian) ‖ dir(1))     dir = 0x00 from A, 0x01 from B
+record  = len(2) ‖ ChaCha20-Poly1305(key, nonce = number of the record(12, big-endian), plaintext of at most 16,384 bytes)
 ```
 
 `len` is the length of the ciphertext with its 16-byte tag, big-endian, 16 to 16,400. Records

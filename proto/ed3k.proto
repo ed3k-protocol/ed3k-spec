@@ -72,8 +72,8 @@ message Hello {               // type 1
   bytes  ep6 = 5;
   uint32 nat = 6;             // 0 unknown, 1 open, 2 cone, 3 symmetric        Protocol.md §9.2
   string nick = 7;            // optional
-  reserved 8;                 // kad-datagram.md §2: `bytes dgram_cookie`; not part of version 1   Protocol.md §10.6
-  bytes  puzzle = 9;          // epoch(4, big-endian) ‖ nonce(8); not part of version 1   key-puzzle.md §3
+  bytes  dgram_cookie = 8;    // 8 B; your cookie for my address; not part of version 1   kad-datagram.md §6, Protocol.md §10.6
+  bytes  puzzle = 9;          // epoch(4, big-endian) ‖ nonce(8); not part of version 1   key-puzzle.md §3, Protocol.md §6.3
   uint32 dict = 10;           // highest zstd dictionary ID held; 0 or absent = holds no dictionary   Protocol.md §5.3
   reserved 11;                // `bindings` of docs/transport-bindings.md; not part of version 1
 }
@@ -113,7 +113,7 @@ message Punch {               // type 11
   bytes   ep4 = 2;            // sender's observed endpoints
   bytes   ep6 = 3;
   uint32  nat = 4;            // sender's class                                 Protocol.md §9.2
-  fixed64 nonce = 5;          // random; goes into each PROBE as 8 B, big-endian
+  fixed64 nonce = 5;          // chosen by I, random; forwarded unchanged; T copies it into each PROBE as 8 B, big-endian; 0 in T's answer
 }
 
 // ---------------------------------------------------------------------------------------
@@ -158,7 +158,7 @@ message Query {
 
 message Store {
   Peer     source = 1;        // SOURCE, and the kinds stored like it (LIVE, SUB): my endpoints and relays; `id` MUST be empty   Protocol.md §10.3
-  repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword   Protocol.md §10.7
+  repeated Signed files = 2;  // KEYWORD: files whose name contains the keyword; a Store holds at most 256 records   Protocol.md §10.3, §10.7
   Signed   note = 3;          // NOTE                                          Protocol.md §10.7
   repeated HttpSource http = 4;   // SOURCE: HTTP sources of the file; 3 per publisher and file   http-source.md §2
   Signed   head = 5;          // HEAD, HIDDEN or PART                          file-set.md §5.2
@@ -315,7 +315,7 @@ message BrowseAnswer {        // type 15
 
 message Chat {                // type 16
   string  text = 1;           // at most 4,096 bytes in UTF-8                  chat.md §1
-  fixed64 id = 2;             // random per message; the same again when a message is repeated
+  fixed64 id = 2;             // random per message, the same again when it is repeated: a replay id, not a request id
 }
 
 message ChatAck {             // type 18
@@ -483,7 +483,7 @@ message Cert {
   bytes  issuer = 1;          // 32 B key of the issuer                        multi-author-set.md §3.2
   string name = 2;            // at most 64 B
   uint64 expires = 3;         // Unix time in seconds; 0 = never
-  repeated Signature sigs = 4;    // by the issuer, over "ed3k v1 part cert" ‖ author key(32) ‖ expires(8) ‖ name
+  repeated Signature sigs = 4;    // by the issuer, over "ed3k v1 part cert" ‖ author key(32) ‖ expires(8, big-endian) ‖ name
 }
 
 message Part {
@@ -497,7 +497,7 @@ message Part {
 
 message Torrent {
   bytes  btih = 1;            // 20 B: SHA-1 of the info dictionary; a version 1 or hybrid torrent   torrent.md §1
-  bytes  btih2 = 2;           // 32 B: SHA-256 of the info dictionary; a version 2 or hybrid torrent
+  bytes  btmh = 2;            // 32 B: SHA-256 of the info dictionary; a version 2 or hybrid torrent
   bytes  info = 3;            // 32 B BLAKE3 root of the info dictionary
   uint32 info_size = 4;       // its size in bytes
 }
@@ -521,7 +521,7 @@ message Post {
 
 message Tube {
   uint64 chain = 1;           // chain ID                                      chaintube.md §2.3
-  bytes  contract = 2;        // 20 B address of the content contract
+  bytes  contract = 2;        // 20 B address of the contract that holds the entry; the content contract for a video
   bytes  author = 3;          // 20 B address of the account that publishes the set on the chain
 }
 

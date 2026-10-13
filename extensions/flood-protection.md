@@ -23,7 +23,7 @@ A node that implements none of this still interoperates. Every version 1 node ac
 | Step | Work | Who can cause it |
 |---|---|---|
 | Unmask 5 bytes, check `magic` (§4.5 steps 1 and 2) | one BLAKE3 block | anyone who knows the node ID |
-| Try the keys of the connections this node opened (§4.5 step 3), for a datagram from an address without a connection that failed step 2 | one BLAKE3 block per such connection | anyone, with any bytes |
+| Try the keys of the connections this node opened by a hole punch (§4.5 step 3), for a datagram from an address without a connection that failed step 2; at most 100 datagrams per second | one BLAKE3 block per such connection | anyone, with any bytes |
 | Reassemble fragments (§4.4) | memory for at most 4 messages per source address, 3 s | the same |
 | Answer with Retry | one keyed hash, one small datagram | the same |
 | Start a handshake | key exchange, a signature and a verification; state for the connection | the same, unless Retry is demanded |

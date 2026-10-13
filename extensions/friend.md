@@ -54,6 +54,8 @@ k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the 
 - A node stores records for at most 64 *(initial)* friends.
 - A link that was changed on its way leads to another node. That the key is the right one is
   for the two users to check; ed3k has no means for it.
+- `key`, `s` and `r` are base32 as `Protocol.md` §13.2 fixes: written lower case without
+  padding, read either way.
 
 ---
 
@@ -85,7 +87,7 @@ A friend link MAY carry a **request value** `r`: 8 random bytes in base32. With 
 was given the link can ask to be added, without a second link going back by hand.
 
 ```
-target = H("ed3k v1 friend request target", key ‖ r ‖ period(8))[0..16)       key and r of the node that is asked
+target = H("ed3k v1 friend request target", key ‖ r(8) ‖ period(8))[0..16)    key and r of the node that is asked; r enters as its 8 raw bytes, the base32 text is the link grammar only; period = the day number of §4 of this document, big-endian
 
 sealed = e(32) ‖ nonce(12) ‖ ChaCha20-Poly1305(k_req, nonce, serialised FriendRequest)       RFC 8439, 16-byte tag
 k_req  = H("ed3k v1 friend request", X25519(e's private key, the asked node's public key) ‖ e ‖ key)     key = the asked node's key
@@ -96,7 +98,7 @@ message FriendRequest {
   bytes  key = 1;             // 32 B node key of the asking node
   string text = 2;            // at most 96 B
   uint64 issued = 3;          // Unix time in seconds
-  repeated Signature sigs = 4;  // by the asking node, over "ed3k v1 friend request signature" ‖ asked key(32) ‖ issued(8) ‖ text
+  repeated Signature sigs = 4;  // by the asking node, over "ed3k v1 friend request signature" ‖ asked key(32) ‖ issued(8, big-endian) ‖ text
 }
 ```
 

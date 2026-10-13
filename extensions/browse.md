@@ -49,6 +49,8 @@ message BrowseAnswer {
   starting at entry `offset` of that order. It sets `more` when entries remain.
 - The requester asks again with `offset` raised by the number of entries it received (`dirs`
   plus `files`), until an answer comes without `more`.
+- A requester asks at most 100 *(initial)* pages and takes at most 10,000 *(initial)* entries
+  from one node; a node that still answers `more` after that is dropped for this listing.
 - Each page is an exchange of its own. The node keeps no state between pages. If the directory
   changes in between, entries can be missed or seen twice; the requester merges directories by
   name and files by root.

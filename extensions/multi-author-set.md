@@ -197,7 +197,7 @@ message Cert {
   bytes  issuer = 1;          // 32 B key of the issuer
   string name = 2;            // at most 64 B
   uint64 expires = 3;         // Unix time in seconds; 0 = never
-  repeated Signature sigs = 4;  // by the issuer, over "ed3k v1 part cert" ‖ author key(32) ‖ expires(8) ‖ name
+  repeated Signature sigs = 4;  // by the issuer, over "ed3k v1 part cert" ‖ author key(32) ‖ expires(8, big-endian) ‖ name
 }
 ```
 
@@ -221,7 +221,7 @@ Cert cert = 6;
 
 - One key has one part per set.
 - A part holds files only: no inner sets, no mounts, no rules, no grant.
-- Readers show its files under `<dir>/<node ID of the author, base32>/`. A client MAY show the
+- Readers show its files under `<dir>/<node ID of the author, 32 hex digits, lower case (Protocol.md §6.1)>/`. A client MAY show the
   certified name next to it.
 
 ### 3.4 Finding the parts

@@ -85,7 +85,8 @@ ed3k:live?key=<channel key, base32 lower case, no padding>&id=<id, base32>[&dn=<
 
 The link is enough to watch: it gives `stream` and the key that segment records are checked
 against. `media` and `codecs` then come from the first peer (§3.1). A client without this
-extension does not know the link.
+extension does not know the link. `key`, `id` and the `s` of §10 are base32 as
+[`Protocol.md`](../Protocol.md) §13.2 fixes: written lower case without padding, read either way.
 
 ---
 
@@ -146,6 +147,8 @@ and is made with the channel key.
   stream. There is no other way to end a broadcast than this record or silence (§3.4). An `end`
   record has the `seq` after the last segment's, and `root`, `size`, `ms`, `init` and
   `init_size` absent.
+- For one `seq`, a record without `root` loses against one with a `root`, and of two without
+  the first verified is kept: the rule above cannot compare absent roots.
 - A record carries no wall-clock time of the segment. `seq` gives the order, and a time stamp
   would only expose the broadcaster's clock.
 
@@ -264,8 +267,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 
 - A node aims at 6 neighbours and keeps between 3 and 8 *(initial)*. A broadcaster takes as
   many as its upload allows.
-- Neighbours are subject to the diversity limits of a bucket: at most 2 per site and 4 per
-  block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
+- Neighbours are subject to the diversity limits of a bucket: at most 1 per host, 2 per site
+  and 4 per block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
 - When no new record has arrived for 60 s *(initial)*, the broadcast counts as interrupted. A
   viewer keeps its neighbours and looks for others (§5). After 10 min *(initial)* without a
   record it leaves.
@@ -479,7 +482,7 @@ error message, and SHOULD mark such a link as private wherever it shows it.
 k       = H("ed3k v1 live private", secret ‖ key ‖ id)                    32 bytes
 stream  = H("ed3k v1 live private stream", k)[0..16)
 k_data  = H("ed3k v1 live private data", k)                               32 bytes
-target  = H("ed3k v1 live private target", k ‖ period(8))[0..16)          period = Unix time / 3600, rounded down
+target  = H("ed3k v1 live private target", k ‖ period(8))[0..16)          period = Unix time / 3600, rounded down, big-endian
 ```
 
 `stream` replaces the value of §1.1 in every message and in the signature of a segment record

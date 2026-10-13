@@ -116,7 +116,7 @@ A manifest with `usenet` is a **post set**. Its canonical form:
 | `Member.root` | BLAKE3 root of the decoded file |
 | `Member.dir` | 0: all files at the top level |
 | `usenet` | post id, root and size of the article list |
-| Everything else | absent: no `title`, `dirs`, `comment`, `created`, `id`, `seq`, `ed2k`, links, inner sets, key or signature |
+| Everything else | absent: every other field of `FileSet` and of a `Member`, among them `title`, `dirs`, `comment`, `created`, `id`, `seq`, `ed2k`, `links`, inner sets and mounts, `sealed`, `open`, `torrent`, `tube`, key and signature |
 
 - Serialisation as in [`torrent.md`](torrent.md) §2. The file is the 8 bytes of a manifest
   followed by a `SetFile` that has `body` only.

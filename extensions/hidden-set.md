@@ -32,6 +32,8 @@ ed3k:set?key=<set key, base32 lower case, no padding>&s=<secret, 32 bytes, base3
 - **`key` is made for this set.** The author MUST NOT use its node key or the key of another
   set. One key is one hidden set.
 - `secret` is 32 random bytes.
+- `key` and `s` are base32 as `Protocol.md` §13.2 fixes: written lower case without padding,
+  read either way.
 
 **The link is the credential.** A client MUST NOT write the secret to a log or show it in an
 error message, and SHOULD mark such a link as private wherever it shows it.
@@ -100,8 +102,8 @@ message Sealed {
   target began.
 - **Only the author can make a record.** The target follows from the key that signs, so nobody
   can take the place first with a record under a key of their own.
-- An author SHOULD store the same sealed bytes each time it stores one version again: a fresh
-  nonce changes `data`, and with it the tie-break between two records of one `seq`.
+- An author MUST store the same sealed bytes each time it stores one version again: a fresh
+  nonce would change `data`, and with it the tie-break between two records of one `seq`.
 
 **Storing**
 
@@ -164,8 +166,9 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
   `Browse`.
 - For an open member it publishes nothing because of the hidden set. If the node shares that
   file for another reason, the usual rules apply.
-- A sealed file is named on the wire by the first 16 characters of its root in base32. The
-  names in the manifest stay inside it.
+- A sealed file is named on the wire, in `FileStatus.name` (`Protocol.md` §12.1), by the first
+  16 characters of its root in base32, lower case (`Protocol.md` §13.2). The names in the
+  manifest stay inside it.
 - The member bitmap ([`file-set.md`](file-set.md) §4.1) works on the root of the sealed
   manifest as on any manifest. Whoever knows that root learns which members a node holds, and
   nothing about what they are.

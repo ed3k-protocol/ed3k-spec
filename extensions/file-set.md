@@ -359,6 +359,8 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
 
 - `ed3k:set` names a set that changes: the client searches the head and takes the newest
   version. It is the link to hand out for a set that will grow.
+- `key` and `id` are base32 as `Protocol.md` §13.2 fixes: written lower case without padding,
+  read either way.
 - `ed3k:file` with the root of a manifest names one version, as before.
 - **`path`** selects one member or one directory of the set, with `/` between components, as
   `ipfs://<root>/dir/file` does. It passes through inner sets by their directory names. A

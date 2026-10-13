@@ -35,13 +35,13 @@ Torrent torrent = 9;
 
 message Torrent {
   bytes  btih = 1;            // 20 B: SHA-1 of the info dictionary; a version 1 or hybrid torrent
-  bytes  btih2 = 2;           // 32 B: SHA-256 of the info dictionary; a version 2 or hybrid torrent
+  bytes  btmh = 2;            // 32 B: SHA-256 of the info dictionary; a version 2 or hybrid torrent
   bytes  info = 3;            // 32 B BLAKE3 root of the info dictionary
   uint32 info_size = 4;       // its size in bytes
 }
 ```
 
-- A manifest with `torrent` is a **torrent set**. At least one of `btih` and `btih2` is set.
+- A manifest with `torrent` is a **torrent set**. At least one of `btih` and `btmh` is set.
 - **The info dictionary is an ordinary ed3k file.** It is the bencoded `info` value exactly as
   it stands in the torrent. A node that shares a torrent set shares it under `info`, and
   publishes a `SOURCE` record for it. It MUST NOT publish `KEYWORD` records for it.
@@ -66,7 +66,7 @@ leaves nothing to choose.
 | `Member.root`, `Member.size` | BLAKE3 root and length of the file. A file of length 0 has the root of the empty input |
 | `dirs` | each directory once, in the order in which `files` first uses it |
 | `torrent` | every infohash the torrent has, `info` and `info_size` |
-| Everything else | absent: no `comment`, `created`, `id`, `seq`, `ed2k`, inner sets, key or signature |
+| Everything else | absent: every other field of `FileSet` and of a `Member`, among them `comment`, `created`, `id`, `seq`, `ed2k`, `links`, inner sets and mounts, `sealed`, `open`, `usenet`, `tube`, key and signature |
 
 - **Padding files** (attribute `p`) are not members. Their bytes are zeros and exist only in
   the piece space of the torrent.
@@ -99,7 +99,7 @@ both together:
 
 | Check | Rule |
 |---|---|
-| Infohash | the hash of the info dictionary is `btih`, or `btih2` |
+| Infohash | the hash of the info dictionary is `btih`, or `btmh` |
 | Count | the manifest has one member per file of the dictionary that is not a padding file |
 | Order, size, path | member *i* has the length and the path of file *i* |
 | Not private | the dictionary is not marked private |
@@ -245,10 +245,13 @@ tracker names.
 
 ```
 ed3k:file?b3=<root of the manifest>&sz=<size>&dn=<name>[&bt=<infohash, 40 or 64 hex>]
-magnet:?xt=urn:btih:<infohash>[&xs=<url-encoded ed3k:file link of the manifest>]
+magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the manifest>]
 ```
 
 - The `ed3k:file` link of the manifest is the link of the torrent, like that of any set.
+- `xt=urn:btih:` carries the 40-hex SHA-1 infohash of BitTorrent version 1; the base32 form
+  of that hash and `urn:btmh:` are not part of version 1. `bt` is hex as `Protocol.md` §13.2
+  fixes: written lower case, read in either case.
 - **`bt`** names the infohash of the torrent the manifest describes. It lets a client start
   from BitTorrent before it has the manifest (§4.1). The client MUST check it against the
   manifest once it has that; if they differ, `bt` is ignored.

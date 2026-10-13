@@ -11,7 +11,7 @@ A node that sets `CHAT` accepts text messages from other nodes.
 ```protobuf
 message Chat {
   string text = 1;            // at most 4,096 bytes in UTF-8
-  fixed64 id = 2;             // random per message; the same again when a message is repeated
+  fixed64 id = 2;             // random per message, the same again when it is repeated: a replay id, not a request id (§5.2)
 }
 
 message ChatAck { }
@@ -49,7 +49,8 @@ message ChatAck { }
 - `ChatAck` means the receiving node has the message. It does not mean a person has read it.
 - A sender that gets no answer because the connection was lost MAY send the message again with
   the same `id`. The receiver answers `ChatAck` to a repeated (sender, `id`) and shows the
-  message once. It remembers the `id`s of a sender for at least 10 min *(initial)*.
+  message once. It remembers the `id`s of a sender for at least 10 min *(initial)* and at
+  most 1,024 *(initial)* of them, the oldest forgotten first.
 
 ## 3. Open points
 

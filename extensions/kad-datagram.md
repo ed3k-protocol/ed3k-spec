@@ -229,7 +229,7 @@ always fits.
 | Reflection | A `CHALLENGE` is never longer than the datagram that caused it, and nothing else is sent to an address without a valid cookie. A responder SHOULD send at most 4 *(initial)* `CHALLENGE`s per second to one address |
 | Amplification | An `ANSWER` goes only to a cookie-validated address |
 | CPU | Cookie check (one keyed hash) precedes everything. Derived keys are cached per peer key; a responder limits new key derivations per source address to 8 per second *(initial)* |
-| Flooding | The per-address, per-kind limits of §10.3 apply unchanged |
+| Flooding | The limit on records per `Store` and the per-address, per-kind policy of §10.3 apply unchanged |
 | Requester load | At most 16 *(initial)* exchanges outstanding in total, and 2 per responder |
 
 ---
@@ -258,7 +258,7 @@ Sizes are whole UDP payloads without padding, estimated from the layouts above.
 
 | Datagram | Fixed part | Typical total |
 |---|---|---|
-| `INIT` | 58 | 58–81 |
+| `INIT` | 18 (70 with the pad of §2.1) | 70–81 |
 | `CHALLENGE` | 58 | 58 |
 | `REQUEST` | 76 + body | ~96 for a find-node, ~140 for a search |
 | `ANSWER` | 36 + body (+8 with cookie) | ~390 with 16 IPv4 contacts |

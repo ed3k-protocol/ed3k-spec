@@ -95,7 +95,8 @@ never sent: both sides know it, or they could not have computed `topic`.
 
 - A subscriber opens an exchange and sends `TopicJoin`. The peer answers with `TopicState`: its
   item if its order number is at least `held`, so that an item of the same number can win by
-  the tie-break of its type (§4), and peers if asked.
+  the tie-break of its type, where it has one (§4), and peers if asked. Of two `ON_AIR`
+  notices with the same `issued` a node keeps the first it verified.
 - A peer that does not take the subscriber answers with `refusal` set and closes. With
   `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
   to the topic, or does not know the type, answers `TOPIC_LEFT`.
@@ -130,8 +131,8 @@ A node checks an item before it does anything else with it (§4). Then:
 
 - A node aims at 3 neighbours per topic and keeps between 2 and 4 *(initial)*. When it falls
   below 2 it looks for more (§5).
-- Neighbours are subject to the diversity limits of a bucket: at most 2 per site and 4 per
-  block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
+- Neighbours are subject to the diversity limits of a bucket: at most 1 per host, 2 per site
+  and 4 per block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
 - **A node subscribes to at most 16 topics** *(initial)* in this way. Further things it follows
   are polled only. Which ones get the push is local choice; the ones that changed last are a
   good default.

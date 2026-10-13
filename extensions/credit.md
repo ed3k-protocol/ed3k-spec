@@ -130,7 +130,9 @@ spent ≥ spent at the start of the turn + due
 - Amounts are whole µ, rounded up per tranche, so both sides compute the same `due`.
 - The counters start at 0 on a new day (§3), but what was paid stays paid: the uploader carries
   the byte mark up to which the turn is paid across the day boundary, and the new day's `spent`
-  covers the tranches from the next unpaid one on.
+  covers the tranches from the next unpaid one on. For the first receipt after a day boundary
+  inside a turn, "spent at the start of the turn" reads as 0 and the sum runs from the first
+  tranche after the boundary, so both sides compute the same `due`.
 
 - The first receipt of a priority turn carries the payment for the first tranche. The uploader
   serves `BlockRequest`s only up to the end of the tranche that is paid.
@@ -369,6 +371,10 @@ unless
 - `kib` is at most 52,428,800 (50 GiB in a day) *(initial)*,
 - `kib` and `spent` are not below what is settled for (issuer, holder, day).
 
+A signature that does not verify recovers the zero address. That is why a zero `issuer` or
+`holder` is skipped as well: a receipt with a zero issuer and a bad signature would otherwise
+pass the first rule.
+
 Then, in this order:
 
 1. **Take.** The growth of `spent` is taken from the issuer, from `received` first, after its
@@ -458,6 +464,7 @@ of EIP-2612.
 - A transfer takes from `received` first, then from `earned`, and always arrives in
   `received`. So a balance cannot be kept under the floor of 10 by splitting it over many
   addresses.
+- A transfer to one's own address burns 10 % like any other.
 - Receiving a transfer is **never** activity and never counts for maturity.
 - Every address decays, contracts too. An exchange pool is an inactive account.
 - `balanceOf` falls with time without an event. `totalSupply` is the supply as last written,
