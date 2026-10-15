@@ -11,3 +11,7 @@ See [Protocol.md](./Protocol.md) for implementation details.
 
 The specification is placed in the public domain.
 See [LICENSE](./LICENSE).
+
+---
+
+[emule-qt.org](https://emule-qt.org/)
