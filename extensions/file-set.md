@@ -247,7 +247,7 @@ second is part of `Protocol.md` §12.5.
 bool  want_members = 8;       // on the stream of a manifest: tell me which members you have
 
 // in FileStatus:
-bytes members = 10;           // bitmap over FileSet.files, LSB first; bit set = member complete; missing bits are 0; absent = not told
+optional bytes members = 10;  // bitmap over FileSet.files, LSB first; bit set = member complete; missing bits are 0; absent = not told
 ```
 
 - A downloader sets `want_members` in a `FileRequest` for a manifest.
@@ -452,9 +452,8 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
   different sets per target; further ones get `FULL`.
 - It keeps at most 3 *(initial)* records per set under a target: the freshest ones, of
   different publishers, as for a keyword record (`Protocol.md` §10.8). A valid record of a
-  further publisher replaces the least fresh record kept (earliest `expires`; on a tie, the
-  lower publisher key) when its `expires` is later. One that does not is not kept; its publisher's site is counted until that record's `expires`. The answer
-  is `STORED` in both cases.
+  further publisher replaces the least fresh record kept: the one the node stored longest ago (`Protocol.md`
+  §10.8; `expires` does not count). The answer is `STORED`.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher

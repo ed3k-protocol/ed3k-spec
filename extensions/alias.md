@@ -119,10 +119,8 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 - It cannot check the claim.
 - **Records per root.** It keeps at most 3 *(initial)* records per root under a target: the
   freshest ones, of different publishers, as for a keyword record (`Protocol.md` §10.8). A
-  valid record of a further publisher replaces the least fresh record kept (earliest
-  `expires`; on a tie, the lower publisher key) when its `expires` is later. One that does
-  not is not kept; its publisher's site is counted until that record's
-  `expires`. The answer is `STORED` in both cases. This is the
+  valid record of a further publisher replaces the least fresh record kept: the one the node stored longest ago (`Protocol.md`
+  §10.8; `expires` does not count). The answer is `STORED`. This is the
   limit of a storing node. The 4 records per root and scheme above are the limit of one
   publisher, over the names it publishes.
 - A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
@@ -148,8 +146,8 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 
 **What an attacker can do**
 
-- **Fill a target** with 64 false roots, from at least 8 sites. The order by publisher sites puts the root that
-  several honest nodes name first, and each false record costs a signature under a node ID
+- **Fill a target** with 64 false roots, from at least 8 sites. The order by publisher sites
+  puts the root that several honest nodes name first, and each false record costs a signature under a node ID
   that clients then ignore.
 - **Make a client download a file it did not ask for.** §4 bounds what that costs for each
   relation. Nothing false is kept or passed on under the name.

@@ -126,7 +126,7 @@ message LiveSegment {
   uint32 init_size = 7;
   bool   gap = 8;             // not continuous with the segment before: the player resets
   bool   end = 9;             // the broadcast is over; no segment, `root` absent
-  // field 10 belongs to the optional paid subscription extension (subscription.md §7.1)
+  // fields 10 and 11 belong to the optional paid subscription extension (subscription.md §7.1)
 }
 ```
 
@@ -212,7 +212,7 @@ message LiveJoin {
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 5;         // n × 34 B
   bytes  proof = 6;           // private channel: 16 B (§10.3)
-  // fields 7 and 8 belong to the optional paid subscription extension (subscription.md §6.3)
+  // fields 7 to 9 belong to the optional paid subscription extension (subscription.md §6.3); 7 and 8 are reserved
 }
 
 message LiveState {

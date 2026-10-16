@@ -114,7 +114,7 @@ message Punch {               // type 11
   bytes   peer_id = 1;        // to the relay: the target; to the target: the initiator; in the target's answer: the initiator; in the relay's answer to the initiator: the target   Protocol.md §9.5
   bytes   ep4 = 2;            // sender's endpoints; the relay replaces the one of the family it received the Punch on (Protocol.md §9.5 steps 2 and 4)
   bytes   ep6 = 3;
-  uint32  nat = 4;            // sender's class in the family of the connection the message travels on   Protocol.md §9.2
+  uint32  nat = 4;            // sender's class in the family of its own hop to the relay, which `seen` names to the receiver   Protocol.md §9.5
   fixed64 nonce = 5;          // chosen by I, random; forwarded unchanged; T copies it into each PROBE as 8 B, big-endian; 0 in T's answer
   uint32  seen = 6;           // set by the relay only: bit 0 = ep4, bit 1 = ep6 is the endpoint the relay itself observed; the other is claimed
 }
@@ -165,10 +165,10 @@ message Store {
   Signed   note = 3;          // NOTE                                          Protocol.md §10.7
   repeated HttpSource http = 4;   // SOURCE: HTTP sources of the file; 3 per publisher and file   http-source.md §2
   Signed   head = 5;          // HEAD, HIDDEN or PART                          file-set.md §5.2
-  bytes    signer = 6;        // 32 B key under which the records of this Store are checked and counted when it is not the key of the connection; allowed for every signed kind   Protocol.md §10.7
+  bytes    signer = 6;        // 32 B key under which the records of this Store are checked and counted when it is not the key of the connection; allowed for every signed kind; ignored for SOURCE and the kinds stored like it   Protocol.md §10.7
   repeated Signed members = 7;    // MEMBER                                    file-set.md §6
   bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record; at most 256   Protocol.md §10.4
-  bytes    sealed = 9;        // FRIEND: exactly 384 B, padded before sealing; above 384 B: REJECTED   friend.md §4
+  bytes    sealed = 9;        // FRIEND: exactly 384 B, padded before sealing; any other length than 384 B: REJECTED   friend.md §4
   Signed   anon = 10;         // ANON or GATE; `signer` is always present      hops.md §4.3
   repeated Signed aliases = 11;   // ALIAS                                     alias.md §1
   repeated HttpSource links = 12; // SOURCE: links at file hosters; 3 per publisher and file   hoster.md §2
@@ -183,7 +183,7 @@ message KadAnswer {           // type 4
   bytes  nodes4 = 1;          // n × 22 B compact nodes, closest first          Protocol.md §10.3
   bytes  nodes6 = 2;          // n × 34 B
   bool   responsible = 3;     // this node considers the target inside its zone
-  uint32 load = 4;            // 0..100: files held under this target, in percent of the level size   Protocol.md §10.8
+  uint32 load = 4;            // 0..100: files held under this target, in percent of the level size, rounded down   Protocol.md §10.8
   repeated Peer   sources = 5;
   repeated Signed files = 6;  // Protocol.md §10.7
   repeated Signed notes = 7;  // Protocol.md §10.7
@@ -204,8 +204,8 @@ message KadAnswer {           // type 4
 enum StoreResult {
   STORED = 0;                 // Protocol.md §10.3
   FULL = 1;                   // no room under this target                     Protocol.md §10.8
-  BUSY = 2;                   // no room on this node; says nothing about the target
-  REJECTED = 3;               // failed a check (Protocol.md §10.7), or over a limit per address or per publisher
+  BUSY = 2;                   // no room on this node, or the sender is over its request rate; says nothing about the target
+  REJECTED = 3;               // failed a check (Protocol.md §10.7), or over a limit per address or per publisher on what is held
   FAR = 4;                    // a target of `also` this node is not responsible for
   OLDER = 5;                  // a newer or winning record is held; nothing changed
 }
@@ -245,10 +245,10 @@ message Signed {
 // ---------------------------------------------------------------------------------------
 
 message FileRequest {         // type 5
-  bytes  root = 1;            // 32 B; only in the first FileRequest of the stream   Protocol.md §12.1
+  bytes  root = 1;            // 32 B; required in the first FileRequest of the stream, ignored in later ones   Protocol.md §12.1
   optional bytes have = 2;    // my piece bitmap, LSB first; missing bits are 0, so an empty bitmap holds no piece (the opposite of FileStatus.have); absent = unchanged (first message: not told)
   uint32 want_sources = 3;    // max number of sources wanted, 0 = none
-  optional bytes relays4 = 4; // n × 22 B compact nodes: my relays, if I am not open; empty = none; absent = unchanged   Protocol.md §12.5
+  optional bytes relays4 = 4; // n × 22 B compact nodes: my relays, if I am not open; empty = none; absent = unchanged; the first 2 are used   Protocol.md §12.1, §12.5
   optional bytes relays6 = 5; // n × 34 B; likewise
   bool   brief = 6;           // I know name, ed2k and note; leave them out
   repeated HttpResult http_results = 7;   // outcome per HTTP source or link used   http-source.md §2.1
@@ -266,7 +266,7 @@ message FileStatus {          // type 6
   Note   note = 7;            // uploader's rating/comment on the file
   optional uint32 recheck = 8;    // queued: 0 = stay connected, else ask again after this many seconds; ignored while rank = 0; absent = unchanged / not told   Protocol.md §12.5
   repeated HttpSource http = 9;   // HTTP sources; 8 per message                http-source.md §2
-  bytes  members = 10;        // bitmap over FileSet.files, LSB first; bit set = member complete; missing bits are 0; absent = not told   file-set.md §4.1
+  optional bytes members = 10; // bitmap over FileSet.files, LSB first; bit set = member complete; missing bits are 0; absent = not told   file-set.md §4.1
   CreditOffer credit = 11;    // credit.md §4.1
   repeated HttpSource links = 12; // links at file hosters; 8 per message      hoster.md §2
   bool   ping = 13;           // answer this message with a FileRequest within 30 s   Protocol.md §12.5
@@ -598,7 +598,8 @@ message LiveSegment {
   uint32 init_size = 7;
   bool   gap = 8;             // not continuous with the segment before: the player resets
   bool   end = 9;             // the broadcast is over; no segment, `root` absent
-  optional uint64 epoch = 10; // paid channel: segment and init data sealed with the key of this epoch   subscription.md §7.1
+  optional uint64 epoch = 10; // paid channel: the segment is sealed with the key of this epoch   subscription.md §7.1
+  optional uint64 init_epoch = 11;  // paid: init data sealed with the key of this epoch; absent = `epoch`
 }
 
 message LiveJoin {            // type 19
@@ -608,8 +609,8 @@ message LiveJoin {            // type 19
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 5;         // n × 34 B
   bytes  proof = 6;           // private channel: 16 B                         live.md §10.3
-  SignedPass pass = 7;        // paid channel                                  subscription.md §6.3
-  PassProof pass_proof = 8;
+  reserved 7, 8;              // the joiner's pass travels in LiveState        subscription.md §6.3
+  uint64 offer_issued = 9;    // paid channel: `issued` of the offer I hold, from the channel file or newer; 0 = none
 }
 
 message LiveState {           // type 20
@@ -622,11 +623,11 @@ message LiveState {           // type 20
   string codecs = 7;
   Refusal refusal = 8;        // set: I do not take you as a neighbour
   bytes  proof = 9;           // private channel: 16 B, in the first answer to a valid proof, whatever `refusal`   live.md §10.3
-  SignedPass pass = 10;       // paid channel: in the first answer to a valid pass   subscription.md §6.3
+  SignedPass pass = 10;       // paid channel: the peer's in its first answer; the joiner's in its first LiveState after it   subscription.md §6.3
   PassProof pass_proof = 11;
   EpochKey key = 12;          // pushed to a neighbour whose viewer pass covers it
-  SignedOffer offer = 13;     // in the first answer if newer than the one in the channel file, and pushed
-  SignedChain chain = 14;     // the season of `key`, when it is not the season of the offer held
+  SignedOffer offer = 13;     // in the first answer if newer than `offer_issued`, and pushed
+  SignedChain chain = 14;     // the season of `key`; with the first key of each season sent on this exchange
 }
 
 enum Refusal {                // live.md §3; prefixed, since enum values share one scope per package
@@ -661,8 +662,8 @@ message TopicJoin {           // type 22
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
   uint64    held_grant = 7;   // Grant.number of the joint head I hold, 0 = none or a sole-author head   pubsub.md §2.1
-  SignedPass pass = 8;        // PAID                                          subscription.md §6.3
-  PassProof pass_proof = 9;
+  reserved 8, 9;              // the joiner's pass travels in TopicState       subscription.md §6.3
+  uint64    offer_issued = 10;  // PAID: `issued` of the offer I hold; 0 = none
 }
 
 message TopicState {          // type 23
@@ -670,10 +671,10 @@ message TopicState {          // type 23
   repeated Peer peers = 2;    // other subscribers of this topic
   TopicRefusal refusal = 3;   // set: I do not take you as a neighbour
   EpochKey  key = 4;          // PAID: pushed to a neighbour whose viewer pass covers it   subscription.md §6.3
-  SignedPass pass = 5;        // PAID: in the first answer to a valid pass
+  SignedPass pass = 5;        // PAID: the peer's in its first answer; the joiner's in its first TopicState after it
   PassProof pass_proof = 6;
-  SignedOffer offer = 7;      // PAID: in the first answer if newer than the joiner's, and pushed
-  SignedChain chain = 8;      // PAID: the season of `key`, when it is not the season of the offer held
+  SignedOffer offer = 7;      // PAID: in the first answer if newer than `offer_issued`, and pushed
+  SignedChain chain = 8;      // PAID: the season of `key`; with the first key of each season sent on this exchange
 }
 
 message TopicItem {
@@ -756,6 +757,8 @@ message HopOk {}              // type 39. Status frame, first in the reverse dir
 message HopConnect {          // type 33. First frame on a stream, read by the last hop; answered HopOk or Error, then raw bytes
   bytes node = 1;             // compact node, 22 or 34 B                      hops.md §3.1
   bytes gate = 2;             // 8 B; absent = the node itself is meant
+  bytes relays4 = 3;          // n × 22 B compact nodes: relays of `node`, from its Peer record; empty = none   hops.md §3.1
+  bytes relays6 = 4;          // n × 34 B; likewise
 }
 
 message HopJoin {             // type 34. First frame of an exchange from outside a path; answered HopOk or Error, then raw bytes
@@ -832,7 +835,7 @@ message CreditRelayAnswer {   // type 37, answer
 
 message Offer {
   bytes  scope = 1;           // 16 B                                          subscription.md §3
-  uint64 issued = 2;          // Unix time in seconds; a later offer replaces an earlier one
+  uint64 issued = 2;          // Unix time in seconds; a later offer replaces an earlier one; at most 1 h ahead (subscription.md §3)
   uint64 t0 = 3;              // start of epoch 0, Unix time in seconds; never changes
   uint32 period = 4;          // epoch length in seconds, 60 to 2,678,400; never changes
   SignedChain chain = 5;      // the current season                            subscription.md §4.2
@@ -843,14 +846,14 @@ message Offer {
   uint32 free_after = 10;     // epochs until an epoch is released; 0 = never  subscription.md §4.3
   string terms = 11;          // for display, at most 1,024 B
   string report_url = 12;     // https, at most 1,024 B; absent = no reports   subscription.md §5.3
-  uint32 devices = 13;        // node IDs one holder key may use at once; 0 = 3
+  uint32 devices = 13;        // node IDs one holder key may use at once, 1 to 63; 0 = 3
 }
 
 message Chain {
   bytes  scope = 1;           // 16 B                                          subscription.md §4.2
-  uint64 base = 2;            // first epoch of the season
+  uint64 base = 2;            // first epoch of the season; at most the epoch of now + 1 h, plus 1 (subscription.md §3)
   uint32 length = 3;          // 1 to 2^20
-  bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", K(base))
+  bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", scope ‖ K(base))
 }
 
 message SignedChain {
@@ -907,17 +910,18 @@ message Sighting {
 
 message KeyRequest {          // type 40
   bytes      scope = 1;       // 16 B                                          subscription.md §6.1
-  SignedPass pass = 2;        // absent: asks for the offer and the released key only
+  SignedPass pass = 2;        // absent: asks for the offer, the released keys and the answerer's pass only
   PassProof  proof = 3;       // with `pass`                                   subscription.md §5.2
   uint64     have = 4;        // newest epoch whose key I hold, plus 1; 0 = none
   bool       want_offer = 5;
   uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
+  uint64     offer_issued = 7;  // `issued` of the offer I hold; 0 = none
 }
 
 enum KeyRefusal {
   KEY_OK = 0;                 // subscription.md §6.1
   KEY_NO_PASS = 1;            // no pass, a relay pass, or one that fails or covers nothing new
-  KEY_NOT_HELD = 2;           // no key newer than `have` that the pass covers
+  KEY_NOT_HELD = 2;           // no key at or above `have` that the pass covers
   KEY_UNKNOWN = 3;            // no offer known for this scope
   KEY_BUSY = 4;               // over the limit for this holder key
 }
@@ -925,10 +929,12 @@ enum KeyRefusal {
 message KeyAnswer {           // type 41
   EpochKey    key = 1;        // the newest key the pass covers                subscription.md §6.1
   EpochKey    released = 2;   // the newest released key; absent if none
-  SignedOffer offer = 3;      // if asked, or if newer than the one shown
+  SignedOffer offer = 3;      // if asked, or if its `issued` is above `offer_issued`
   KeyRefusal  refusal = 4;
   repeated EpochKey    tips = 5;    // tips of earlier seasons, oldest first; at most 256   subscription.md §6.2
   repeated SignedChain chains = 6;  // the season of `key`, of `released` and of each tip
+  SignedPass  pass = 7;       // to a request without `pass`: my own pass, when I hold a key of the scope
+  PassProof   pass_proof = 8; // with `pass`                                   subscription.md §5.2
 }
 
 // ---------------------------------------------------------------------------------------

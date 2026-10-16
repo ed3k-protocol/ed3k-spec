@@ -267,6 +267,10 @@ A receipt that fails is dropped. A receipt is not answered. **Whether `spent` co
 next tranche: a last receipt that pays less than was due still counts for its `kib` and for
 what it pays.
 
+**A receipt dated tomorrow pays nothing yet.** Its `spent` counts as payment, towards `due`
+and the next tranche, only once its `day` is not above the uploader's today: the ledger cannot
+settle a day that has not begun. Its `kib` counts at once, as above.
+
 ### 4.3 `CreditRelay`
 
 A node needs a little native coin of the ledger chain to send a transaction (§7.3). A node

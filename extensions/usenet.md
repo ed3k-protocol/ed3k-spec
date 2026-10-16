@@ -45,8 +45,8 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 - **A file with a gap** in its part numbers has no file id, and an NZB with such a file has no
   post id. A part numbered 0 is a gap, and so is a file without parts: the parts are numbered
   1 to n, each number present. A file with a `number` outside 1..n, or one that is not a
-  decimal number, has no file id either. Such an NZB is not joined with ed3k; the files of it that are whole still are, one
-  by one.
+  decimal number, has no file id either. Such an NZB is not joined with ed3k; the files of it
+  that are whole still are, one by one.
 - Subject, poster, date, groups and the sizes an NZB tells are not part of a name. They differ
   from indexer to indexer.
 

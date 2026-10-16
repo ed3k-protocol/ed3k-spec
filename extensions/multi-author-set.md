@@ -309,7 +309,8 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
 travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search is paged with
 `offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records, in
-an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in `Protocol.md` §10.3.
+an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in `Protocol.md`
+§10.3.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|

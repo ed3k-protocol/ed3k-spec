@@ -80,7 +80,7 @@ message TopicJoin {
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
   uint64    held_grant = 7;   // Grant.number of the joint head I hold, 0 = none or a sole-author head
-  // fields 8 and 9 belong to the optional paid subscription extension (subscription.md §6.3)
+  // fields 8 to 10 belong to the optional paid subscription extension (subscription.md §6.3); 8 and 9 are reserved
 }
 
 message TopicState {
@@ -119,7 +119,8 @@ never sent: both sides know it, or they could not have computed `topic`.
 - After the first answer **both sides send `TopicState`** when they have verified a newer item,
   and at once to a new neighbour whose answer showed no item or an older one.
   They send it to every neighbour that has not shown this item or a newer one. Nothing else is
-  sent on the exchange.
+  sent on the exchange, apart from the passes, keys and offers of a `PAID` topic
+  ([`subscription.md`](subscription.md) §6.3).
 - The exchange stays open, and the connection is kept alive as for a file stream
   ([`Protocol.md`](../Protocol.md) §4.1). A neighbour is gone when the exchange or the
   connection closes. Either side leaves by closing the exchange.

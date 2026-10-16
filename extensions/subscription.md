@@ -84,14 +84,14 @@ message Offer {
   uint32 free_after = 10;     // an epoch is released this many epochs after it began; 0 = never (§4.3)
   string terms = 11;          // for display, at most 1,024 B of UTF-8
   string report_url = 12;     // https URL, at most 1,024 B; absent = no reports (§5.3)
-  uint32 devices = 13;        // node IDs one holder key may use at once; 0 = 3 (§5.3)
+  uint32 devices = 13;        // node IDs one holder key may use at once, 1 to 63; 0 = 3 (§5.3)
 }
 
 message Chain {
   bytes  scope = 1;           // 16 B
-  uint64 base = 2;            // first epoch of this chain; at most the current epoch + 1
+  uint64 base = 2;            // first epoch of this chain; at most the epoch of now + 1 h, plus 1 (§3)
   uint32 length = 3;          // number of epochs, 1 to 2^20
-  bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", K(base))
+  bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", scope ‖ K(base))
 }
 
 message SignedChain {
@@ -108,22 +108,41 @@ message SignedOffer {
 - The signature is by the publisher. A reader knows the publisher key from the link, the
   channel file or the manifest, and refuses an offer whose signature fails or whose `scope` is
   not the one it computed.
-- A `SignedOffer` MUST NOT exceed 4 KiB.
+- A `SignedOffer` MUST NOT exceed 4 KiB. The total wins: an offer whose fields each stay
+  within their own limits and that is larger is refused all the same.
+- The rules for `sigs` of `SignedOffer`, `SignedChain` and `SignedPass` are those of
+  [`Protocol.md`](../Protocol.md) §10.7.
+- `devices` is 0 to 63; a reader refuses an offer with a higher value (§5.3).
 - `t0` and `period` never change for a scope. An offer that changes them is refused, and the
   one held is kept.
 - **Nothing far ahead.** A reader refuses an offer whose `issued` is more than 1 h *(initial)*
-  ahead of its clock, and a chain whose `base` is above the current epoch + 1, by its own clock
-  (0 before `t0`). An offer that names such a chain is refused, and the one held is kept; a key
-  that comes with such a chain is dropped. A thief of the publisher key can then not sign an
+  ahead of its clock, and a chain whose `base` is above the epoch of its clock plus 1 h
+  *(initial)*, plus 1 (0 before `t0`). The hour is the clock tolerance of the offer; with short
+  periods it keeps a reader whose clock is behind from refusing a season that has begun. An
+  offer that names such a chain is refused, and the one held is kept; a key that comes with
+  such a chain is dropped. A thief of the publisher key can then not sign an
   `issued` or a `base` so far ahead that no later offer or season of the publisher replaces it.
 - A chain covers epochs from `base` up to `base + length − 1`. A newer offer keeps the chain
   of the one held, or names one with a higher `base`. An offer whose chain has a lower `base`,
   or the same `base` with another `length` or `anchor`, is refused. A chain whose `scope` is
   not the offer's, or whose signature fails, makes the offer invalid.
+- **The offer names the current season.** `chain` is the season of the epoch of `issued`, or,
+  after a leak, the new season that begins at the next epoch (§4.5). A planned season (§4.4) is
+  not named in an offer before it begins: it travels with its keys (§6.1), and the publisher
+  signs a new offer when it begins. A planned season so never takes the `base` that a new
+  season after a leak needs.
+- A chain that the offer held names takes the place of a chain of the same `base` that a reader
+  got with keys; the keys of that other chain are dropped.
 - An epoch belongs to the chain with the highest `base` that is not above it.
-- `pay_url` and `pass_url` are `https`. A client refuses other schemes. Both are optional: a
-  publisher that sells by hand leaves them out.
-- A reader keeps the offer with the highest `issued` it has seen for a scope.
+- `pay_url`, `pass_url` and `report_url` are `https`, with a host and without a user name or
+  password. A client refuses other forms. They are optional: a publisher that sells by hand
+  leaves them out.
+- **A client checks the target** of each of the three before it opens, polls or posts to it,
+  as [`http-source.md`](http-source.md) §5 checks a source: the address global unicast, for the
+  first URL and for every redirect, literal or resolved, through a proxy as there. It follows a
+  redirect only to `https`. A URL that fails is not used.
+- A reader keeps the offer with the highest `issued` it has seen for a scope. Of two with the
+  same `issued` it keeps the one whose `body` is lower, compared as a byte string.
 - An issuer that a newer offer leaves out signs no more valid passes for the scope, and the
   passes it signed stop counting there. A publisher that drops a seller first lets its passes
   run out, or signs replacements.
@@ -133,9 +152,9 @@ message SignedOffer {
 | Scope | The offer is in |
 |---|---|
 | open live channel | `Channel.offer` of the channel file ([`live.md`](live.md) §1.2) |
-| private live channel | the purchase answer (§9), and every `KeyAnswer` and first `LiveState` from a pass holder |
+| private live channel | the purchase answer (§9), and a `KeyAnswer` or first `LiveState` from a pass holder, as §6.2 and §6.3 say |
 | set with an open manifest | `FileSet.offer` of each manifest |
-| hidden set | the purchase answer, every `KeyAnswer`, and `FileSet.offer` of the sealed manifest |
+| hidden set | the purchase answer, a `KeyAnswer` as §6.2 says, and `FileSet.offer` of the sealed manifest |
 
 A node that holds a newer offer than the one in a channel file or a manifest uses the newer
 one. A changed price does not need a new channel file.
@@ -163,8 +182,8 @@ The publisher draws a random 32-byte key for the last epoch of a chain, `K(base 
 and computes every earlier key from it:
 
 ```
-K(e − 1) = H("ed3k v1 paid chain", K(e))                      for base < e ≤ base + length − 1
-anchor   = H("ed3k v1 paid anchor", K(base))
+K(e − 1) = H("ed3k v1 paid chain", scope ‖ K(e))              for base < e ≤ base + length − 1
+anchor   = H("ed3k v1 paid anchor", scope ‖ K(base))
 ```
 
 ```protobuf
@@ -176,10 +195,19 @@ message EpochKey {
 
 - **Whoever has `K(e)` computes the key of every earlier epoch of the chain**, and nobody can
   compute a later one.
+- **Every step is bound to the scope**, and so is every key derived from `K(e)` (§7.1, §8.1,
+  §8.3). A publisher MUST all the same draw a fresh seed per scope and season: the seed is the
+  key of the last epoch, so a seed used in two scopes would give the other scope's chain away
+  with that key.
 - **Verifying a key.** A reader applies the chain step `e − base` times to `K(e)`, then the
-  anchor step, and compares with `anchor`. A key that fails is dropped, and the node that sent
-  it counts one bad answer. A reader keeps the newest key it verified and hashes only from
-  there the next time. Even a chain of 2^20 epochs costs well under a second to check.
+  anchor step, and compares with `anchor`. A reader keeps the newest key it verified and hashes
+  only from there the next time. Even a chain of 2^20 epochs costs well under a second to check.
+- **Work per message.** A reader does at most 2^20 *(initial)* chain steps for the keys of one
+  message (`KeyAnswer`, `LiveState`, `TopicState`), in the order they are sent. Keys beyond that
+  are dropped unchecked, which is no fault of the sender; a requester asks for them again (§6.2).
+- **A key that fails** is dropped. The reader closes the exchange it came on, and does not take
+  that node as a source of keys or as a neighbour of the scope for 24 h *(initial)*, as
+  [`pubsub.md`](pubsub.md) §2.2 does for an item that fails.
 - The last key of a chain, its **seed**, produces every key of the chain. Where the publisher
   keeps it is said in §4.4.
 - The first check of a season of 720 epochs costs 720 hashes.
@@ -226,8 +254,10 @@ When `free_after` is above 0, epoch `e` is **released** at the start of epoch
 - Released epochs of a live channel open recordings of it. The live window itself
   ([`live.md`](live.md) §3.3) is long gone by then.
 - A released epoch opens only its own season. Once the released epochs pass the end of a
-  season, its tip is released too, and a node without a pass gets it as `released` with the
-  `SignedChain` of that season.
+  season, its tip is released too. A node without a pass gets the released tips of every
+  ended season in `tips` of a `KeyAnswer`, with their `SignedChain`s (§6.2), and the newest
+  released key as `released`. The back catalogue that is released is so reachable without a
+  pass, season by season.
 
 ### 4.4 Keys on online nodes
 
@@ -245,8 +275,9 @@ need keys, but not the seed of a season.
 - **A node that is broken into** gives away the keys up to the end of its horizon. The rest of
   the season and every later season stay closed. The publisher starts a new season (§4.5) and
   gives the new keys only to nodes it has made safe again.
-- A planned season's `SignedChain` reaches readers no earlier than the epoch before its
-  `base`: a reader refuses it before then (§3).
+- A planned season's `SignedChain` reaches readers no earlier than 1 h *(initial)* before the
+  epoch before its `base`: a reader refuses it before then (§3). It travels with its first
+  keys, not in an offer (§3).
 - The publisher key that signs offers, chains, segment records and manifests is a separate
   matter. A thief who has it can sign seasons and offers of its own; there is no successor key
   yet (§13). §3 keeps those within 1 h and one epoch ahead, so they compete with the
@@ -317,8 +348,10 @@ message SignedPass {
   *(initial)*.
 - **Relay passes** go to nodes the publisher trusts to carry data: its own seed boxes, a
   hosting service. A relay pass holder never gets a key (§6).
-- A publisher MAY give itself a viewer pass, so its own nodes join and seed like any
-  subscriber.
+- **Every node of the publisher** that joins the mesh of the scope or answers key requests,
+  the broadcaster and the author included, MUST hold a pass of the scope signed by the
+  publisher: a viewer pass, or a relay pass for one that only carries data. A joiner drops a
+  peer without a valid pass (§6.3), the publisher's own nodes included.
 
 ### 5.1 The holder key
 
@@ -326,7 +359,9 @@ message SignedPass {
   key ([`Protocol.md`](../Protocol.md) §6.1), and SHOULD NOT be the holder key of another
   subscription.
 - **The holder key keeps subscriptions apart.** A neighbour sees the node ID of the connection
-  and the holder key of this scope. It cannot tell which other scopes the node pays for, and an
+  and the holder key of this scope, and so does a node that asks a pass holder for a key
+  (§6.1). A node shows its pass only to a node that showed a valid pass of the scope first
+  (§6.1, §6.3), so a node without a pass learns no holder key that a joiner or requester holds. It cannot tell which other scopes the node pays for, and an
   issuer cannot tell which node watches.
 - A pass that names several scopes shows all of them to every node it is shown to. A client
   SHOULD tell the user so before it buys one.
@@ -358,9 +393,17 @@ sig = Ed25519 signature by holder over
   in `scopes`; that `key` is the publisher or an issuer of the offer it holds; that the pass
   covers the current epoch, or for a relay pass that `until` is in the future; the proof.
   Ed25519 is verified as [`Protocol.md`](../Protocol.md) §10.7 says.
+- **For a key request** the epoch check is left out: a viewer pass that covers an earlier epoch
+  of the scope passes, and §6.2 bounds what it gets. Joining the mesh needs a pass that covers
+  the current epoch (§6.3).
+- **In a private channel** the secret proof of [`live.md`](live.md) §10.3 is checked before
+  any of this (§7). A node that fails it sees no pass and shows none.
 - A receiver that does not hold the offer of the scope cannot check an issuer. It accepts a
   pass signed by the publisher, and asks the sender for the offer (§6.1) for one signed by an
   issuer.
+- Nor can it compute an epoch without `t0` and `period`. Until the offer arrived it checks that
+  `until` is in the future in place of the epoch; once it arrived, it checks the epoch, and
+  refuses a neighbour as §6.3 says when the pass does not cover the current one.
 - A node re-checks the passes of its neighbours at each epoch boundary. A neighbour whose pass
   no longer covers the current epoch is refused as §6.3 says.
 
@@ -370,7 +413,8 @@ A holder key that several people use shows up as one key at more node IDs than o
 has devices. A node that sees that MAY report it to the seller, with the proofs as evidence.
 
 - **What counts.** `devices` of the offer is the number of node IDs one holder key may use at
-  the same time; 0 means 3 *(initial)*. A node counts, per scope and holder key, the distinct
+  the same time, 1 to 63; 0 means 3 *(initial)*. A report holds at most 64 sightings, so 63 is
+  the highest number that a report can exceed. A node counts, per scope and holder key, the distinct
   sender node IDs of the valid proofs it received in the last hour *(initial)*. Above
   `devices` it MAY report.
 - A node reports only what it received itself. It does not pass on, collect or ask for proofs
@@ -413,17 +457,18 @@ message ShareReport {
 ```protobuf
 message KeyRequest {          // type 40
   bytes      scope = 1;       // 16 B
-  SignedPass pass = 2;        // absent: asks for the offer and the released key only
+  SignedPass pass = 2;        // absent: asks for the offer, the released keys and the answerer's pass only
   PassProof  proof = 3;       // §5.2; with `pass`
   uint64     have = 4;        // the newest epoch whose key I hold, plus 1; 0 = none
   bool       want_offer = 5;  // send the offer I hold
   uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
+  uint64     offer_issued = 7;  // `issued` of the offer I hold; 0 = none
 }
 
 enum KeyRefusal {
   KEY_OK = 0;
   KEY_NO_PASS = 1;            // no pass, a relay pass, or one that fails a check or covers nothing new
-  KEY_NOT_HELD = 2;           // I hold no key newer than `have` that your pass covers
+  KEY_NOT_HELD = 2;           // I hold no key at or above `have` that your pass covers
   KEY_UNKNOWN = 3;            // I know no offer for this scope
   KEY_BUSY = 4;               // over the limit for this pass (§6.2)
 }
@@ -431,15 +476,28 @@ enum KeyRefusal {
 message KeyAnswer {           // type 41
   EpochKey    key = 1;        // the newest key your pass covers; absent with a refusal
   EpochKey    released = 2;   // the newest released key (§4.3); absent if none
-  SignedOffer offer = 3;      // if asked, or if newer than the one you showed
+  SignedOffer offer = 3;      // if asked, or if its `issued` is above `offer_issued`
   KeyRefusal  refusal = 4;
   repeated EpochKey    tips = 5;    // tips of earlier seasons (§4.2), oldest first; at most 256
   repeated SignedChain chains = 6;  // the season of `key`, of `released` and of each tip
+  SignedPass  pass = 7;       // to a request without `pass`: my own pass, when I hold a key of the scope
+  PassProof   pass_proof = 8; // §5.2; with `pass`
 }
 ```
 
 `KeyRequest` and `KeyAnswer` are a request/answer exchange ([`Protocol.md`](../Protocol.md)
 §5.2). The same `EpochKey` is pushed between neighbours on a live or topic exchange (§6.3).
+
+**The answerer shows its pass first.** A requester sends its pass only to a node that showed a
+valid viewer pass of the scope on the same connection, in a `KeyAnswer`, a `LiveState` or a
+`TopicState`. Otherwise it asks in two steps:
+
+1. A `KeyRequest` without `pass`. A node that holds a key of the scope answers it with its own
+   `pass` and `pass_proof`, together with what §6.2 gives without a pass.
+2. The requester checks that pass as §5.2 says for a key request. When it is valid, it sends a
+   second `KeyRequest` with its own pass on the same connection; else it asks another node.
+
+A requester that wants only the offer or released keys stops after step 1.
 
 ### 6.2 Who answers
 
@@ -447,19 +505,27 @@ message KeyAnswer {           // type 41
   relay never holds a key. No node needs a role of its own, and the publisher need not be
   online between two epochs.
 - It answers with the key of the newest epoch that the pass covers, that is not above the
-  current epoch, and that it holds or can compute. In the last 10 % of an epoch, at most
-  10 min *(initial)*, the next epoch counts as current, so a key can spread before it is
-  needed.
+  current epoch, that is at or above `have`, and that it holds or can compute. In the last
+  10 % of an epoch, at most 10 min *(initial)*, the next epoch counts as current, so a key can
+  spread before it is needed.
 - An answer is never more than the pass covers. A node that holds only later keys of the same
   season computes the covered one from them (§4.1).
+- **A pass that has run out.** A viewer pass that no longer covers the current epoch is still
+  answered: with the newest key it covers and the tips of the seasons before that key's, never
+  with a key of the current epoch or a later one. A viewer whose pass ran out so gets what
+  §10 says it keeps.
 - **Tips.** To a viewer pass, a node adds the tips it holds of every season that ended before
   the season of `key` and has a `base` of at least `tips_have`. An older tip that a requester
   lacks comes in a further request with a lower `tips_have`.
 - `chains` holds the `SignedChain` of each season that a key in the answer belongs to. A
   requester verifies each key against the anchor of its season, and drops the answer when a
   chain or a key fails.
-- **Without a pass**, or with one that fails, a node answers `KEY_NO_PASS` with `released` and,
-  if asked, `offer`. This is how a client that has only a link learns the price.
+- **Without a pass**, or with one that fails, a node answers `KEY_NO_PASS` with `released`, in
+  `tips` the released tips (§4.3) of every ended season with a `base` of at least `tips_have`,
+  with their `chains`, and, if asked, `offer`. This is how a client that has only a link learns
+  the price and gets the released back catalogue.
+- `offer` is in the answer when `want_offer` is set, and when the offer the node holds has a
+  higher `issued` than `offer_issued`.
 - A node answers at most 6 *(initial)* requests with a key per holder key per hour, and
   `KEY_BUSY` above that. A node also limits requests per connection as for any request.
 - A node does not answer with a key over a connection whose peer it has refused as a source or
@@ -472,38 +538,49 @@ with a pass on both sides.
 
 ```protobuf
 // in LiveJoin (live.md §3):
-SignedPass pass = 7;
-PassProof  pass_proof = 8;    // §5.2
+reserved 7, 8;                // the joiner's pass travels in LiveState (below)
+uint64 offer_issued = 9;      // `issued` of the offer I hold, from the channel file or newer; 0 = none
 
 // in LiveState (live.md §3):
-SignedPass  pass = 10;        // in the first answer to a LiveJoin with a valid pass
-PassProof   pass_proof = 11;
+SignedPass  pass = 10;        // the peer's in its first answer; the joiner's in its first LiveState after it (below)
+PassProof   pass_proof = 11;  // §5.2; with `pass`
 EpochKey    key = 12;         // pushed (below)
-SignedOffer offer = 13;       // in the first answer if newer than the one in the channel file, and pushed (below)
-SignedChain chain = 14;       // the season of `key`, when it is not the season of the offer held
+SignedOffer offer = 13;       // in the first answer if newer than `offer_issued`, and pushed (below)
+SignedChain chain = 14;       // the season of `key`; with the first key of each season sent on this exchange
 
 // in enum Refusal (live.md §3):
 LIVE_PASS = 4;                // no valid pass for this scope and epoch
 
 // in TopicJoin (pubsub.md §2):
-SignedPass pass = 8;
-PassProof  pass_proof = 9;
+reserved 8, 9;                // the joiner's pass travels in TopicState (below)
+uint64 offer_issued = 10;     // `issued` of the offer I hold; 0 = none
 
 // in TopicState (pubsub.md §2):
 EpochKey   key = 4;           // pushed (below)
-SignedPass pass = 5;          // in the first answer to a TopicJoin with a valid pass
-PassProof  pass_proof = 6;
-SignedOffer offer = 7;        // in the first answer if newer than the joiner's, and pushed (below)
-SignedChain chain = 8;        // the season of `key`, when it is not the season of the offer held
+SignedPass pass = 5;          // the peer's in its first answer; the joiner's in its first TopicState after it (below)
+PassProof  pass_proof = 6;    // §5.2; with `pass`
+SignedOffer offer = 7;        // in the first answer if newer than `offer_issued`, and pushed (below)
+SignedChain chain = 8;        // the season of `key`; with the first key of each season sent on this exchange
 
 // in enum TopicRefusal (pubsub.md §2):
 TOPIC_PASS = 3;
 ```
 
-- **A joiner shows its pass, and the peer answers with its own.** A peer answers a join
-  without a valid pass with `LIVE_PASS` or `TOPIC_PASS`, and with nothing else: no peers, no
-  records, no item. A joiner closes the exchange when the first answer has no valid pass.
-- With a valid pass on both sides the exchange goes on as in the documents it extends.
+- **The peer shows its pass first.** A joiner sends `LiveJoin` or `TopicJoin` without a pass.
+  The peer's first answer carries its own `pass` and `pass_proof`, `offer` when it is newer
+  than `offer_issued`, in a private channel the `proof` of [`live.md`](live.md) §10.3, and
+  nothing else of the scope: no peers, no records, no item, no `refusal` other than
+  `LIVE_LEFT` or `TOPIC_LEFT`.
+- The joiner checks that pass (§5.2). When it is absent or fails, the joiner closes the
+  exchange. Else it sends its own `pass` and `pass_proof` in its first `LiveState` or
+  `TopicState`, and nothing else.
+- The peer checks the joiner's pass. Without a valid one it sends `refusal = LIVE_PASS` or
+  `TOPIC_PASS`, with nothing else, and closes. With one, its next message is the first answer of
+  the document the exchange belongs to, `refusal` and `peers` included, and the exchange goes
+  on as there.
+- A node therefore shows its pass only to a node that showed a valid one first, and the
+  joiner's is the second. Both are passes of the scope that cover the current epoch, or relay
+  passes whose `until` is in the future.
 - **Keys are pushed.** A node that learns a newer key sends it at once, in `LiveState.key` or
   `TopicState.key`, to every neighbour whose viewer pass covers that epoch and that has not
   shown a key that new. A relay neighbour gets no key. This is how the key of a new epoch gets
@@ -531,31 +608,41 @@ ed3k:live?key=<channel key>&id=<id>&paid=1[&s=<secret>][&dn=<url-encoded title>]
   holders can join them (§6.3).
 - **Private paid channel.** The link carries `s` as well. Everything of [`live.md`](live.md)
   §10.1, §10.3 and §10.4 applies: `stream`, the hourly target and the secret proof. A joiner
-  shows the secret proof and the pass. Segments are sealed as below, not with the `k_data` of
-  §10.2 there.
+  shows the secret proof in `LiveJoin`, and its pass after the peer showed its own (§6.3).
+  **The secret proof is checked first.** A join without a valid one is answered as
+  [`live.md`](live.md) §10.3 says, and neither side shows a pass: a pass holder who does not
+  know the secret learns nothing of the channel's members. Segments are sealed as below, not
+  with the `k_data` of §10.2 there.
 
 ### 7.1 Sealed segments
 
 ```protobuf
 // in LiveSegment (live.md §2.2):
-optional uint64 epoch = 10;   // the segment and its init data are sealed with the key of this epoch
+optional uint64 epoch = 10;   // the segment is sealed with the key of this epoch
+optional uint64 init_epoch = 11;  // the init data is sealed with the key of this epoch; absent = `epoch`
 ```
 
 ```
-k_seg = H("ed3k v1 paid live", K(epoch))
+k_seg = H("ed3k v1 paid live", scope ‖ K(epoch))
 stored bytes = nonce(12) ‖ ChaCha20(k_seg, nonce, plain bytes)          RFC 8439, counter from 0
 ```
 
 - Every segment and every init data of a paid channel is sealed. A record without `epoch` in a
-  paid channel is invalid.
+  paid channel is invalid, except the `end` record ([`live.md`](live.md) §2.2), which seals
+  nothing and carries neither `epoch` nor `init_epoch`.
+- **Init data** is sealed once, with `k_seg` of the epoch in which the broadcaster first sent
+  it, and keeps its root after that. A later record that names the same `init` in another
+  epoch names that first epoch in `init_epoch`. `init_epoch` MUST NOT be above `epoch`; a
+  record with a higher one is invalid.
 - `root` and `size` in the record are those of the stored bytes. Peers verify and pass on
   blocks exactly as in an open channel, relays included.
 - `nonce` is random for every segment and every init data.
 - **The broadcaster** seals each segment with the key of the epoch in which it cut it. It
   pushes the key of the next epoch to its neighbours in the last 10 % of an epoch
   (§6.2), so viewers hold it before the first segment arrives.
-- A record with an `epoch` more than one above the current epoch is invalid. A neighbour that
-  sends one counts one miss ([`live.md`](live.md) §6.1).
+- A record with an `epoch` more than one above the current epoch is invalid. A node drops it
+  and does not forward it. It is not a miss for the neighbour that sent it: the channel key
+  signed it, as for the limits of [`live.md`](live.md) §2.2.
 - A viewer that cannot open a segment because it lacks the key asks a neighbour (§6.1) and
   keeps the segment until it can, or until it leaves the window.
 
@@ -582,7 +669,7 @@ optional uint64 epoch = 12;   // the shared file is sealed with the key of this 
 ```
 
 ```
-k_data = H("ed3k v1 paid data", K(epoch))
+k_data = H("ed3k v1 paid data", scope ‖ K(epoch))
 sealed bytes = nonce(12) ‖ ChaCha20(k_data, nonce, plain bytes)        RFC 8439, counter from 0
 ```
 
@@ -629,8 +716,8 @@ optional uint64 epoch = 3;    // data and the manifest are sealed with keys of t
 ```
 
 ```
-k_head = H("ed3k v1 paid head", K(epoch))        seals Sealed.data
-k_data = H("ed3k v1 paid data", K(epoch))        seals the manifest and its inner manifests (§4.1 there)
+k_head = H("ed3k v1 paid head", scope ‖ K(epoch))        seals Sealed.data
+k_data = H("ed3k v1 paid data", scope ‖ K(epoch))        seals the manifest and its inner manifests (§4.1 there)
 ```
 
 - Reading: [`hidden-set.md`](hidden-set.md) §3 *Reading*, with `k_head` and `k_data` of
@@ -660,8 +747,24 @@ target = H("ed3k v1 paid topic", scope ‖ day(8))[0..16)       day = Unix time 
 - `TopicJoin.topic` is the `scope`. The `SUB` records ([`pubsub.md`](pubsub.md) §5) are stored
   and looked up under `target`, which changes every day. In the first and last hour of a day a
   joiner also looks under the target of the day before or after.
-- Order number of an item: `Sealed.seq` of the `HIDDEN` record. A catalogue has no item in
-  this topic; its heads travel on its `SET_HEAD` topic.
+- Order number of an item: `Sealed.seq` of the `HIDDEN` record. Of two items with the same
+  `seq` the one with the lower `data`, compared as a byte string, wins, as in
+  [`hidden-set.md`](hidden-set.md) §3. A catalogue has no item in this topic; its heads travel
+  on its `SET_HEAD` topic.
+
+| Check | |
+|---|---|
+| Signature | valid under the set key, with kind `HIDDEN` and `base` in the place of the target, as the reader of [`hidden-set.md`](hidden-set.md) §3 checks it |
+| `expires` | later than now minus 1 h |
+| Content | `sealed` with `epoch`, and nothing else |
+| Size | `data` 12 to 256 B |
+| `epoch` | at most one above the current epoch |
+| Opened | once the node holds a key that covers `epoch`: `data` opens with `k_head` to a `Head` whose `seq` is the one outside and whose `root` is 32 B |
+
+A failed check is a content failure of [`pubsub.md`](pubsub.md) §2.2, except `expires` and
+`epoch`, which are time checks. A node that holds no key for `epoch` yet passes the item on
+when the other checks hold, and gets a key (§6) before it opens it. A relay passes it on
+unopened.
 - A pass holder of a set SHOULD join its topic while it follows the set, within the limit of
   16 topics of [`pubsub.md`](pubsub.md) §2.3. It counts as one topic, whatever the form.
 - A client that has a pass but no key looks up `target`, and sends `KeyRequest` or joins. A
@@ -698,8 +801,10 @@ gets a pass back, so that any client can buy from any seller.
   is in `scopes`. It ignores a pass that fails.
 - The request carries no cookie, no account and nothing else. The holder key is all the seller
   needs: a pass is of no use without the private key.
-- An issuer that serves `pass_url` MAY also send the offer, as a serialised `SignedOffer` in
-  the header `Ed3k-Offer` (base64). For a private channel or a hidden set this is how a buyer
+- With a pass signed by an issuer, `pass_url` MUST also send the offer, as a serialised
+  `SignedOffer` in the header `Ed3k-Offer` (base64): without it the buyer cannot check the
+  issuer (§5.2). With a pass signed by the publisher it MAY. For a private channel or a hidden
+  set this header, or step 1 of a key request to a pass holder (§6.1, §6.2), is how a buyer
   gets its first offer.
 
 ### 9.2 Renewal
@@ -720,8 +825,10 @@ ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32-byte seed, base32>]
   sends back to a buyer who gave it a holder key by hand.
 - **With `k`**, the link is a **voucher**: whoever has it holds the pass. It is the form for
   gifts and sales in a shop. A client imports the key and SHOULD make the voucher used: it
-  treats the link as a credential, MUST NOT write it to a log, and SHOULD tell the user that a
-  voucher used twice is one pass for two people.
+  marks the pass as imported in its own store, so that it does not take the link a second
+  time, and forgets the link once the pass and the key are stored. It treats the link as a
+  credential, MUST NOT write it to a log, and SHOULD tell the user that a voucher used twice is
+  one pass for two people.
 - An `ed3k:pass` link is refused when `p` does not parse as a `SignedPass` or, with `k`, when
   the key does not give `holder`.
 
@@ -731,14 +838,14 @@ ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32-byte seed, base32>]
 
 | | |
 |---|---|
-| Someone without a pass | can see an open channel and an open catalogue, and the price. Cannot join the mesh or open a sealed segment, member or hidden manifest |
+| Someone without a pass | can see an open channel and an open catalogue, the price, and the released epochs. Cannot join the mesh or open a sealed segment, member or hidden manifest of an epoch not yet released. Learns no holder key of a joiner or requester, but the holder key of a pass holder it asks for a key (§6.1) |
 | A viewer whose pass ran out | keeps everything up to the last epoch its pass covered, and the keys for it. Cannot open a later epoch |
 | A new subscriber | opens every earlier epoch, the whole back catalogue included, through the tips of earlier seasons (§4.2) |
 | A viewer who passes the holder key on | gives the pass to others until `until`. The rate limit of §6.2 slows key requests, and a neighbour that sees the key at more node IDs than `devices` may report it to the seller (§5.3), which can refuse to renew |
 | A viewer who publishes an epoch key | opens that epoch and the earlier ones of its season, for everyone and for good. Not other seasons, and nothing after that epoch; only a leaked horizon key (§4.4) needs a new season (§4.5) |
 | A node of the publisher that is broken into | gives away the keys up to its horizon, at most 7 days *(initial)*, if the seed was kept off it (§4.4). A node that broadcasts or publishes versions also holds the publisher key: the thief can then sign offers and seasons of its own, which compete with the publisher's at every reader until the publisher moves to a new key (§13). It cannot sign one so far ahead that no later offer or season of the publisher can replace it (§3) |
 | Taking access away | at the end of the pass, on an epoch boundary. Short passes make that soon (§9.2) |
-| A neighbour | learns the node ID and the holder key of this scope, and that both belong together. Not which other scopes the node pays for, unless the pass names several (§5.1) |
+| A neighbour, or a node that asks a pass holder for a key | learns the node ID and the holder key of this scope, and that both belong together. Not which other scopes the node pays for, unless the pass names several (§5.1). A joiner or requester shows its pass only to a node that showed a valid one first (§6.1, §6.3); a pass holder that answers shows its own to every node that asks |
 | A storing node | as for an open channel, an open set or a hidden set. The daily target of §8.4 limits who sees the pass holders of a set over time |
 | The seller | learns the holder key and whatever it asked for when the viewer paid. Not the node ID, unless a neighbour reports the holder key as shared (§5.3) |
 | The publisher | needs to be online when it starts a new epoch with content in it: a broadcast, or a new version of a set |

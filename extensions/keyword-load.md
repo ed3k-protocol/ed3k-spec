@@ -40,8 +40,8 @@ Nothing on the wire changes when the rules below are switched on.
 A storing node keeps one **entry** per file (root) and target. An entry holds:
 
 - up to 3 *(initial)* signed records of different publishers, the freshest ones. A valid
-  record of a further publisher replaces the least fresh record kept (earliest `expires`; on a
-  tie, the lower publisher key) when its `expires` is later (§10.8)
+  record of a further publisher replaces the least fresh record kept, the one stored longest
+  ago (§10.8)
 - the **sites** of the publishers that stored or offered the file, each remembered until the
   record that publisher sent expires. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count

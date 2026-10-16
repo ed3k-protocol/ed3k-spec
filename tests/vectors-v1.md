@@ -927,8 +927,8 @@ PassProof   = 08e0e19e0e12405c9bb5632cc0e1b5329d03e95e3c0a25f86b6319b1135b10fb1d
               (71 bytes)
 ```
 
-**Key exchange** (§6.1). The request shows the pass, holds no key and asks for the offer. The
-answer gives `K(285)` of season B, the key of the current epoch, the offer, the tip of the
+**Key exchange** (§6.1). The request is step 2, after the answerer showed its pass: it shows
+the pass, holds no key and asks for the offer. The answer gives `K(285)` of season B, the key of the current epoch, the offer, the tip of the
 ended season A, and both `SignedChain`s:
 
 ```
