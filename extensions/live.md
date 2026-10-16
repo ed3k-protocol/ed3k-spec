@@ -71,7 +71,8 @@ message Channel {
 ```
 
 - The signature is over `"ed3k v1 live channel" ‖ body` and is REQUIRED. A reader checks it
-  against `key` and refuses the file when it fails.
+  against `key` and refuses the file when it fails. The rules for `sigs` are those of
+  `Protocol.md` §10.7.
 - A channel file MUST NOT exceed 64 KiB. `window` is 8 to 240 *(initial)*; 0 or absent still
   means 30. A reader refuses a channel file that is larger or has another `window`, so the
   first `LiveState` of §3.1 carries at most 240 records, a viewer keeps at most that many
@@ -125,6 +126,7 @@ message LiveSegment {
   uint32 init_size = 7;
   bool   gap = 8;             // not continuous with the segment before: the player resets
   bool   end = 9;             // the broadcast is over; no segment, `root` absent
+  // field 10 belongs to the optional paid subscription extension (subscription.md §7.1)
 }
 ```
 
@@ -137,7 +139,9 @@ The signature is over
 and is made with the channel key. The string is not a prefix of the one that signs the
 channel file (§1.2), nor that one of this.
 
-- A record is about 150 bytes. A `LiveRecord` MUST NOT exceed 1 KiB.
+- A record is about 150 bytes. A `LiveRecord` MUST NOT exceed 1 KiB. A node drops a larger one
+  unread and does not forward it; it is not a miss for the neighbour that sent it.
+- The rules for `sigs` are those of `Protocol.md` §10.7.
 - A node accepts a record only when the signature is valid, and drops it otherwise. A neighbour
   that sent it counts one miss (§6).
 - **Limits.** A record with a valid signature is still invalid when its `size` is above 4 MiB,
@@ -208,6 +212,7 @@ message LiveJoin {
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 5;         // n × 34 B
   bytes  proof = 6;           // private channel: 16 B (§10.3)
+  // fields 7 and 8 belong to the optional paid subscription extension (subscription.md §6.3)
 }
 
 message LiveState {
@@ -220,9 +225,11 @@ message LiveState {
   string codecs = 7;
   Refusal refusal = 8;        // set: I do not take you as a neighbour
   bytes  proof = 9;           // private channel: 16 B, in the first answer to a valid proof, whatever `refusal` (§10.3)
+  // fields 10 to 14 belong to the optional paid subscription extension (subscription.md §6.3)
 }
 
 enum Refusal { LIVE_NONE = 0; LIVE_FULL = 1; LIVE_LEFT = 2; LIVE_BLOCKED = 3; }   // prefixed: enum values share one scope per package
+// 4, LIVE_PASS, belongs to the optional paid subscription extension (subscription.md §6.3)
 
 message LiveGet {
   bytes  stream = 1;
@@ -240,13 +247,18 @@ message LiveGet {
 - After the first answer **both sides send `LiveState`** on the exchange whenever one of these
   happens:
   - It learns a new valid record: it sends the record at once to every neighbour that has not
-    shown it. This is how records travel, and it is the only thing that is pushed.
+    shown it. This is how records travel, and it is the only thing that is pushed, apart from the keys
+    and offers of a paid channel ([`subscription.md`](subscription.md) §6.3).
   - It completes a segment: `first` and `have` are sent, at most once per second *(initial)*.
   - 10 s *(initial)* have passed without one: an empty `LiveState` as a sign of life.
 - A neighbour that sent nothing for 30 s *(initial)* is gone.
 - Either side leaves by closing the exchange.
 - `peers` MUST be peers the sender has itself had as verified neighbours of this stream within
   the last 10 min *(initial)*.
+- **Limits.** `LiveJoin` names at most 2 relays per family, at addresses acceptable in the
+  network (`Protocol.md` §8.2 (7)). `LiveState` carries at most 240 records and a `have` of at
+  most 240 bits (30 bytes), the largest window. A message above these limits is malformed,
+  and the node closes the exchange.
 
 ### 3.2 Fetching a segment
 

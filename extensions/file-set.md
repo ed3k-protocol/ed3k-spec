@@ -56,6 +56,7 @@ message FileSet {
   // field 9 belongs to the optional torrent extension (torrent.md §1)
   // field 10 belongs to the optional Usenet extension (usenet.md §3)
   // field 11 belongs to the optional extension for videos named on a chain (chaintube.md §2.3)
+  // fields 12 to 14 belong to the optional paid subscription extension (subscription.md §8)
 }
 
 message Member {
@@ -70,6 +71,7 @@ message Member {
   // field 9 belongs to the optional hidden set extension (hidden-set.md §4.2)
   // field 10 belongs to the optional extension for several authors (multi-author-set.md §2)
   // field 11 belongs to the optional extension for links at file hosters (hoster.md §5)
+  // field 12 belongs to the optional paid subscription extension (subscription.md §8.1)
 }
 ```
 
@@ -87,6 +89,9 @@ message Member {
 ## 2. Rules for a reader
 
 ### 2.1 Limits
+
+A manifest needs no canonical serialisation (`Protocol.md` §0). A reader accepts any valid
+encoding of it.
 
 A reader MUST refuse a manifest that breaks one of these *(initial)*:
 
@@ -172,10 +177,13 @@ copying its list.
 - **Depth.** At most 8 *(initial)* manifests lie below each other, counting the outer one. A
   `set` member at the eighth level is not opened.
 - **Total.** A reader stops opening inner sets when the files of the outer set and all inner
-  sets opened so far exceed 1,000,000 *(initial)*. One inner manifest may be a member in
+  sets opened so far exceed 1,000,000 *(initial)*. Every entry of `files` counts, `set`
+  members included. One inner manifest may be a member in
   several places; it is counted each time. Without this limit a few small manifests that name
   each other many times would describe more files than any disk holds.
-- A path, with the directories of all levels, has at most 32 components. §2.1's limit is per
+- A path, with the directories of all levels, has at most 32 components. Only directories
+  count: those above the outer manifest, the `dir` of each `set` member and its `name`, and
+  the `dirs` of the inner set; a file name does not. §2.1's limit is per
   manifest; this one is over the levels. An inner set that would exceed it is shown as a plain
   file and not opened; the manifest that names it is not refused for that.
 - A manifest cannot contain itself: its root would have to be known before it is written. The
@@ -325,10 +333,10 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
 |---|---|---|
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
 | Content | `head`, or `joint` in a joint head ([`multi-author-set.md`](multi-author-set.md) §1.3), and nothing else; else `REJECTED` | the same |
-| Target | `H("ed3k v1 set head", signing key ‖ head.id)[0..16)` is the target of the request | the same, with the key and `id` it searched for |
+| Target | `H("ed3k v1 set head", signing key ‖ head.id)[0..16)` is the target of the request; for a joint head see [`multi-author-set.md`](multi-author-set.md) §1.3 | the same, with the key and `id` it searched for |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | Size | `id` 1 to 32 B, `root` 32 B, `name` at most 255 B of UTF-8; else `REJECTED` | the same |
-| `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins; among equal ones the lower `root` |
+| `seq` | any; a record that does not replace the one held is answered `OLDER`. A joint head orders by `Grant.number` first ([`multi-author-set.md`](multi-author-set.md) §1.3) | the highest of all answers wins; among equal ones the lower `root` |
 | Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `root`; and by one with the same `seq` and `root` and a later `expires`. A valid record that does not replace it is answered `OLDER` (`Protocol.md` §10.3) | |
 
 - **Two heads with one `seq`.** An author who publishes from two machines, or two co-owners,
@@ -438,11 +446,15 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 
 - Signature and `expires` are checked as for a keyword record (`Protocol.md` §10.7). The
   record holds `member` and nothing else; else `REJECTED`.
-- One record per publisher, file and set. At most 64 *(initial)* different sets per target;
-  further ones get `FULL`.
+- One record per publisher, file and set. At most 4 *(initial)* sets per publisher key and
+  16 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md)
+  §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)*
+  different sets per target; further ones get `FULL`.
 - It keeps at most 3 *(initial)* records per set under a target: the freshest ones, of
-  different publishers. A further valid record is not kept; its publisher's site is counted
-  until that record's `expires`, and the answer is `STORED`.
+  different publishers, as for a keyword record (`Protocol.md` §10.8). A valid record of a
+  further publisher replaces the least fresh record kept (earliest `expires`; on a tie, the
+  lower publisher key) when its `expires` is later. One that does not is not kept; its publisher's site is counted until that record's `expires`. The answer
+  is `STORED` in both cases.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
@@ -458,8 +470,9 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 
 - It checks signature and `expires` as for a keyword record (`Protocol.md` §10.7), and that
   the record holds `member` and nothing else. A record that fails is dropped.
-- It merges the answers by `set`. The site count of a set is the median of the `sites` values
-  reported for it; among equal counts the lower `set` comes first.
+- It merges the answers by `set`. The site count of a set is the lower median of the non-zero
+  `sites` values reported for it, and 0 when all are 0; among equal counts the lower `set`
+  comes first.
 
 - The claim is checked by fetching the manifest and looking for the root. A record whose
   manifest does not list the file is false; the client SHOULD ignore that publisher from then

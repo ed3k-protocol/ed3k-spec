@@ -61,10 +61,13 @@ enum Verdict {
   (§2). A client recognises a list by its first 8 bytes.
 - `ids` is sorted, so a client looks an entry up without building an index. A list in which an
   `ids` is not a multiple of 16 bytes, not in ascending order, or holds an entry twice is
-  refused as a whole. This is checked only in groups whose `subject` the reader knows.
+  refused as a whole. This is checked only in groups whose `subject` and `verdict` are both
+  known to the reader and not 0.
 - A group with a `subject` or `verdict` the reader does not know is ignored; its `ids` is not
-  looked at.
-- A list file is at most 4 MiB *(initial)*, which is about 260,000 entries.
+  looked at. So is a group with `SUBJECT_NONE` or `VERDICT_NONE`, which judges nothing. An
+  ignored group is not kept: a client that reads a list and writes it again leaves it out.
+- A list file is at most 4 MiB *(initial)*, the 8 bytes included, which is about 260,000
+  entries.
 - An `AUTHOR` is a key: the publisher of keyword and note records
   ([`Protocol.md`](../Protocol.md) §10.7), the author of a set, the key of a live channel.
 - **A list is complete.** An entry that the next version leaves out is no longer judged.

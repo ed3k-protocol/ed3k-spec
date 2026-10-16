@@ -118,7 +118,9 @@ node's record for it (§1 of this document) or 7 days *(initial)* have passed.
 asking node whose clock is ahead is found.
 
 - It drops a request that is not 384 bytes, whose tag fails, whose `len` is above 322, whose
-  signature does not verify under `key`, or whose `issued` is more than 7 days old.
+  `key` is not 32 bytes, whose signature does not verify under `key`, whose `text` is above
+  96 bytes, or whose `issued` is more than 7 days old or more than 1 h *(initial)* ahead of
+  its clock.
 - It shows the rest to the user, each key once. A request is never accepted without the user.
 - When the user accepts, the node adds the key. Both are then friends by §1 of this document.
 - When the user declines, nothing is sent.
@@ -137,7 +139,7 @@ used to ask at all.
 FRIEND = 10;
 
 // in Store (§10.3):
-bytes sealed = 9;             // FRIEND: exactly 384 B, padded before sealing; above 384 B: REJECTED
+bytes sealed = 9;             // FRIEND: exactly 384 B, padded before sealing; any other length: REJECTED
 
 // in KadAnswer (§10.3):
 repeated bytes friends = 15;  // answer to a search of kind FRIEND
@@ -184,9 +186,10 @@ padding is encrypted and a record and a request have one length on the wire:
 - It holds at most 32 *(initial)* records under one target and answers `FULL` after that, and
   at most 8 per host and 16 per site ([`ip-diversity.md`](ip-diversity.md) §1), answered
   `REJECTED` beyond (`Protocol.md` §10.8); a holder of the link then needs several sites to
-  lock the real node out of its place.
+  lock the real node out of its place. `FULL` is checked before the limits per host and site.
 - The lifetime is 5 h *(initial)*.
-- It checks the size and nothing else: a `sealed` above 384 bytes is `REJECTED`. It cannot
+- It checks the size and nothing else: a `sealed` of any length other than 384 bytes is
+  `REJECTED`. It cannot
   read the record. All three forms have one length, so it cannot tell them apart by their
   size. It can tell a request from a record with some effort: a request begins with an
   X25519 public value, a record with random bytes. It returns the records of a target without saying who stored them.
@@ -205,7 +208,8 @@ padding is encrypted and a record and a request have one length on the wire:
    answers: a false record under today's target must not hide the real one under
    yesterday's. Only when both give no record that opens, it searches the day after (the
    friend's clock may be ahead).
-2. Opens every record with `k_rec`. One whose tag fails is dropped.
+2. Opens every record with `k_rec`. One whose tag fails is dropped. An answer holds at most
+   32 `friends`, the records of one target; the node ignores those beyond the first 32.
 3. Tries the records in descending order of `issued`, each once, leaving out those whose
    `issued` is more than 1 h *(initial)* in the future, the clock tolerance of `Protocol.md`
    §10.7. A record with a false `issued` costs one failed dial and no more, since each is
@@ -218,6 +222,8 @@ padding is encrypted and a record and a request have one length on the wire:
 
 - A node looks when its user wants to reach the other, and otherwise at most once per 30 min
   *(initial)*.
+- A node opens at most 256 *(initial)* sealed values of one search, records and requests
+  alike; further ones are ignored.
 - Once connected, the two nodes are ordinary peers. What a friend is allowed, in chat, in
   browsing or in the upload queue, is local policy.
 

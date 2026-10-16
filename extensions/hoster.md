@@ -57,7 +57,9 @@ hoster. All its fields keep their meaning:
 | Link | `hl=<url-encoded link>` in `ed3k:file` (`Protocol.md` §13.2) | whole file; may occur several times |
 
 - A node sends `links` only to a peer that set `LINKS`. A storing node keeps and returns
-  `Store.links` whether or not it sets the bit; it checks the limits and nothing else.
+  `Store.links` whether or not it sets the bit; it checks the limits and nothing else. A
+  `Store` whose `links` holds more than 3 links, or a `url` or `hashes` above 256 bytes, is
+  answered `REJECTED`, and its source record is not kept.
 - The rules of [`http-source.md`](http-source.md) §2.1 to §2.3 apply to links as they do to
   HTTP sources: when an uploader may send them, that a downloader reports the outcome, that a
   publisher attaches only what it vouches for, and that a link may be passed on.
@@ -131,7 +133,8 @@ id        = H("ed3k v1 url", canonical)                          32 B
 ```
 
 `canonical` is made from the link in these steps, in this order. A link that a step calls
-invalid has no `id`: no `ALIAS` record of it is published or looked up.
+invalid has no `id`: no `ALIAS` record of it is published or looked up. A link above 1,024
+bytes is invalid before the first step.
 
 1. **Split.** The link is split as RFC 3986 §3 says: the fragment is what follows the first
    `#`, the query what follows the first `?` before it, the authority what stands between

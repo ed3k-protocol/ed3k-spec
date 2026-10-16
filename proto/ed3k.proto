@@ -151,11 +151,11 @@ message KadRequest {          // type 3
 
 message Query {
   repeated string all = 1;    // every word must be a word of the name; normalised by the sender   Protocol.md §10.1
-  repeated string none = 2;   // no word may be a word of the name; normalised by the sender
+  repeated string none = 2;   // no word may be a word of the name; normalised by the sender; at most 64 terms with `all`
   uint64 min_size = 3;
   uint64 max_size = 4;        // 0 = no limit
   uint32 min_sources = 5;     // compared with FileInfo.sources of the record
-  string ext = 6;             // extension of the name, normalised by the sender; empty = any   Protocol.md §10.1
+  string ext = 6;             // extension of the name without the `.`, normalised by the sender; empty = any   Protocol.md §10.1
   uint32 offset = 7;          // skip this many matching records               Protocol.md §10.3
 }
 
@@ -236,7 +236,7 @@ message Signature {
 
 message Signed {
   bytes  body = 1;            // a serialised Record, verified over exactly these bytes   Protocol.md §10.7
-  uint32 key = 2;             // index into KadAnswer.keys; absent in a Store
+  uint32 key = 2;             // index into KadAnswer.keys; absent in a Store, and ignored there
   repeated Signature sigs = 3;
 }
 
@@ -656,7 +656,7 @@ enum TopicType {
 message TopicJoin {           // type 22
   bytes     topic = 1;        // 16 B                                          pubsub.md §2
   TopicType type = 2;
-  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued), 0 = none
+  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), 0 = none
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B

@@ -851,49 +851,51 @@ scope(2, key, "sid1") = d47b2479f4900c25a6780ab1f052d520      set with an open m
 scope(3, key, "")     = 3575cab2145043e979c679fb1a42e9f2      hidden set
 ```
 
-**Season and keys** (§4.1, §4.2). Season A covers epochs 270 to 299; its seed `K(299)` is 32
-bytes, byte *i* = `0x1f XOR i`. Season B begins at 290 after a leak (§4.5); its seed `K(319)`
-is byte *i* = `0x4e XOR i`. Season A is so abandoned after 289, and its tip is `K(289)`.
+**Season and keys** (§4.1, §4.2). Every chain step and the anchor are bound to `scope(1)`.
+Season A covers epochs 270 to 299; its seed `K(299)` is 32 bytes, byte *i* = `0x1f XOR i`. A
+leak in epoch 284 starts season B at 285, that epoch + 1 (§4.5); its seed `K(314)` is byte
+*i* = `0x4e XOR i`. Season A is so abandoned after 284, and its tip is `K(284)`. At the sample
+time, epoch 285, B is the current season and A has ended.
 
 ```
 K(299) of A = 1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
-K(285)      = bbb70e1ded2207b1a364122f243149a65c8a1b04e0a0fde8be6dec4522f82e51
-K(284)      = H("ed3k v1 paid chain", K(285)) = 19dc090410cf8dea2025a5c61250bab672c98f67ec1137fd76280aadab38df16
-K(270)      = d484f123b85b548c1e5e7cabb45372db62a8aa1bba95d80ffb40f885704fefdc
-anchor A    = H("ed3k v1 paid anchor", K(270)) = 56297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f6
-tip of A    = K(289) = 8a3504ca7c48b8cebce66eee5a21d11f3723834c1388e67185a6e70842c10d05
-anchor B    = 308f6a0ae6385766d5db88095705f42fcdc1673a230ed957fd943e9bce3cc6b1
-K(291) of B = 97168934af2e304fa24bd375fbfeffb8a3f4731237c416bddec31997c6043566
+K(285) of A = 8d044e8bbbef436d6ea3c544aec44a92a892a705d0b5dc263441faa39909e78e
+K(284) of A = H("ed3k v1 paid chain", scope(1) ‖ K(285) of A) = 55cd7672b3d1c58b82eeddc0f4b8561bc344d245bc798c9e5aac58a88f99e456
+K(270) of A = 10cb47ae397f6dbb7ccbc0c9685141352245ca60760674724e81cac43badfea3
+anchor A    = H("ed3k v1 paid anchor", scope(1) ‖ K(270)) = 2898c66d68c15eb5f6279270d6fb8362b263e5439842c2e1d577cc5d567a0ba1
+tip of A    = K(284) of A
+anchor B    = c7a4ac7771593c2dc3c2320f3723a8c3184e0b9df93cec5ced37fd72ad374a19
+K(285) of B = 3ed36ecb23e78867e31662d45d2882acd6071013e9654709bc10ba408bd009ec
 ```
 
 ```
 Chain A     = { scope = scope(1), base = 270, length = 30, anchor A }
-            = 0a1006d88de43163c009c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d139dfd
-              b33f74a462a1ab48f6
+            = 0a1006d88de43163c009c0f83944f914165d108e02181e22202898c66d68c15eb5f6279270d6fb8362b263e5439842c2
+              e1d577cc5d567a0ba1
               (57 bytes)
 signed      = "ed3k v1 paid season" ‖ Chain A      (76 bytes)
-signature   = 22a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d37
-              d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13855b62d1f201
-SignedChain = 0a390a1006d88de43163c009c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d13
-              9dfdb33f74a462a1ab48f612440801124022a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d
-              37d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13855b62d1f201
+signature   = 41d6b204034f398770aad87ec1e2277b1186b28a5677c0826216108c4624faf3
+              9a2d2b35cec6c519677d1cdb4228b722d2e7b61dd9f55d7b4ec9b1c90eb0590e
+SignedChain = 0a390a1006d88de43163c009c0f83944f914165d108e02181e22202898c66d68c15eb5f6279270d6fb8362b263e54398
+              42c2e1d577cc5d567a0ba112440801124041d6b204034f398770aad87ec1e2277b1186b28a5677c0826216108c4624fa
+              f39a2d2b35cec6c519677d1cdb4228b722d2e7b61dd9f55d7b4ec9b1c90eb0590e
               (129 bytes)
 ```
 
 **Offer** (§3). `price` "4.99 EUR / month", `pay_url` `https://example.com/pay`,
 `pass_url` `https://example.com/pass`, `report_url` `https://example.com/report`,
-`devices` 1, `issued` the sample time, `chain` the SignedChain of A.
+`devices` 1, `issued` the sample time, `chain` the SignedChain of B, the current season.
 
 ```
 Offer       = 0a1006d88de43163c009c0f83944f914165d1080e9b5d6061880f2d6ca062080a3052a81010a390a1006d88de43163c0
-              09c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f6
-              12440801124022a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d37d7d10b7a3099423b5027
-              434cd83419c6622391564bb13fb34f13855b62d1f2013a10342e393920455552202f206d6f6e7468421768747470733a
+              09c0f83944f914165d109d02181e2220c7a4ac7771593c2dc3c2320f3723a8c3184e0b9df93cec5ced37fd72ad374a19
+              124408011240bb9a200927dc8b514a732d84316dba05fa6de7dc8889a8bd7eb4f0ed4868b008541970be750f3bc8e3b3
+              e4ed9ee0f12051076707bc62c3d7e6cd2ac1e6717d013a10342e393920455552202f206d6f6e7468421768747470733a
               2f2f6578616d706c652e636f6d2f7061794a1868747470733a2f2f6578616d706c652e636f6d2f70617373621a687474
               70733a2f2f6578616d706c652e636f6d2f7265706f72746801
               (265 bytes)
-signature   = 0d7ae407024ff4d712baeb1dd72386851f202fb194c52cd49679d67f06394e84
-              34325941a165d74e18ae9fb9b83f251ec3d81e971f4d0f4c7ae0e1b101343107
+signature   = e73ea6dc8fe65a516cc91b34465b2be77e52989c611f8c3eadf364152f30d808
+              6e8edd5e084f14bac083869113b1eea6a1dbcb00a030781a10bab5bd35e2c40c
 SignedOffer = 338 bytes
 ```
 
@@ -925,47 +927,57 @@ PassProof   = 08e0e19e0e12405c9bb5632cc0e1b5329d03e95e3c0a25f86b6319b1135b10fb1d
               (71 bytes)
 ```
 
-**Key exchange** (§6.1). The request shows the pass and asks for the offer. The answer gives
-`K(291)` of season B, the tip of A, and both `SignedChain`s:
+**Key exchange** (§6.1). The request shows the pass, holds no key and asks for the offer. The
+answer gives `K(285)` of season B, the key of the current epoch, the offer, the tip of the
+ended season A, and both `SignedChain`s:
 
 ```
 KeyRequest  = 266 bytes
-KeyAnswer   = 0a2508a302122097168934af2e304fa24bd375fbfeffb8a3f4731237c416bddec31997c60435662a2508a10212208a35
-              04ca7c48b8cebce66eee5a21d11f3723834c1388e67185a6e70842c10d053281010a390a1006d88de43163c009c0f839
-              44f914165d10a202181e2220308f6a0ae6385766d5db88095705f42fcdc1673a230ed957fd943e9bce3cc6b112440801
-              1240d29d4dedffe8f7d7a0263e50ae34bbe404ba31dd042bee1b6e5aabc0c3e2f91ab91e29589ac56f93ad4bcd95b16a
-              8ba62823e414a2b9ef95c57438e96bd9360f3281010a390a1006d88de43163c009c0f83944f914165d108e02181e2220
-              56297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f612440801124022a106b058e2bf86bd0e
-              cb57372b54f91b100f84051fe4477db6c0e61dce6d37d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13
-              855b62d1f201
-              (342 bytes)
+KeyAnswer   = 0a25089d0212203ed36ecb23e78867e31662d45d2882acd6071013e9654709bc10ba408bd009ec1ad2020a89020a1006
+              d88de43163c009c0f83944f914165d1080e9b5d6061880f2d6ca062080a3052a81010a390a1006d88de43163c009c0f8
+              3944f914165d109d02181e2220c7a4ac7771593c2dc3c2320f3723a8c3184e0b9df93cec5ced37fd72ad374a19124408
+              011240bb9a200927dc8b514a732d84316dba05fa6de7dc8889a8bd7eb4f0ed4868b008541970be750f3bc8e3b3e4ed9e
+              e0f12051076707bc62c3d7e6cd2ac1e6717d013a10342e393920455552202f206d6f6e7468421768747470733a2f2f65
+              78616d706c652e636f6d2f7061794a1868747470733a2f2f6578616d706c652e636f6d2f70617373621a68747470733a
+              2f2f6578616d706c652e636f6d2f7265706f72746801124408011240e73ea6dc8fe65a516cc91b34465b2be77e52989c
+              611f8c3eadf364152f30d8086e8edd5e084f14bac083869113b1eea6a1dbcb00a030781a10bab5bd35e2c40c2a25089c
+              02122055cd7672b3d1c58b82eeddc0f4b8561bc344d245bc798c9e5aac58a88f99e4563281010a390a1006d88de43163
+              c009c0f83944f914165d109d02181e2220c7a4ac7771593c2dc3c2320f3723a8c3184e0b9df93cec5ced37fd72ad374a
+              19124408011240bb9a200927dc8b514a732d84316dba05fa6de7dc8889a8bd7eb4f0ed4868b008541970be750f3bc8e3
+              b3e4ed9ee0f12051076707bc62c3d7e6cd2ac1e6717d013281010a390a1006d88de43163c009c0f83944f914165d108e
+              02181e22202898c66d68c15eb5f6279270d6fb8362b263e5439842c2e1d577cc5d567a0ba112440801124041d6b20403
+              4f398770aad87ec1e2277b1186b28a5677c0826216108c4624faf39a2d2b35cec6c519677d1cdb4228b722d2e7b61dd9
+              f55d7b4ec9b1c90eb0590e
+              (683 bytes)
 ```
 
-**Sealed segment** (§7.1). The sample file, sealed with the sample nonce under `K(285)`:
+**Sealed segment** (§7.1). The sample file, sealed with the sample nonce under `K(285)` of B:
 
 ```
-k_seg       = H("ed3k v1 paid live", K(285)) = 2e8935d8af2f72efb32acd5caa8706f43da8fdb4829c36b5afad885276eb9d1f
-stored      = 000102030405060708090a0b28afa18d320a2e9e84595c74ddcff00b      (28 bytes)
-root        = c3d4ac083380255346804616b84194683b988a573685e32628e8580a640ada89
+k_seg       = H("ed3k v1 paid live", scope(1) ‖ K(285)) = 23560eb99d40f7c85da7088d457628578912ec732ef33a21a325939e9c393bd5
+stored      = 000102030405060708090a0b86bc4e50c9206e05bd167a6d18bdb483      (28 bytes)
+root        = ffeed7901652d4643f849828b5c8b38fd6482fea7f48515035cf893868737b6b
 LiveSegment = { start = 1791849600, seq = 7, root, size = 28, ms = 4000, epoch = 285 }
-            = 0880e9b5d60610071a20c3d4ac083380255346804616b84194683b988a573685e32628e8580a640ada89201c28a01f50
+            = 0880e9b5d60610071a20ffeed7901652d4643f849828b5c8b38fd6482fea7f48515035cf893868737b6b201c28a01f50
               9d02
               (50 bytes)
 signed      = "ed3k v1 live segment" ‖ stream ‖ LiveSegment      (86 bytes)
-signature   = 4adc00976aabec4b22ba7984ef59e12b8fcf9303902279231f31b68e7dba1a0b
-              e5399ff76d50917050eb369c5fa419a75f9a26826f8536fa13b971ad8624e106
+signature   = 591833107d2a4596a0b52b179149d7cc2c2038220dddd026d7885c82ef8a5c8e
+              b7d4019d092253fb83e326c2d785479dfea8073869fb81848aae1d3732540700
 ```
 
-**Sealed member and hidden head** (§8.1, §8.3). The head is that of the hidden set section,
-sealed under `K(285)`:
+**Sealed member and hidden head** (§8.1, §8.3). The head is that of the hidden set section.
+The hidden set, `scope(3)`, has a season with the seed and the epochs of B; its chain is bound
+to `scope(3)`, so its keys are not those of `scope(1)`:
 
 ```
-k_data      = H("ed3k v1 paid data", K(285)) = 311a67039339577a999ff55830867fd925aa2c40887fe9728a355abc107e159c
-sealed file = 000102030405060708090a0bc9f5ef0a3d12b5b4c0754245ae0e0e6a      (28 bytes)
-k_head      = H("ed3k v1 paid head", K(285)) = 141eb8001466bea5bb45e4769033e4cb257468e2a807043ea9fee78b32f5ca48
+K(285)      = a9d32bd1418df908d4346912e44dcdda9fb081c1221fc7518d86f3e49fd7eb26      season B of scope(3)
+k_data      = H("ed3k v1 paid data", scope(3) ‖ K(285)) = 5b55e3b45f151f419d70304ae5261fd1c44896b23496a223cd3b6b1b1036b31f
+sealed file = 000102030405060708090a0b496011187114c888779feeaccfb6c729      (28 bytes)
+k_head      = H("ed3k v1 paid head", scope(3) ‖ K(285)) = 9c71b0fc66b2e8637cee1cc0894c0d0bd15c25c81c99f13aeaa92aa1832ca0ae
 Sealed      = { seq = 1, data = nonce ‖ ChaCha20(k_head, nonce, Head), epoch = 285 }
-            = 08011238000102030405060708090a0b61597ea710abfe539620ff525c2771821e2c18bb69206e41c6e8d21fc01185a8
-              240105d8e610c0794ec23aee189d02
+            = 08011238000102030405060708090a0b5341a28f32846402694c4586ac9c739ba2cb236a6f2d091a47cebbdc290517ef
+              4f79ccb388becd17cdfebbd6189d02
               (63 bytes)
 ```
 

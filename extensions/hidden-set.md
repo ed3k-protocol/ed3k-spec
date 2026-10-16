@@ -78,6 +78,7 @@ Sealed sealed = 7;
 message Sealed {
   uint64 seq = 1;             // FileSet.seq of the manifest named inside
   bytes  data = 2;            // sealed with k_head: a serialised Head (file-set.md §5.2)
+  // field 3 belongs to the optional paid subscription extension (subscription.md §8.3)
 }
 ```
 
@@ -94,7 +95,7 @@ message Sealed {
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
 | Signature | valid under `signer`, with `base` computed from `signer` | valid under the key of the link |
-| Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched |
+| Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched, and the one of the link's key for the current day, the day before or the day after |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins |
 | Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires`; a valid record that does not replace it is answered `OLDER` | among equal `seq` the lower `data`, as on the storing node |
@@ -126,7 +127,8 @@ message Sealed {
    the opened `Head`, and with the `id` of the version held before, if there is one.
 
 A follower checks as often as for any set (`file-set.md` §5.3). There is no topic for a hidden
-set in [`pubsub.md`](pubsub.md) in this version.
+set in [`pubsub.md`](pubsub.md) in this version, except that of a paid one
+([`subscription.md`](subscription.md) §8.4).
 
 ---
 
@@ -136,6 +138,11 @@ set in [`pubsub.md`](pubsub.md) in this version.
 
 - The manifest is written as in [`file-set.md`](file-set.md) §1, signed (§2.4 there), with an
   `id` and a `seq`. It is then sealed with `k_data`. What is shared is the sealed file.
+- It is signed by the set key alone. Co-owners are not defined for a hidden set
+  ([`multi-author-set.md`](multi-author-set.md) §7), so a reader refuses a hidden manifest
+  that carries a `grant`. Parts and mounts are not defined for it either: a hidden manifest
+  with `open`, or with a member that has `mount` (`multi-author-set.md` §2, §3.1), is refused
+  too.
 - An inner manifest (`file-set.md` §2.5) of a hidden set is sealed the same way. Its `root` and
   `size` in the outer manifest are those of the sealed file.
 - A sealed manifest does not start with the 8 bytes of a manifest. A client knows what it is
@@ -152,7 +159,8 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
   and it is the same file as any other copy in the network.
 - A member with `sealed` is stored and shared in sealed form. A client opens it after the
   download, or while reading: the cipher allows reading from any position.
-- A sealed member is at most 256 GiB, the limit of the cipher for one nonce.
+- A sealed member is at most 256 GiB, the limit of the cipher for one nonce. A reader refuses a
+  manifest that lists a larger one.
 - Sealed data does not compress; the rule of [`Protocol.md`](../Protocol.md) §12.3 then sends
   it as it is.
 

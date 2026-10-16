@@ -75,25 +75,29 @@ exchange**; after that both sides are equal.
 message TopicJoin {
   bytes     topic = 1;        // 16 B
   TopicType type = 2;
-  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued), 0 = none
+  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), 0 = none
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
   uint64    held_grant = 7;   // Grant.number of the joint head I hold, 0 = none or a sole-author head
+  // fields 8 and 9 belong to the optional paid subscription extension (subscription.md §6.3)
 }
 
 message TopicState {
   TopicItem item = 1;
   repeated Peer peers = 2;    // other subscribers of this topic
   TopicRefusal refusal = 3;   // set: I do not take you as a neighbour
+  // fields 4 to 8 belong to the optional paid subscription extension (subscription.md §6.3)
 }
 
 message TopicItem {
   Signed head = 1;            // SET_HEAD: `key` absent
   Signed on_air = 2;          // ON_AIR: `key` absent
+  // field 3 belongs to the optional paid subscription extension (subscription.md §8.4)
 }
 
 enum TopicRefusal { TOPIC_OK = 0; TOPIC_FULL = 1; TOPIC_LEFT = 2; }
+// 3, TOPIC_PASS, belongs to the optional paid subscription extension (subscription.md §6.3)
 ```
 
 `Signed` and `Peer` are the types of [`Protocol.md`](../Protocol.md) §10.7 and §5.4. The key is
@@ -229,6 +233,9 @@ signed record of that kind is ever stored, so the notice cannot be replayed as a
 | `expires` | later than now minus 1 h, and at most 15 min *(initial)* after `issued` |
 | Content | `on_air` and nothing else |
 
+All three rows on time, `expires` at most 15 min after `issued` among them, are time checks
+in the sense of §2.2: a notice that fails one is dropped, and it is no fault of the neighbour.
+
 - The broadcaster sends a notice when a broadcast starts, every 5 min *(initial)* while it
   runs, and one with `end` when it is over. Each notice carries a strictly later `issued` than
   the one before, so that two never tie.
@@ -245,7 +252,7 @@ signed record of that kind is ever stored, so the notice cannot be replayed as a
 - **In this version the notice is not stored in Kad.** It is built as a signed record so that
   the options for listing channels ([`live.md`](live.md) §11) can use the same bytes later.
 - A private channel ([`live.md`](live.md) §10) has no topic, and neither has a hidden set
-  ([`hidden-set.md`](hidden-set.md)).
+  ([`hidden-set.md`](hidden-set.md)) other than a paid one ([`subscription.md`](subscription.md) §8.4).
 
 ---
 

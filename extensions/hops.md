@@ -140,8 +140,8 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
   with an `Error`, the last hop closes that exchange and passes the `Error` back as the
   answer. An `Error` that answers the first `HopCreate` ends the exchange: there is no path.
 - A `HopCreate` whose `path` is not 8 B or is in use on that connection, or whose `e` is not
-  32 B, and a `HopExtend` while the path carries a stream other than the control stream, are
-  answered `Error{MALFORMED}`.
+  32 B, a `HopExtend` whose `create.path` is not empty, and a `HopExtend` while the path
+  carries a stream other than the control stream, are answered `Error{MALFORMED}`.
 - **Keeping a path alive.** Both neighbours of a link of a path send a QUIC PING every 20 s
   *(initial)* while the control stream is open (`Protocol.md` §4.1: `max_idle_timeout` is
   30 s, and whoever wants a connection kept sends the PING). A gate lives as long as its path.
@@ -250,6 +250,8 @@ came.
 message HopConnect {          // type 33. First frame on a stream, read by the last hop
   bytes node = 1;             // compact node, 22 or 34 B
   bytes gate = 2;             // 8 B; absent = the node itself is meant
+  bytes relays4 = 3;          // n × 22 B compact nodes: relays of `node`, from its Peer record; empty = none
+  bytes relays6 = 4;          // n × 34 B; likewise
 }
 
 message HopJoin {             // type 34. First frame of an exchange from outside a path
@@ -266,6 +268,14 @@ message HopGate {             // type 29. Request and answer on the control stre
 with the same `gate`, and copies in both directions. The dials that `HopExtend` and
 `HopConnect` cause are limited per path and per neighbour (§5). A node that hides behind 0
 hops sends `HopJoin` itself.
+
+- **A node that is not open.** The owner copies `relays4` and `relays6` from the `Peer`
+  record of `node`, at most 2 *(initial)* each (`Protocol.md` §10.3); more, or a length that
+  is not a multiple of 22 or 34 B, is `Error{MALFORMED}`. When `node` has relays in a
+  family, the last hop reaches it there as any node reaches a leaf: it sends `Punch` through
+  one of them and dials (`Protocol.md` §9.4, §9.5). A punch that fails is a dial that fails
+  (table below). A punch counts towards the dial limits of §5. Each relay is an address as
+  §2.2 asks of `node`; else `Error{MALFORMED}`.
 
 **Inwards.** An owner that wants to be reached sends `HopGate` on the control stream of a
 path. The last hop answers with a gate value and is from then on a **gate** of the owner. A
@@ -447,7 +457,7 @@ Signed gate = 17;             // GATE search
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |
-| Count | one per key and target; at most 64 *(initial)* per target, a further one answered `FULL`; at most 4 per host and 8 per site *(initial)* (§4.2), a further one answered `REJECTED` | one per target; replaced by a later `issued`, else answered `OLDER` |
+| Count | one per key and target; at most 64 *(initial)* per target, a further one answered `FULL`; at most 4 per host and 8 per site *(initial)* (§4.2), a further one answered `REJECTED`. The address limits are checked first: a record over them is `REJECTED` before the target is looked at ([`ip-diversity.md`](ip-diversity.md) §2.4) | one per target; replaced by a later `issued`, else answered `OLDER` |
 | Returned | in `anon`, with every search of kind `SOURCE` at that target | in `gate`, with the key in `keys` |
 
 **Checks**, in addition to those of `Protocol.md` §10.7

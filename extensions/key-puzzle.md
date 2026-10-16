@@ -179,7 +179,7 @@ Costs at n = 13 with 35–100 ms per try. One ID is one key at one site for one 
   be paid for again every month, and for every site it is to appear at.
 - **Churn is slowed.** A new identity at an address takes minutes, in addition to the one-hour
   rule of the diversity limits.
-- **No stockpile across time.** A solution is dead after at most 60 days. Epoch numbers are
+- **No stockpile across time.** A solution is dead after at most 61 days. Epoch numbers are
   predictable, so an attacker can prepare solutions for a *chosen* future epoch well in advance.
   The epoch limits how long an identity lasts, not how early it can be made.
 - **Site binding.** One solution is one network location. Without it, one key could be shown

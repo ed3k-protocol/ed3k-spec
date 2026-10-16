@@ -30,8 +30,8 @@ message BrowseAnswer {
 - A node sends `Browse` only to a peer that set `BROWSE` in its `Hello`. A node without the
   capability answers `Error{UNSUPPORTED}`.
 - `dir` names one directory. The empty string asks for the top level. Its components MUST
-  follow [`file-set.md`](file-set.md) §2.2 (no `.`, `..`, empty component or `//`, at most 32
-  components); a `dir` that does not is answered `Error{MALFORMED}`, and one the node does not
+  follow [`file-set.md`](file-set.md) §2.2 (no `.`, `..`, empty component or `//`) and §2.1 (at most
+  32 components); a `dir` that does not is answered `Error{MALFORMED}`, and one the node does not
   show `Error{NOT_FOUND}`. The answer lists the
   directories directly below it in `dirs`, as names of one component each (the rules of
   [`file-set.md`](file-set.md) §2.2 for a component apply), and the files directly in it in
@@ -41,6 +41,7 @@ message BrowseAnswer {
   file system.
 - Whom a node answers is local policy: everyone, friends only, or nobody. A refused request is
   answered with `Error{DENIED}`.
+- A node checks in this order: `UNSUPPORTED`, then `MALFORMED` (`dir`), then `DENIED`.
 - The answer is one frame and is compressed like any other (§5.3). The frame limit of 1 MiB
   (§5.2) applies.
 
@@ -49,7 +50,8 @@ message BrowseAnswer {
 - The entries of a directory have one order: its directories first, then its files, each group
   sorted by the bytes of the name in UTF-8.
 - An answer holds as many entries as the answering node chooses, at most 1,000 *(initial)*,
-  starting at entry `offset` of that order. It sets `more` when entries remain.
+  starting at entry `offset` of that order. It sets `more` when entries remain. An answer with
+  more entries ends the listing: the node is dropped for it.
 - The requester asks again with `offset` raised by the number of entries it received (`dirs`
   plus `files`), until an answer comes without `more`.
 - A requester asks at most 100 *(initial)* pages and takes at most 10,000 *(initial)* entries

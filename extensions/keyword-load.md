@@ -39,8 +39,9 @@ Nothing on the wire changes when the rules below are switched on.
 
 A storing node keeps one **entry** per file (root) and target. An entry holds:
 
-- up to 3 *(initial)* signed records of different publishers, the freshest ones, preferring
-  different names
+- up to 3 *(initial)* signed records of different publishers, the freshest ones. A valid
+  record of a further publisher replaces the least fresh record kept (earliest `expires`; on a
+  tie, the lower publisher key) when its `expires` is later (§10.8)
 - the **sites** of the publishers that stored or offered the file, each remembered until the
   record that publisher sent expires. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count
@@ -132,8 +133,8 @@ A refresh:
    level answered with `spill`. Stop at level 15.
 
 - A searcher MAY remember how deep a keyword went and query those levels in parallel next time.
-- Results are merged by root across nodes and levels. The popularity of a file is the median of
-  the `sites` values reported for it within one level; it is the storing nodes' claim, not a
+- Results are merged by root across nodes and levels. The popularity of a file is the lower median of
+  the non-zero `sites` values reported for it within one level, and 0 when all are 0; it is the storing nodes' claim, not a
   signed fact.
 - A false `spill` costs one lookup. Following it on the word of a single node is therefore
   acceptable, and the level limit bounds the total.

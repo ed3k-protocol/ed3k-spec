@@ -80,6 +80,10 @@ leaves nothing to choose.
   default value left out. The file is the 8 bytes of a manifest followed by a `SetFile` that
   has `body` only.
 - **No canonical manifest exists** for a torrent
+  - whose info dictionary is not in strict bencoding: every dictionary with its keys in
+    ascending order of their bytes, each key once; every integer and every string length in
+    its one decimal form, without a leading zero, a `+` or `-0`; nothing after the end of the
+    dictionary. A reader does not repair it,
   - that is marked private (§6.3),
   - whose paths or counts break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2,
   - that has a symbolic link (attribute `l`),
@@ -265,6 +269,8 @@ magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the ma
 - **`bt`** names the infohash of the torrent the manifest describes. It lets a client start
   from BitTorrent before it has the manifest (§4.1). The client MUST check it against the
   manifest once it has that; if they differ, `bt` is ignored.
+- `bt` MAY occur more than once: a hybrid torrent has two infohashes. Each is checked on its
+  own, and a value that is not 40 or 64 hex digits is ignored.
 - **`xs`** in a magnet link carries the `ed3k:file` link. A client that finds it starts as in
   §4.1: BLAKE3 is the judge. A BitTorrent client without ed3k ignores the parameter.
 - A client without this extension ignores `bt`.

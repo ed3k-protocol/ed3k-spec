@@ -150,7 +150,8 @@ bound = spent at the start of the turn
 
 - Amounts are whole µ, rounded up per tranche. A tranche delivered in part, while the stream
   is live, counts the bytes delivered so far. `carry` is at most one tranche and 0 when there
-  was no earlier turn. The two sides need not compute the same number: `due` is the
+  was no earlier turn. `due` does not go below 0: where `carry` is above the rest of the sum,
+  `due` is 0. The two sides need not compute the same number: `due` is the
   uploader's, and the bound is what protects the downloader.
 - The uploader sends `due` in the `FileStatus` that grants the slot, and in a further one
   whenever it changes: after a receipt that paid a tranche, with a new `price`, and after the
@@ -257,6 +258,8 @@ signature and that
   receipt and the first one of a new day (§3.1) both pass,
 - `kib` is at most 52,428,800 (50 GiB, §6.2); a receipt above is refused, since the contract
   would skip it,
+- `kib` is not below that of the receipt it holds for that `day`: the counters only grow
+  (§3),
 - `spent` is not below the receipt before of that `day`.
 
 A receipt that fails is dropped. A receipt is not answered. **Whether `spent` covers `due`
@@ -300,8 +303,11 @@ message CreditRelayAnswer {   // type 37, answer
 
 - Any node with `CREDIT` MAY relay. One that does not answers `Error{BUSY}` without a
   `retry_after`, and the asker turns to another node. A receipt or a hold that does not verify
-  is answered `Error{DENIED}` (`MALFORMED` is for a body that does not parse, `Protocol.md`
-  §5.6).
+  is answered `Error{DENIED}` (`MALFORMED` is for a body that does not parse, or an address
+  or `sig` of the wrong length, `Protocol.md` §5.6). So is one that the ledger would refuse:
+  a receipt whose `issuer` or `holder` is the zero address, whose `issuer` is its `holder`,
+  or whose `kib` is above 52,428,800 (50 GiB); a hold whose `payer` is the zero address or
+  whose `deadline` has passed.
 - The relay calls `settle` (§6.2) from its own account. The receipts say who is credited; the
   relay cannot change that. It is paid by the gas reward of §6.6.
 - A relay sends the call when the credits it expects the receipts to mint or take, computed

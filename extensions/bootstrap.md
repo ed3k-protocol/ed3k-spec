@@ -89,8 +89,10 @@ A reader refuses a list
 - whose `nodes4` is not a multiple of 22 B, or whose `nodes6` is not a multiple of 34 B,
 - whose `created` is more than 30 days *(initial)* in the past or more than 1 h in the future.
 
-A list that names more than 200 *(initial)* nodes per family is not refused; the nodes after
-the 200th of a family are ignored.
+A list that names more than 200 *(initial)* nodes per family is not refused; the entries after
+the 200th of a family are ignored. The 200 are the first 200 entries as written, usable or not.
+An entry with port 0, an IPv4-mapped address or an address that is not acceptable in the
+client's network (§8.2 (7)) is skipped; the list is not refused for it.
 
 The file SHOULD be named `nodes.ed3knod`.
 
@@ -141,7 +143,8 @@ signed with its node key, so that one user can help another who is cut off from 
   the rules of §10.2 and [`ip-diversity.md`](ip-diversity.md). A list gives a node no better
   place in the table.
 - At most half of the candidates of a first contact come from one list, as long as a second
-  list was received.
+  list was received. Here and below, a list counts as received only if it gave at least one
+  candidate. A node named by two lists is a candidate of each; it is dialled once.
 - When 4 *(initial)* nodes have completed a handshake, the client looks up its own routing ID
   (§6.3, §10.3), once per public address. When more than one list was received, at most half
   of the 4 come from one list: further nodes of that list do not count towards the 4, and the

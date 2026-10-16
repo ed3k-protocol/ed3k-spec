@@ -47,6 +47,7 @@ All numbers are *(initial)* and are repeated in Appendix A of the main document.
 | One lookup, counted over its closest set (§2.2) | 1 | 2 | R/2: 2 for a search, 4 for a store |
 | Closest set (§2.3) | as the lookup | as the lookup | as the lookup |
 | Failed or pending source dials per file and hour (§2.5) | 2 | 4 | 8 |
+| Failed or pending source dials per hour, over all files (§2.5) | 8 | — | — |
 
 ### 2.1 Routing table
 
@@ -126,6 +127,10 @@ source address of `Protocol.md` §10.3.
 | `SOURCE` records per file | 8 | 32 | — |
 | `ANON` records per target | 4 | 8 | — |
 | `KEYWORD` and `NOTE`: publishers counted per entry | 1 | 1 | — |
+| `FRIEND` records per target ([`friend.md`](friend.md) §4) | 8 | 16 | — |
+| `MEMBER` sets per file ([`file-set.md`](file-set.md) §6) | — | 16 | — |
+| `ALIAS` roots per target ([`alias.md`](alias.md) §3) | — | 8 | — |
+| `PART` records per target ([`multi-author-set.md`](multi-author-set.md) §3.4) | 8 | 32 | — |
 
 - `SOURCE`: several nodes behind one carrier-grade NAT address are distinct, honest sources, so
   the host limit is above 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
@@ -135,6 +140,15 @@ source address of `Protocol.md` §10.3.
   target has no room (`Protocol.md` §10.8). An address limit says nothing about the target: the
   storing node does not set `spill` for it, and the publisher does not start a lookup of its
   own because of it (`Protocol.md` §10.4).
+- **Address limits come first.** A storing node checks the limits of this table, and those per
+  publisher key, before the limits of the target: a record over one is `REJECTED`, whether or
+  not the target has room.
+- Limits per publisher key, not per address, are in the documents of the kinds: a `KEYWORD`
+  target takes at most 1,000 *(initial)* files of one publisher key and 2,000 of one publisher
+  site (`Protocol.md` §10.8); a `MEMBER` target at most 4 sets of one publisher key
+  ([`file-set.md`](file-set.md) §6); an `ALIAS` target at most 2 roots of one publisher key
+  ([`alias.md`](alias.md) §3); a `PART` target one record per author key
+  ([`multi-author-set.md`](multi-author-set.md) §3.4).
 - `KEYWORD` and `NOTE`: records are accepted from any publisher within the general flood limits,
   but when an entry's publishers are counted (popularity, ranking, or a rating average), one
   site counts once. A network that publishes many entries gains nothing per entry by doing so.
@@ -152,6 +166,7 @@ that **failed or are still pending**, per hour:
 | | host | site | block |
 |---|---|---|---|
 | Failed or pending dials per file and hour | 2 | 4 | 8 |
+| Failed or pending dials per hour, over all files | 8 | — | — |
 
 - An attempt that completes its handshake with the expected node ID does not count. A group of
   honest sources behind one address or in one network is therefore dialled without limit.
@@ -160,9 +175,12 @@ that **failed or are still pending**, per hour:
   source exchange.
 - Sources that exceed a limit are kept and tried in a later hour.
 - The limit is per file, so one answer cannot use up a node's attempts for other downloads.
+- **Over all files** the host limit is 8 per hour. A source beyond it is kept and tried in a
+  later hour, as above.
 
-A victim address then receives at most 2 attempts per hour from each searcher, whatever the
-number of false records and whether they name it as an endpoint or as a relay.
+A victim address then receives at most 2 attempts per hour from each searcher and file, and 8
+from each searcher over all files, whatever the number of false records and whether they name
+it as an endpoint or as a relay.
 
 ## 3. What a requester may still do
 

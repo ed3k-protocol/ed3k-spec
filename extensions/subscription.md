@@ -73,7 +73,7 @@ scope = H("ed3k v1 paid scope", kind(1) ‖ key ‖ id)[0..16)
 ```protobuf
 message Offer {
   bytes  scope = 1;           // 16 B
-  uint64 issued = 2;          // Unix time in seconds; a later offer replaces an earlier one
+  uint64 issued = 2;          // Unix time in seconds; a later offer replaces an earlier one; at most 1 h ahead
   uint64 t0 = 3;              // start of epoch 0, Unix time in seconds
   uint32 period = 4;          // length of one epoch in seconds, 60 to 2,678,400
   SignedChain chain = 5;      // the current season (§4.2)
@@ -89,7 +89,7 @@ message Offer {
 
 message Chain {
   bytes  scope = 1;           // 16 B
-  uint64 base = 2;            // first epoch of this chain
+  uint64 base = 2;            // first epoch of this chain; at most the current epoch + 1
   uint32 length = 3;          // number of epochs, 1 to 2^20
   bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", K(base))
 }
@@ -111,6 +111,11 @@ message SignedOffer {
 - A `SignedOffer` MUST NOT exceed 4 KiB.
 - `t0` and `period` never change for a scope. An offer that changes them is refused, and the
   one held is kept.
+- **Nothing far ahead.** A reader refuses an offer whose `issued` is more than 1 h *(initial)*
+  ahead of its clock, and a chain whose `base` is above the current epoch + 1, by its own clock
+  (0 before `t0`). An offer that names such a chain is refused, and the one held is kept; a key
+  that comes with such a chain is dropped. A thief of the publisher key can then not sign an
+  `issued` or a `base` so far ahead that no later offer or season of the publisher replaces it.
 - A chain covers epochs from `base` up to `base + length − 1`. A newer offer keeps the chain
   of the one held, or names one with a higher `base`. An offer whose chain has a lower `base`,
   or the same `base` with another `length` or `anchor`, is refused. A chain whose `scope` is
@@ -240,9 +245,12 @@ need keys, but not the seed of a season.
 - **A node that is broken into** gives away the keys up to the end of its horizon. The rest of
   the season and every later season stay closed. The publisher starts a new season (§4.5) and
   gives the new keys only to nodes it has made safe again.
+- A planned season's `SignedChain` reaches readers no earlier than the epoch before its
+  `base`: a reader refuses it before then (§3).
 - The publisher key that signs offers, chains, segment records and manifests is a separate
   matter. A thief who has it can sign seasons and offers of its own; there is no successor key
-  yet (§13).
+  yet (§13). §3 keeps those within 1 h and one epoch ahead, so they compete with the
+  publisher's own and do not lock it out for good.
 
 ### 4.5 A new season after a leak
 
@@ -260,7 +268,8 @@ new season at the next epoch.
 
 - **What the leak still opens:** the epochs of its season up to the leaked one. Nothing of an
   earlier season, because seasons are not linked, and nothing from the next epoch boundary on.
-- `period` fixes how long a leaked key stays useful at most: up to one epoch.
+- A leaked key opens nothing after its own epoch, so `period` bounds what one leak gives of
+  content still to come: the rest of that epoch.
 - **Old content.** Members sealed under the leaked season stay readable to whoever has the
   leaked key and the files. A publisher MAY seal them again under the new season in a new
   version; they get new roots and start with the publisher as their only source.
@@ -295,8 +304,8 @@ message SignedPass {
 
 - **A pass covers epoch `e` of a scope** when the scope is in `scopes`, `t0 + e × period` is
   before `until`, and the signer is the publisher of that scope or one of the `issuers` of its
-  current offer. The pass covers no time before `issued`, but it covers every earlier epoch
-  through the chain and the tips of earlier seasons (§4.1, §4.2).
+  current offer. The pass is not valid before `issued`; once valid, it opens every earlier epoch
+  as well, through the chain and the tips of earlier seasons (§4.1, §4.2).
 - The cut-off therefore falls on an epoch boundary: a pass that ends inside an epoch still
   gets the key of that epoch.
 - A pass with `issued` more than 1 h *(initial)* in the future is invalid.
@@ -726,8 +735,8 @@ ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32-byte seed, base32>]
 | A viewer whose pass ran out | keeps everything up to the last epoch its pass covered, and the keys for it. Cannot open a later epoch |
 | A new subscriber | opens every earlier epoch, the whole back catalogue included, through the tips of earlier seasons (§4.2) |
 | A viewer who passes the holder key on | gives the pass to others until `until`. The rate limit of §6.2 slows key requests, and a neighbour that sees the key at more node IDs than `devices` may report it to the seller (§5.3), which can refuse to renew |
-| A viewer who publishes an epoch key | opens that epoch and the earlier ones of its season, for everyone and for good. Not other seasons, and nothing after the next epoch once the publisher starts a new season (§4.5) |
-| A node of the publisher that is broken into | gives away the keys up to its horizon, at most 7 days *(initial)*, if the seed was kept off it (§4.4) |
+| A viewer who publishes an epoch key | opens that epoch and the earlier ones of its season, for everyone and for good. Not other seasons, and nothing after that epoch; only a leaked horizon key (§4.4) needs a new season (§4.5) |
+| A node of the publisher that is broken into | gives away the keys up to its horizon, at most 7 days *(initial)*, if the seed was kept off it (§4.4). A node that broadcasts or publishes versions also holds the publisher key: the thief can then sign offers and seasons of its own, which compete with the publisher's at every reader until the publisher moves to a new key (§13). It cannot sign one so far ahead that no later offer or season of the publisher can replace it (§3) |
 | Taking access away | at the end of the pass, on an epoch boundary. Short passes make that soon (§9.2) |
 | A neighbour | learns the node ID and the holder key of this scope, and that both belong together. Not which other scopes the node pays for, unless the pass names several (§5.1) |
 | A storing node | as for an open channel, an open set or a hidden set. The daily target of §8.4 limits who sees the pass holders of a set over time |

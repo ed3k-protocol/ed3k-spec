@@ -54,7 +54,7 @@ message CoSig {
 
 - `key` is 32 bytes, and `sigs` is valid under it by the rules of `Protocol.md` §10.7, over
   `"ed3k v1 set grant" ‖ body`;
-- `number` is 1 or higher;
+- `number` is 1 or higher, and `id` is at most 32 bytes (`file-set.md` §5.1);
 - `keys` holds 1 to 8 keys of 32 bytes each, no two equal;
 - `required` is from 1 to min(4, number of keys).
 
@@ -116,7 +116,7 @@ outrank the heads of that grant.
 | Grant | a valid grant (§1.1); else `REJECTED` | the same, and `grant.key` is the key it searched for |
 | Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request, and `Head.id` equals `Grant.id`; else `REJECTED` | the same |
 | Record signature | by a key of the grant | the same |
-| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are at least `required` of them; else `REJECTED` | the same; a head that fails is dropped |
+| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are at least `required` and at most min(`required`, 4) of them; else `REJECTED` | the same; a head that fails is dropped |
 | Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires`; a valid record that does not replace it is answered `OLDER` | the highest in this order wins |
 | `expires` | as for any head | as for any head |
 
@@ -154,7 +154,7 @@ Mount mount = 10;
 message Mount {
   bytes  key = 1;             // 32 B owner key of the set that fills this directory
   bytes  id = 2;              // its id
-  uint64 max_size = 3;        // sum of file sizes it may hold; 0 = the limits of file-set.md §2.1 only
+  uint64 max_size = 3;        // sum of file sizes it may hold; 0 = no limit (file-set.md §2.1 has none on sizes)
   uint32 max_files = 4;       // number of files it may hold; 0 = likewise
 }
 ```
@@ -178,6 +178,9 @@ message Mount {
   `file-set.md` §2.5 hold over all of them. It MUST NOT have open parts (§3); a reader ignores
   them there.
 - A manifest has at most 64 *(initial)* mounts. Each costs a follower one more head to watch.
+- A reader refuses a manifest with more mounts, with a `mount` on a member that is not marked
+  `set`, or with a malformed mount: a `key` that is not 32 bytes, or an `id` that is empty or
+  above 32 bytes.
 - **One set has at most 256 *(initial)* mounts over all its levels,** mounts inside mounted
   sets included, counted in the order in which the reader opens the manifests. A reader does
   not follow a mount beyond that: it shows the version the outer manifest names and watches
@@ -225,13 +228,19 @@ message Change {
 
 - The rules are part of the manifest, so they are signed by the owner or its co-owners and
   change with a new version.
-- At most 8 *(initial)* issuers and 4,096 *(initial)* changes.
+- At most 8 *(initial)* issuers and 4,096 *(initial)* changes. A reader refuses a manifest
+  with more, or with an `Issuer.key` that is not 32 bytes or a `Change.author` that is not
+  16 bytes.
 - A part is at most 64 MiB and 256 files *(initial)* whatever the rules say, and its manifest
   at most 64 KiB. These are the **caps**.
 - `max_size` and `max_files` of `Open` and of an `Issuer` lower the caps. A value of 0 sets no
   limit of its own: the caps alone hold.
 - `dir` MUST NOT be empty. It follows the path rules of `file-set.md` §2.2 and MUST NOT hold
-  members of its own.
+  members of its own: no member lies directly in `dir`, and no member's path is `dir` or a
+  directory above it. A reader refuses a manifest that breaks this.
+- **Several changes for one author.** The author is banned when any of them says `banned`.
+  Every `below` applies, so the highest one counts. Of `max_size` and `max_files`, each is
+  taken from the last change in `changes` that sets it to a value other than 0.
 
 ### 3.2 The certificate
 
@@ -300,14 +309,14 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
 travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search is paged with
 `offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records, in
-the order of the authors' keys as bytes.
+an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in `Protocol.md` §10.3.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
 | Signature | valid under `signer`, or under the connection's key when `signer` is absent | valid under `keys[key]` |
 | Target | the one above, from the fields of the record | the one it searched |
 | Content | `part` and nothing else; else `REJECTED` | the same |
-| Size | `set_key` 32 B, `id` 1 to 32 B, `root` 32 B; else `REJECTED` | the same |
+| Size | `set_key` 32 B, `id` 1 to 32 B, `root` 32 B, `cert.issuer` 32 B, `cert.name` at most 64 B; else `REJECTED` | the same |
 | Certificate | when present: valid under `cert.issuer` for the signing key, and not expired | the same, and the issuer is one of the rules |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
 | Count | one record per author under a target; a higher `seq` replaces it, and so do the same `seq` with a lower `root`, and the same `seq` and `root` with a later `expires`; a valid record that does not replace is answered `OLDER`; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |

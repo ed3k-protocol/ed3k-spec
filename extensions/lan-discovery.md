@@ -30,6 +30,9 @@ mask   = as in §4.3, with this key
 body   = a serialised LanAnnounce
 ```
 
+`salt` is fresh for every datagram, and `salt[0]` follows the rule of §4.3. A datagram is at
+most 512 *(initial)* bytes; a larger one is dropped unread.
+
 ```protobuf
 message LanAnnounce {
   bytes  id = 1;              // 16 B node ID
@@ -56,19 +59,21 @@ Neither group nor port is registered.
 **Sending**
 
 - A node announces on each interface it listens on: when it starts, when the interface gets a
-  new address, and every 5 min *(initial)*.
+  new address, and every 5 min *(initial)*. An interface with addresses of both families
+  announces to both groups; the two datagrams are one announce for the limits below.
 - A node that hears an announce from a node it did not know answers with one announce sent to
   the group, with `reply` set, after a random wait of up to 1 s. It answers a given node at most
   once per 5 min and sends at most 10 *(initial)* replies per minute; replies do not count
   against the limit below. A newcomer then knows the others at once, and so does everyone else
   on the link, as in BEP 14.
-- A node sends at most 1 multicast announce per minute and interface.
+- A node sends at most 1 multicast announce per minute and interface. The 10 replies per
+  minute are per node, over all its interfaces.
 
 **Receiving**
 
 - A node accepts an announce only when its source address is private, link-local or
   unique-local, **and** lies in a network of the interface it arrived on. Everything else is
-  dropped.
+  dropped. A loopback address is none of the three.
 - It remembers (node ID, address, port) as a **LAN peer** for 15 min *(initial)* after the last
   announce.
 - An announce is not a reason to connect. A node dials a LAN peer when it has something to ask
@@ -79,7 +84,9 @@ Neither group nor port is registered.
   holds: the LAN peer itself does not enter the routing table.
 - An announce proves nothing. The handshake does (T1): a LAN peer whose key does not give the
   announced node ID is dropped. A false announce costs one dial inside the local network.
-- A node keeps at most 256 *(initial)* LAN peers and takes at most 10 new ones per minute.
+- A node keeps at most 256 *(initial)* LAN peers and takes at most 10 new ones per minute,
+  both per node, over all its interfaces. A node that is not taken for these limits is still
+  answered as a node it did not know.
 
 ---
 
@@ -99,7 +106,8 @@ message LanAnswer {
   `LanQuery` with more than 256 roots, or whose `roots` is not a multiple of 16 bytes, is
   answered `Error{MALFORMED}`.
 - A node answers it only on a connection whose remote address passes the test of §1 of this
-  document (Receiving), and with `Error{DENIED}` otherwise.
+  document (Receiving), and with `Error{DENIED}` otherwise. This is checked before the
+  `MALFORMED` test above.
 - `have` holds one bit per root of the query, in its order. A `have` that is shorter than the
   query reads as if the missing bits were 0; bits beyond the last root are ignored.
 - For every set bit the asking node adds the LAN peer as a source of that file and opens a file

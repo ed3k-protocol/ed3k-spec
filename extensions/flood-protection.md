@@ -47,7 +47,7 @@ example the number of handshakes in progress or of Initials per second. While gu
 A token is opaque to the initiator; its layout is the node's own, and usually the QUIC
 library's. It MUST let the node check without state that the token was issued by this node
 within the validity time (a time stamp and a keyed hash under `secret`), that the Initial
-comes from the address the token was issued to (and, for a Retry token, the port), and, for a
+comes from the host address the token was issued to (and, for a Retry token, the port), and, for a
 Retry token, which destination connection ID the first Initial carried: the handshake has to
 prove it in `original_destination_connection_id` (RFC 9000 §7.3), so a Retry token carries
 that ID, encrypted or alongside its hash. A Retry token is about 40 bytes, a return token
@@ -58,6 +58,10 @@ about 16.
 | Retry token | a Retry packet | 10 s | the host address (IPv4 /32, IPv6 /64) and port |
 | Return token | a `NEW_TOKEN` frame after a handshake | 24 h | the host address |
 
+- **One binding.** A token is bound to the host address, the IPv4 address or the IPv6 /64
+  ([`ip-diversity.md`](ip-diversity.md) §1), and a Retry token to the port as well. A node
+  checks no more and no less: another address in the same /64 passes, another port passes a
+  return token.
 - `secret` is random and replaced every 24 h; the previous one stays valid for one period.
 - A node SHOULD send a return token on every connection, guarded or not. A peer that comes back
   from the same address presents it and is not asked to retry. Downloaders returning to a queue

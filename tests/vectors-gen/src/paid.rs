@@ -5,8 +5,10 @@ use super::*;
 
 fn w(h: &str, ind: usize) -> String { h.as_bytes().chunks(96).map(|c| std::str::from_utf8(c).unwrap().to_string()).collect::<Vec<_>>().join(&format!("\n{}", " ".repeat(ind))) }
 fn signed(body: &[u8], sig: &[u8]) -> Vec<u8> { cat(&[&fb(1, body), &fm(2, &sigmsg(sig))]) }
-// K(e) of a season from its seed K(last)
-fn chain_key(seed: &[u8; 32], last: u64, e: u64) -> [u8; 32] { let mut k = *seed; for _ in e..last { k = h("ed3k v1 paid chain", &k) } k }
+// K(e) of a season of `scope` from its seed K(last); every step is bound to the scope (§4.1)
+fn step(scope: &[u8], k: &[u8; 32]) -> [u8; 32] { h("ed3k v1 paid chain", &cat(&[scope, k])) }
+fn chain_key(scope: &[u8], seed: &[u8; 32], last: u64, e: u64) -> [u8; 32] { let mut k = *seed; for _ in e..last { k = step(scope, &k) } k }
+fn anchor_of(scope: &[u8], k: &[u8; 32]) -> [u8; 32] { h("ed3k v1 paid anchor", &cat(&[scope, k])) }
 
 pub fn run(pk1: &[u8], seed1: &[u8], node_id: &[u8], pk2: &[u8], sample: &[u8], dir: &Option<String>) {
     let dump = |name: &str, d: &[u8]| if let Some(dir) = dir { std::fs::write(format!("{dir}/{name}"), d).unwrap() };
@@ -19,22 +21,26 @@ pub fn run(pk1: &[u8], seed1: &[u8], node_id: &[u8], pk2: &[u8], sample: &[u8], 
     let scope = |kind: u8, id: &[u8]| h("ed3k v1 paid scope", &cat(&[&[kind], pk1, id]))[..16].to_vec();
     let (s1, s2, s3) = (scope(1, b"sid1"), scope(2, b"sid1"), scope(3, b""));
 
-    // season 1: epochs 270..299, abandoned at 290 by season 2 (§4.5)
+    // season A: epochs 270..299; a leak in epoch 284 starts season B at 285 = that epoch + 1 (§4.5).
+    // The sample time is in epoch 285, the first of B: A has ended, and its tip is K(284)
     let (t0, period) = (1767225600u64, 86400u64);
     let epoch = (time - t0) / period; assert_eq!(epoch, 285);
     let seed_a: [u8; 32] = core::array::from_fn(|i| 0x1f ^ i as u8);
     let (base_a, len_a) = (270u64, 30u64); let last_a = base_a + len_a - 1;
-    let k285 = chain_key(&seed_a, last_a, 285);
-    let k284 = h("ed3k v1 paid chain", &k285); assert_eq!(k284, chain_key(&seed_a, last_a, 284));
-    let k270 = chain_key(&seed_a, last_a, base_a);
-    let anchor_a = h("ed3k v1 paid anchor", &k270);
+    let k285a = chain_key(&s1, &seed_a, last_a, 285);
+    let k284 = step(&s1, &k285a); assert_eq!(k284, chain_key(&s1, &seed_a, last_a, 284));
+    let k270 = chain_key(&s1, &seed_a, last_a, base_a);
+    let anchor_a = anchor_of(&s1, &k270);
     let seed_b: [u8; 32] = core::array::from_fn(|i| 0x4e ^ i as u8);
-    let (base_b, len_b) = (290u64, 30u64);
-    let anchor_b = h("ed3k v1 paid anchor", &chain_key(&seed_b, base_b + len_b - 1, base_b));
-    let tip_a = chain_key(&seed_a, last_a, base_b - 1);
+    let (base_b, len_b) = (285u64, 30u64); let last_b = base_b + len_b - 1;
+    assert_eq!(base_b, 284 + 1); assert!(base_b <= epoch && base_b == base_a + 15);
+    let k285 = chain_key(&s1, &seed_b, last_b, 285);
+    let anchor_b = anchor_of(&s1, &chain_key(&s1, &seed_b, last_b, base_b));
+    let tip_a = chain_key(&s1, &seed_a, last_a, base_b - 1); assert_eq!(tip_a, k284);
     // a reader's check (§4.1): hash down to base, then the anchor step
-    let verify = |k: &[u8; 32], e: u64, base: u64, anchor: &[u8; 32]| { let mut x = *k; for _ in base..e { x = h("ed3k v1 paid chain", &x) } h("ed3k v1 paid anchor", &x) == *anchor };
-    assert!(verify(&tip_a, base_b - 1, base_a, &anchor_a) && verify(&k285, 285, base_a, &anchor_a));
+    let verify = |k: &[u8; 32], e: u64, base: u64, anchor: &[u8; 32]| { let mut x = *k; for _ in base..e { x = step(&s1, &x) } anchor_of(&s1, &x) == *anchor };
+    assert!(verify(&tip_a, base_b - 1, base_a, &anchor_a) && verify(&k285a, 285, base_a, &anchor_a));
+    assert!(verify(&k285, 285, base_b, &anchor_b) && !verify(&k285, 285, base_a, &anchor_a));
 
     let chain = |base: u64, len: u64, anchor: &[u8]| cat(&[&fb(1, &s1), &fv(2, base), &fv(3, len), &fb(4, anchor)]);
     let chain_a = chain(base_a, len_a, &anchor_a); let chain_b = chain(base_b, len_b, &anchor_b);
@@ -44,7 +50,7 @@ pub fn run(pk1: &[u8], seed1: &[u8], node_id: &[u8], pk2: &[u8], sample: &[u8], 
     dump("paid_chain.bin", &chain_a); dump("paid_schain.bin", &schain_a);
 
     // offer
-    let offer = cat(&[&fb(1, &s1), &fv(2, time), &fv(3, t0), &fv(4, period), &fm(5, &schain_a),
+    let offer = cat(&[&fb(1, &s1), &fv(2, time), &fv(3, t0), &fv(4, period), &fm(5, &schain_b),
         &fb(7, b"4.99 EUR / month"), &fb(8, b"https://example.com/pay"), &fb(9, b"https://example.com/pass"),
         &fb(12, b"https://example.com/report"), &fv(13, 1)]);
     let opre = cat(&[b"ed3k v1 paid offer", &offer]); let osig = sign(&sk1, &opre);
@@ -71,14 +77,13 @@ pub fn run(pk1: &[u8], seed1: &[u8], node_id: &[u8], pk2: &[u8], sample: &[u8], 
     // key request and answer
     let kreq = cat(&[&fb(1, &s1), &fm(2, &spass), &fm(3, &pproof), &fv(5, 1)]);
     dump("paid_keyreq.bin", &kreq);
-    let k291 = chain_key(&seed_b, base_b + len_b - 1, 291);
-    assert!(verify(&k291, 291, base_b, &anchor_b) && !verify(&k291, 291, base_a, &anchor_a));
+    // the answer: the key of the current epoch, the offer asked for, the tip of the ended season A
     let ekey = |e: u64, k: &[u8]| cat(&[&fv(1, e), &fb(2, k)]);
-    let kans = cat(&[&fm(1, &ekey(291, &k291)), &fm(5, &ekey(base_b - 1, &tip_a)), &fm(6, &schain_b), &fm(6, &schain_a)]);
+    let kans = cat(&[&fm(1, &ekey(285, &k285)), &fm(3, &soffer), &fm(5, &ekey(base_b - 1, &tip_a)), &fm(6, &schain_b), &fm(6, &schain_a)]);
     dump("paid_keyans.bin", &kans);
 
     // sealed segment
-    let k_seg = h("ed3k v1 paid live", &k285);
+    let k_seg = h("ed3k v1 paid live", &cat(&[&s1, &k285]));
     let stored = cat(&[&nonce, &chacha(&k_seg, &nonce, sample)]);
     let sroot = blake3::hash(&stored).as_bytes().to_vec();
     let stream = h("ed3k v1 live", &cat(&[pk1, b"sid1"]))[..16].to_vec();
@@ -86,10 +91,12 @@ pub fn run(pk1: &[u8], seed1: &[u8], node_id: &[u8], pk2: &[u8], sample: &[u8], 
     let lpre = cat(&[b"ed3k v1 live segment", &stream, &seg]); let lsig = sign(&sk1, &lpre);
     dump("paid_seg.bin", &seg);
 
-    // sealed member and hidden head
-    let k_data = h("ed3k v1 paid data", &k285);
+    // sealed member and hidden head: the hidden set, scope(3), has a season B of its own with the
+    // seed and bounds of B; its chain is bound to scope(3), so its keys differ from those of scope(1)
+    let k285h = chain_key(&s3, &seed_b, last_b, 285); assert_ne!(k285h, k285);
+    let k_data = h("ed3k v1 paid data", &cat(&[&s3, &k285h]));
     let sealed_m = cat(&[&nonce, &chacha(&k_data, &nonce, sample)]);
-    let k_head = h("ed3k v1 paid head", &k285);
+    let k_head = h("ed3k v1 paid head", &cat(&[&s3, &k285h]));
     let root = blake3::hash(sample).as_bytes().to_vec();
     let head = cat(&[&fb(1, b"sid1"), &fv(2, 1), &fb(3, &root), &fv(4, 16)]);
     let hdata = cat(&[&nonce, &chacha(&k_head, &nonce, &head)]);
@@ -121,19 +128,21 @@ scope(2, key, \"sid1\") = {}      set with an open manifest
 scope(3, key, \"\")     = {}      hidden set
 ```
 
-**Season and keys** (§4.1, §4.2). Season A covers epochs 270 to 299; its seed `K(299)` is 32
-bytes, byte *i* = `0x1f XOR i`. Season B begins at 290 after a leak (§4.5); its seed `K(319)`
-is byte *i* = `0x4e XOR i`. Season A is so abandoned after 289, and its tip is `K(289)`.
+**Season and keys** (§4.1, §4.2). Every chain step and the anchor are bound to `scope(1)`.
+Season A covers epochs 270 to 299; its seed `K(299)` is 32 bytes, byte *i* = `0x1f XOR i`. A
+leak in epoch 284 starts season B at 285, that epoch + 1 (§4.5); its seed `K(314)` is byte
+*i* = `0x4e XOR i`. Season A is so abandoned after 284, and its tip is `K(284)`. At the sample
+time, epoch 285, B is the current season and A has ended.
 
 ```
 K(299) of A = {}
-K(285)      = {}
-K(284)      = H(\"ed3k v1 paid chain\", K(285)) = {}
-K(270)      = {}
-anchor A    = H(\"ed3k v1 paid anchor\", K(270)) = {}
-tip of A    = K(289) = {}
+K(285) of A = {}
+K(284) of A = H(\"ed3k v1 paid chain\", scope(1) ‖ K(285) of A) = {}
+K(270) of A = {}
+anchor A    = H(\"ed3k v1 paid anchor\", scope(1) ‖ K(270)) = {}
+tip of A    = K(284) of A
 anchor B    = {}
-K(291) of B = {}
+K(285) of B = {}
 ```
 
 ```
@@ -149,7 +158,7 @@ SignedChain = {}
 
 **Offer** (§3). `price` \"4.99 EUR / month\", `pay_url` `https://example.com/pay`,
 `pass_url` `https://example.com/pass`, `report_url` `https://example.com/report`,
-`devices` 1, `issued` the sample time, `chain` the SignedChain of A.
+`devices` 1, `issued` the sample time, `chain` the SignedChain of B, the current season.
 
 ```
 Offer       = {}
@@ -182,8 +191,9 @@ PassProof   = {}
               ({} bytes)
 ```
 
-**Key exchange** (§6.1). The request shows the pass and asks for the offer. The answer gives
-`K(291)` of season B, the tip of A, and both `SignedChain`s:
+**Key exchange** (§6.1). The request shows the pass, holds no key and asks for the offer. The
+answer gives `K(285)` of season B, the key of the current epoch, the offer, the tip of the
+ended season A, and both `SignedChain`s:
 
 ```
 KeyRequest  = {} bytes
@@ -191,10 +201,10 @@ KeyAnswer   = {}
               ({} bytes)
 ```
 
-**Sealed segment** (§7.1). The sample file, sealed with the sample nonce under `K(285)`:
+**Sealed segment** (§7.1). The sample file, sealed with the sample nonce under `K(285)` of B:
 
 ```
-k_seg       = H(\"ed3k v1 paid live\", K(285)) = {}
+k_seg       = H(\"ed3k v1 paid live\", scope(1) ‖ K(285)) = {}
 stored      = {}      ({} bytes)
 root        = {}
 LiveSegment = {{ start = 1791849600, seq = 7, root, size = 28, ms = 4000, epoch = 285 }}
@@ -205,13 +215,15 @@ signature   = {}
               {}
 ```
 
-**Sealed member and hidden head** (§8.1, §8.3). The head is that of the hidden set section,
-sealed under `K(285)`:
+**Sealed member and hidden head** (§8.1, §8.3). The head is that of the hidden set section.
+The hidden set, `scope(3)`, has a season with the seed and the epochs of B; its chain is bound
+to `scope(3)`, so its keys are not those of `scope(1)`:
 
 ```
-k_data      = H(\"ed3k v1 paid data\", K(285)) = {}
+K(285)      = {}      season B of scope(3)
+k_data      = H(\"ed3k v1 paid data\", scope(3) ‖ K(285)) = {}
 sealed file = {}      ({} bytes)
-k_head      = H(\"ed3k v1 paid head\", K(285)) = {}
+k_head      = H(\"ed3k v1 paid head\", scope(3) ‖ K(285)) = {}
 Sealed      = {{ seq = 1, data = nonce ‖ ChaCha20(k_head, nonce, Head), epoch = 285 }}
             = {}
               ({} bytes)
@@ -231,14 +243,14 @@ ShareReport = {}
               ({} bytes)
 ```",
         hx(&s1), hx(&s2), hx(&s3),
-        hx(&seed_a), hx(&k285), hx(&k284), hx(&k270), hx(&anchor_a), hx(&tip_a), hx(&anchor_b), hx(&k291),
+        hx(&seed_a), hx(&k285a), hx(&k284), hx(&k270), hx(&anchor_a), hx(&anchor_b), hx(&k285),
         w(&hx(&chain_a), 14), chain_a.len(), cpre_a.len(), hx(&csig_a[..32]), hx(&csig_a[32..]), w(&hx(&schain_a), 14), schain_a.len(),
         w(&hx(&offer), 14), offer.len(), hx(&osig[..32]), hx(&osig[32..]), soffer.len(),
         hx(&holder), w(&hx(&pass), 14), pass.len(), hx(&psig[..32]), hx(&psig[32..]), w(&hx(&spass), 14), spass.len(),
         minute, hx(&viewer), hx(node_id), hx(&minute.to_be_bytes()), prelen, hx(&prsig[..32]), hx(&prsig[32..]), w(&hx(&pproof), 14), pproof.len(),
         kreq.len(), w(&hx(&kans), 14), kans.len(),
         hx(&k_seg), hx(&stored), stored.len(), hx(&sroot), w(&hx(&seg), 14), seg.len(), lpre.len(), hx(&lsig[..32]), hx(&lsig[32..]),
-        hx(&k_data), hx(&sealed_m), sealed_m.len(), hx(&k_head), w(&hx(&sealed_rec), 14), sealed_rec.len(),
+        hx(&k285h), hx(&k_data), hx(&sealed_m), sealed_m.len(), hx(&k_head), w(&hx(&sealed_rec), 14), sealed_rec.len(),
         hx(&target),
         w(&hx(&report), 14), report.len());
 }

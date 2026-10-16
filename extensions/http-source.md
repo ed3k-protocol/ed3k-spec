@@ -46,8 +46,8 @@ message SealedChunk {         // not `Sealed`, the record of hidden-set.md
 | `expires` | usually 0 | MUST be set |
 
 - `url` and `hashes` are each at most 1,024 bytes, and at most 256 bytes in a Kad record.
-- `alg` 1 is the scheme of HTTP Cache. Other values are reserved; a reader ignores a source
-  with an `alg` it does not know.
+- `alg` 1 is the scheme of HTTP Cache. Other values are reserved; a reader does not fetch a
+  source with an `alg` it does not know, and reports it as `BAD_SOURCE` (§5).
 - A sealed chunk uses a fresh random key and IV. A key is never used for two chunks.
 - A sealed chunk covers at most 16 MiB (16,777,216 bytes) of the file, which is 4 pieces and a
   ciphertext of 16,777,232 bytes. A reader MUST refuse a sealed chunk with a larger `length`.
@@ -114,7 +114,9 @@ message HttpResult {
 - It attaches only sources it vouches for: sealed chunks it published itself, or plain sources
   from which it has verified at least one block.
 - A storing node returns them in `KadAnswer.http` to a source search. It checks the limits of
-  this document and nothing else; it does not fetch.
+  this document and nothing else; it does not fetch. A `Store` whose `http` holds more than 3
+  sources, or a `url` or `hashes` above 256 bytes, is answered `REJECTED`, and its source
+  record is not kept.
 - A searcher can then download without contacting any peer.
 
 ### 2.3 Passing a source on
@@ -297,7 +299,7 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 |---|---|
 | Scheme | `http` or `https`, with a host; no user name or password in the URL |
 | Target address | global unicast, for the first URL and for every redirect (below) |
-| Range | `offset` and `length` lie inside the file and cover bytes still wanted |
+| Range | `offset` and `length` lie inside the file and cover bytes still wanted. `offset` is below the file size, so a source of a file of size 0 never passes |
 | Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s ahead |
 | Origin | from a peer: the peer is a source for that file on an open or recent file stream. From Kad or a link: the node itself chose the file |
 | Load | below the node's limit of concurrent fetches; no other fetch running for the same range |
@@ -328,7 +330,7 @@ resolves where the downloader is. The result (§2.1) therefore depends on the ch
 | Failed | `HttpResult.code` |
 |---|---|
 | Scheme, or the form of the URL: no host, a user name or password, longer than 1,024 bytes | `BAD_SOURCE` |
-| Range: `offset` and `length` not inside the file | `BAD_SOURCE` |
+| Range: `offset` and `length` not inside the file, `offset` equal to the file size, or a file of size 0 | `BAD_SOURCE` |
 | Range: inside the file, but not wanted | `NOT_WANTED` |
 | Sealed: size, `alg`, the lengths of key, IV and digest, `expires` | `BAD_SOURCE` |
 | Target address, of the first URL or of a redirect, literal or resolved | `HTTP_FAILED` |

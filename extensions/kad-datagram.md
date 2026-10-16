@@ -54,7 +54,7 @@ salt(8) ‖ mask( magic(4) ‖ kp(1) ‖ pad(pad_len) ‖ type(1) ‖ txid(4) �
 |---|---|
 | `salt` | 8 random bytes; same first-byte rule as §4.3 |
 | `magic` | `0x65 0x33 0x6B 0x02` |
-| `kp` | bits 7-6 MUST be 0; bits 5-0 `pad_len` |
+| `kp` | bits 7-6 MUST be 0, and a datagram in which they are not is dropped; bits 5-0 `pad_len` |
 | `type` | 48 `INIT`, 49 `CHALLENGE`, 50 `REQUEST`, 51 `ANSWER` (from the range reserved in §5.1) |
 | `txid` | 4 random bytes chosen by the requester, echoed by the responder |
 
@@ -208,7 +208,7 @@ A verified contact from this binding has the same standing as one verified by a 
    Then wait for the `CHALLENGE` (step 3) with the timer of step 2; `REQUEST` is not sent
    before it arrives. For a contact that is not known to set `KAD_DGRAM`, 300 ms *(initial)*
    replace the timer of step 2: when they pass, the `INIT` is not retransmitted, no failure
-   is counted, and the requester opens a QUIC connection (§9). A `CHALLENGE` with that `txid`
+   is counted, and the requester opens a QUIC connection (§9 of this document). A `CHALLENGE` with that `txid`
    that arrives later only fills the cache with key and cookie; no `REQUEST` follows it.
 2. With key and cookie: send `REQUEST`. Start a timer of 1 s *(initial)*, or twice a known round-trip time.
 3. On `CHALLENGE` with the same `txid`: store cookie and key, send the `REQUEST` again once,

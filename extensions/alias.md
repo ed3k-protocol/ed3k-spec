@@ -110,16 +110,19 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | Check | Rule |
 |---|---|
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
-| Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8 |
+| Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8, `entry` at most 255 B, `password` at most 128 B; else `REJECTED` |
 | Target | the target of the request is the one computed from `scheme` and `id` |
-| Count | one record per publisher, target and root. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
+| Count | one record per publisher, target and root. At most 2 *(initial)* roots per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
 
 - It checks nothing that depends on the scheme, and stores records of schemes it does not
   know.
 - It cannot check the claim.
 - **Records per root.** It keeps at most 3 *(initial)* records per root under a target: the
-  freshest ones, of different publishers. A further valid record is not kept; its publisher's
-  site is counted until that record's `expires`, and the answer is `STORED`. This is the
+  freshest ones, of different publishers, as for a keyword record (`Protocol.md` §10.8). A
+  valid record of a further publisher replaces the least fresh record kept (earliest
+  `expires`; on a tie, the lower publisher key) when its `expires` is later. One that does
+  not is not kept; its publisher's site is counted until that record's
+  `expires`. The answer is `STORED` in both cases. This is the
   limit of a storing node. The 4 records per root and scheme above are the limit of one
   publisher, over the names it publishes.
 - A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
@@ -133,16 +136,19 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 
 **Searcher**
 
-- It checks the signature and that `scheme` and `id` give the target it searched.
+- It checks the signature, `expires` and the content as for a keyword record
+  (`Protocol.md` §10.7) and as the Content row above, and that `scheme` and `id` give the
+  target it searched. A record that fails is dropped.
 - **Every record is a claim.** §4 says how each relation is checked.
-- It merges the answers by `root`. The site count of a root is the median of the `sites`
-  values reported for it; among equal counts the lower `root` comes first.
+- It merges the answers by `root`. The site count of a root is the lower median of the
+  non-zero `sites` values reported for it, and 0 when all are 0; among equal counts the lower
+  `root` comes first.
 - It tries at most 3 *(initial)* roots per name, those named by the most publisher sites first.
 - A publisher whose claim proved false is ignored from then on.
 
 **What an attacker can do**
 
-- **Fill a target** with 64 false roots. The order by publisher sites puts the root that
+- **Fill a target** with 64 false roots, from at least 8 sites. The order by publisher sites puts the root that
   several honest nodes name first, and each false record costs a signature under a node ID
   that clients then ignore.
 - **Make a client download a file it did not ask for.** §4 bounds what that costs for each

@@ -39,6 +39,8 @@ message ChatAck { }
   `Error{BUSY}` and a `retry_after` in seconds. The limit itself is local policy; 20 messages
   per minute is a reasonable value. A sender that gets `BUSY` waits that long before it sends
   again, with the same `id`.
+- A node checks in this order: `UNSUPPORTED`, `MALFORMED` (the size of `text`), its policy
+  (`DENIED` or a silent `ChatAck`), a repeated (sender, `id`), then the rate limit (`BUSY`).
 
 **Delivery**
 
@@ -53,6 +55,9 @@ message ChatAck { }
   most 1,024 *(initial)* of them, the oldest forgotten first. Only the `id`s of messages it
   took are remembered: one that was answered `BUSY` or `DENIED` is not, so the retry with the
   same `id` is shown when it is taken.
+- A receiver remembers the `id`s of at most 256 *(initial)* senders. A message of a further
+  sender is answered `Error{BUSY}` and not taken, so that no `id` is forgotten before its
+  10 min.
 
 ## 3. Open points
 
