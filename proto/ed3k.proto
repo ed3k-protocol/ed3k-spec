@@ -23,7 +23,8 @@
 //  25 LanAnswer       26 HopCreate       27 HopCreated      28 HopExtend
 //  29 HopGate         30 HopLookup       31 HopLookupAnswer 32 HopStream
 //  33 HopConnect      34 HopJoin         35 Receipt         36 CreditRelay
-//  37 CreditRelayAnswer 38 BadBlock      39 HopOk
+//  37 CreditRelayAnswer 38 BadBlock      39 HopOk          40 KeyRequest
+//  41 KeyAnswer
 //  48–63 reserved (Protocol.md §10.6)
 //
 // Messages without a type are file formats or sub-messages carried inside another message.
@@ -391,6 +392,9 @@ message FileSet {
   Torrent torrent = 9;        // torrent.md §1
   Usenet  usenet = 10;        // usenet.md §3
   Tube    tube = 11;          // chaintube.md §2.3
+  SignedOffer offer = 12;     // paid set                                      subscription.md §3
+  EpochKey released = 13;     // newest released epoch key                     subscription.md §4.3
+  SignedChain released_chain = 14;  // the season of `released`
 }
 
 message Member {
@@ -405,6 +409,7 @@ message Member {
   bool   sealed = 9;          // the shared file is sealed with k_data; root and size are those of the sealed file   hidden-set.md §4.2
   Mount  mount = 10;          // with `set`: a directory handed to another author   multi-author-set.md §2
   repeated string links = 11; // links that deliver this member whole; at most 4, each at most 1,024 B   hoster.md §5
+  optional uint64 epoch = 12; // sealed with the key of this epoch; root and size are those of the sealed file   subscription.md §8.1
 }
 
 message Head {
@@ -426,6 +431,7 @@ message SetRef {
 message Sealed {
   uint64 seq = 1;             // FileSet.seq of the manifest named inside      hidden-set.md §3
   bytes  data = 2;            // sealed with k_head: a serialised Head (file-set.md §5.2); 12 to 256 B
+  optional uint64 epoch = 3;  // paid hidden set: data and manifest sealed with keys of this epoch   subscription.md §8.3
 }
 
 message Grant {
@@ -574,6 +580,7 @@ message Channel {
   uint32 segment_ms = 8;      // duration a segment aims at
   uint32 window = 9;          // segments a viewer keeps, 8 to 240; 0 or absent = 30
   uint64 created = 10;
+  SignedOffer offer = 11;     // paid channel                                  subscription.md §3
 }
 
 message LiveRecord {
@@ -591,6 +598,7 @@ message LiveSegment {
   uint32 init_size = 7;
   bool   gap = 8;             // not continuous with the segment before: the player resets
   bool   end = 9;             // the broadcast is over; no segment, `root` absent
+  optional uint64 epoch = 10; // paid channel: segment and init data sealed with the key of this epoch   subscription.md §7.1
 }
 
 message LiveJoin {            // type 19
@@ -600,6 +608,8 @@ message LiveJoin {            // type 19
   bytes  relays4 = 4;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 5;         // n × 34 B
   bytes  proof = 6;           // private channel: 16 B                         live.md §10.3
+  SignedPass pass = 7;        // paid channel                                  subscription.md §6.3
+  PassProof pass_proof = 8;
 }
 
 message LiveState {           // type 20
@@ -612,6 +622,11 @@ message LiveState {           // type 20
   string codecs = 7;
   Refusal refusal = 8;        // set: I do not take you as a neighbour
   bytes  proof = 9;           // private channel: 16 B, in the first answer to a valid proof, whatever `refusal`   live.md §10.3
+  SignedPass pass = 10;       // paid channel: in the first answer to a valid pass   subscription.md §6.3
+  PassProof pass_proof = 11;
+  EpochKey key = 12;          // pushed to a neighbour whose viewer pass covers it
+  SignedOffer offer = 13;     // in the first answer if newer than the one in the channel file, and pushed
+  SignedChain chain = 14;     // the season of `key`, when it is not the season of the offer held
 }
 
 enum Refusal {                // live.md §3; prefixed, since enum values share one scope per package
@@ -619,6 +634,7 @@ enum Refusal {                // live.md §3; prefixed, since enum values share 
   LIVE_FULL = 1;
   LIVE_LEFT = 2;
   LIVE_BLOCKED = 3;
+  LIVE_PASS = 4;              // no valid pass for this scope and epoch        subscription.md §6.3
 }
 
 message LiveGet {             // type 21
@@ -634,6 +650,7 @@ enum TopicType {
   TOPIC_NONE = 0;             // pubsub.md §1
   SET_HEAD = 1;               // key and id of a set that changes (file-set.md §5.1)
   ON_AIR = 2;                 // key and id of a live channel (live.md §1.1)
+  PAID = 3;                   // pass holders of a paid scope; topic = scope   subscription.md §8.4
 }
 
 message TopicJoin {           // type 22
@@ -644,23 +661,32 @@ message TopicJoin {           // type 22
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
   uint64    held_grant = 7;   // Grant.number of the joint head I hold, 0 = none or a sole-author head   pubsub.md §2.1
+  SignedPass pass = 8;        // PAID                                          subscription.md §6.3
+  PassProof pass_proof = 9;
 }
 
 message TopicState {          // type 23
   TopicItem item = 1;         // pubsub.md §2
   repeated Peer peers = 2;    // other subscribers of this topic
   TopicRefusal refusal = 3;   // set: I do not take you as a neighbour
+  EpochKey  key = 4;          // PAID: pushed to a neighbour whose viewer pass covers it   subscription.md §6.3
+  SignedPass pass = 5;        // PAID: in the first answer to a valid pass
+  PassProof pass_proof = 6;
+  SignedOffer offer = 7;      // PAID: in the first answer if newer than the joiner's, and pushed
+  SignedChain chain = 8;      // PAID: the season of `key`, when it is not the season of the offer held
 }
 
 message TopicItem {
   Signed head = 1;            // SET_HEAD: `key` absent                        pubsub.md §4.1
   Signed on_air = 2;          // ON_AIR: `key` absent                          pubsub.md §4.2
+  Signed hidden = 3;          // PAID, hidden set: the HIDDEN record; `key` absent   subscription.md §8.4
 }
 
 enum TopicRefusal {
   TOPIC_OK = 0;               // pubsub.md §2
   TOPIC_FULL = 1;
   TOPIC_LEFT = 2;
+  TOPIC_PASS = 3;             // no valid pass for this scope and epoch        subscription.md §6.3
 }
 
 message OnAir {
@@ -798,6 +824,111 @@ message SignedReceipt {
 
 message CreditRelayAnswer {   // type 37, answer
   bytes  tx = 1;              // 32 B, hash of the settle transaction that was sent; absent if none was   credit.md §4.3
+}
+
+// ---------------------------------------------------------------------------------------
+// Paid subscriptions (subscription.md)
+// ---------------------------------------------------------------------------------------
+
+message Offer {
+  bytes  scope = 1;           // 16 B                                          subscription.md §3
+  uint64 issued = 2;          // Unix time in seconds; a later offer replaces an earlier one
+  uint64 t0 = 3;              // start of epoch 0, Unix time in seconds; never changes
+  uint32 period = 4;          // epoch length in seconds, 60 to 2,678,400; never changes
+  SignedChain chain = 5;      // the current season                            subscription.md §4.2
+  repeated bytes issuers = 6; // 32 B Ed25519 keys that may sign passes; at most 8
+  string price = 7;           // for display, at most 128 B
+  string pay_url = 8;         // https, at most 1,024 B                        subscription.md §9
+  string pass_url = 9;        // https, at most 1,024 B
+  uint32 free_after = 10;     // epochs until an epoch is released; 0 = never  subscription.md §4.3
+  string terms = 11;          // for display, at most 1,024 B
+  string report_url = 12;     // https, at most 1,024 B; absent = no reports   subscription.md §5.3
+  uint32 devices = 13;        // node IDs one holder key may use at once; 0 = 3
+}
+
+message Chain {
+  bytes  scope = 1;           // 16 B                                          subscription.md §4.2
+  uint64 base = 2;            // first epoch of the season
+  uint32 length = 3;          // 1 to 2^20
+  bytes  anchor = 4;          // 32 B, H("ed3k v1 paid anchor", K(base))
+}
+
+message SignedChain {
+  bytes body = 1;             // a serialised Chain, verified over exactly these bytes   subscription.md §4.2
+  repeated Signature sigs = 2;    // by the publisher, over "ed3k v1 paid season" ‖ body
+}
+
+message SignedOffer {
+  bytes body = 1;             // a serialised Offer, verified over exactly these bytes   subscription.md §3
+  repeated Signature sigs = 2;    // by the publisher, over "ed3k v1 paid offer" ‖ body; at most 4 KiB in all
+}
+
+message EpochKey {
+  uint64 epoch = 1;           // subscription.md §4.1
+  bytes  key = 2;             // 32 B
+}
+
+enum PassRole {
+  PASS_VIEWER = 0;            // gets epoch keys and joins the mesh            subscription.md §5
+  PASS_RELAY = 1;             // joins the mesh and carries data; gets no keys
+}
+
+message Pass {
+  repeated bytes scopes = 1;  // 16 B each, 1 to 16                            subscription.md §5
+  bytes    holder = 2;        // 32 B Ed25519 key of the subscription
+  uint64   until = 3;         // Unix time in seconds
+  PassRole role = 4;
+  uint64   issued = 5;        // Unix time in seconds
+}
+
+message SignedPass {
+  bytes body = 1;             // a serialised Pass, verified over exactly these bytes   subscription.md §5
+  bytes key = 2;              // 32 B signer: the publisher of each scope, or an issuer of its offer
+  repeated Signature sigs = 3;    // over "ed3k v1 paid pass" ‖ body; at most 1 KiB in all
+}
+
+message PassProof {
+  uint64 minute = 1;          // Unix time / 60, rounded down                  subscription.md §5.2
+  bytes  sig = 2;             // 64 B, by holder over "ed3k v1 paid proof" ‖ scope ‖ sender ID ‖ receiver ID ‖ minute(8)
+}
+
+// Body of a POST to Offer.report_url, media type application/x-ed3k-report (subscription.md §5.3).
+message ShareReport {
+  bytes      scope = 1;       // 16 B                                          subscription.md §5.3
+  SignedPass pass = 2;
+  bytes      receiver = 3;    // 16 B node ID of the reporting node
+  repeated Sighting seen = 4; // devices + 1 to 64
+}
+
+message Sighting {
+  bytes     sender = 1;       // 16 B node ID that showed the pass             subscription.md §5.3
+  PassProof proof = 2;
+}
+
+message KeyRequest {          // type 40
+  bytes      scope = 1;       // 16 B                                          subscription.md §6.1
+  SignedPass pass = 2;        // absent: asks for the offer and the released key only
+  PassProof  proof = 3;       // with `pass`                                   subscription.md §5.2
+  uint64     have = 4;        // newest epoch whose key I hold, plus 1; 0 = none
+  bool       want_offer = 5;
+  uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
+}
+
+enum KeyRefusal {
+  KEY_OK = 0;                 // subscription.md §6.1
+  KEY_NO_PASS = 1;            // no pass, a relay pass, or one that fails or covers nothing new
+  KEY_NOT_HELD = 2;           // no key newer than `have` that the pass covers
+  KEY_UNKNOWN = 3;            // no offer known for this scope
+  KEY_BUSY = 4;               // over the limit for this holder key
+}
+
+message KeyAnswer {           // type 41
+  EpochKey    key = 1;        // the newest key the pass covers                subscription.md §6.1
+  EpochKey    released = 2;   // the newest released key; absent if none
+  SignedOffer offer = 3;      // if asked, or if newer than the one shown
+  KeyRefusal  refusal = 4;
+  repeated EpochKey    tips = 5;    // tips of earlier seasons, oldest first; at most 256   subscription.md §6.2
+  repeated SignedChain chains = 6;  // the season of `key`, of `released` and of each tip
 }
 
 // ---------------------------------------------------------------------------------------

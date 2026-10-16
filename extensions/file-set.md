@@ -391,6 +391,9 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
 - An `ed3k:set` link with `s` in place of `id` names a hidden set
   ([`hidden-set.md`](hidden-set.md)): one that only holders of the link can find and read.
   A link with both `id` and `s` is refused.
+- An `ed3k:set` link with `paid=1` in place of `id` names a hidden set that only pass holders
+  can read ([`subscription.md`](subscription.md) §8.3). A set with an open manifest is paid
+  when its manifest carries an offer (§8.2 there), and keeps its ordinary link.
 - Unknown parameters of an `ed3k:set` link are ignored. [`chaintube.md`](chaintube.md) §3.1
   adds `b3` and `sz`, which pin one version of the manifest, and `ipfs`, which names a copy in
   IPFS.

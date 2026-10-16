@@ -105,6 +105,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 15 | `HOP` | Optional extension: forwards for the paths of others ([`extensions/hops.md`](extensions/hops.md) §5) |
 | 16 | `CREDIT` | Optional extension: signs receipts for what it downloads and understands bids for upload slots ([`extensions/credit.md`](extensions/credit.md)) |
 | 17 | `LINKS` | Optional extension: understands links at file hosters as sources ([`extensions/hoster.md`](extensions/hoster.md)) |
+| 18 | `PAID` | Optional extension: hands out epoch keys of paid channels and sets to pass holders ([`extensions/subscription.md`](extensions/subscription.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected. A bit that changes while a
@@ -464,6 +465,8 @@ Types 1–63 keep the tag at one byte.
 | 37 | `CreditRelayAnswer` | answer | optional, §13.1 |
 | 38 | `BadBlock` | downloader → uploader | §12.3 |
 | 39 | `HopOk` | status frame after `HopStream`, `HopConnect`, `HopJoin` | optional, §13.1 |
+| 40 | `KeyRequest` | request | optional, §13.1 |
+| 41 | `KeyAnswer` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -2162,6 +2165,8 @@ outside leads to a root through one record kind, `ALIAS`, and the rules that eve
 extension follows are in [`extensions/alias.md`](extensions/alias.md) §5.
 Anonymous paths, which put other nodes between a node and its peers, are optional as well.
 So are credits that count at every uploader; they need a ledger outside ed3k.
+Paid subscriptions give each viewer of a channel or a set access of their own for the time they
+paid; ed3k carries the passes and keys, not the payment.
 A video site whose catalogue is on a chain keeps its media in ed3k as file sets; its site is a
 program of its own next to an ordinary node, and no further role (§11).
 
@@ -2176,6 +2181,7 @@ program of its own next to an ordinary node, and no further role (§11).
 | Finding nodes in the local network | bit 13, `LAN` | message types 24 and 25; a multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
 | Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34 and 39; record kinds 11 and 12; a field in `Record` and `Store`, two in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
 | Credits | bit 16, `CREDIT` | message types 35 to 37; a field in `FileRequest` and in `FileStatus`; a ledger on a chain of its own, reached by RPC | [`extensions/credit.md`](extensions/credit.md) |
+| Paid subscriptions | bit 18, `PAID` | message types 40, 41; fields in `Channel`, `LiveSegment`, `LiveJoin`, `LiveState`, `FileSet`, `Member`, `Sealed`, `TopicJoin`, `TopicState` and `TopicItem`; `paid` in `ed3k:live` and `ed3k:set` links; `ed3k:pass` links | [`extensions/subscription.md`](extensions/subscription.md) |
 | Hidden sets | none (`SETS`) | record kind 8; a field in `Record` and in a manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
 | Sets with several authors | none (`SETS`) | record kind 9; two fields in `Record`; fields in a manifest | [`extensions/multi-author-set.md`](extensions/multi-author-set.md) |
 | Links at file hosters | bit 17, `LINKS` | a field in `FileStatus`, `Store` and `KadAnswer`; three result codes; a field in a manifest; `hl` in `ed3k:file` links; two schemes of `ALIAS` | [`extensions/hoster.md`](extensions/hoster.md) |
@@ -2216,7 +2222,8 @@ also defines `ed3k:cache`, a link to a cache server. The file set extension adds
 `ed3k:file` and defines `ed3k:set`. The live stream extension defines `ed3k:live`. The hidden
 set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the extension for links at file hosters adds `hl` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
 extension for finding a known node defines `ed3k:friend`. The extension for videos named on a
-chain adds `b3`, `sz` and `ipfs` to `ed3k:set`, and `ipfs` to `ed3k:file`.
+chain adds `b3`, `sz` and `ipfs` to `ed3k:set`, and `ipfs` to `ed3k:file`. The paid subscription
+extension adds `paid` to `ed3k:live` and `ed3k:set`, and defines `ed3k:pass`.
 
 ### 13.3 Not carried over
 
@@ -2519,7 +2526,9 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   §6.4, and of the extensions the hop keys, the signatures of a set and its grant, one
   canonical torrent manifest, the sealed forms of a hidden set and of a friend record, the LAN
   announce, one live segment record, one exchange of Kad datagrams, the key puzzle, a Usenet
-  post, the `canonical` of hoster links and the hash body. The credit receipts have none yet:
+  post, the `canonical` of hoster links, the hash body, and of paid subscriptions the scopes,
+  a season with its tip, an offer, a pass, a proof, a key exchange, the sealed forms and a
+  share report. The credit receipts have none yet:
   they wait on the chain ID ([`extensions/credit.md`](extensions/credit.md) §7.1).
 - The zstd dictionary does not exist yet; it needs a message corpus. Until it is published
   every node announces `dict = 0` and sends frames without a dictionary (§5.3).

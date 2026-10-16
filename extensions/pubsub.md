@@ -40,6 +40,7 @@ enum TopicType {
   TOPIC_NONE = 0;
   SET_HEAD = 1;               // key and id of a set that changes (file-set.md §5.1)
   ON_AIR = 2;                 // key and id of a live channel (live.md §1.1)
+  // 3, PAID, belongs to the optional paid subscription extension (subscription.md §8.4)
 }
 ```
 
@@ -55,10 +56,13 @@ A node holds at most one item per topic: the newest it has verified.
 |---|---|---|---|
 | `SET_HEAD` | the `HEAD` record of the set ([`file-set.md`](file-set.md) §5.2), sole-author or joint | (`Grant.number`, `Head.seq`); the grant number is 0 without `joint` | the author's key; a joint head by one key of its grant (§4.1) |
 | `ON_AIR` | an on-air notice of the channel (§4.2) | `OnAir.issued` | the channel key |
+| `PAID` | the `HIDDEN` record of a paid hidden set; none for other paid scopes ([`subscription.md`](subscription.md) §8.4) | `Sealed.seq` | the set key |
 
 - There is no topic for free data. A type is defined by a specification, with the checks that a
   forwarding node makes.
 - A node takes part only in topics of a type it knows, because it could not verify the others.
+- A `PAID` topic is named by its scope, not by the hash above, and its `SUB` records move to
+  a new target every day. Only pass holders join it ([`subscription.md`](subscription.md) §6.3, §8.4).
 
 ---
 

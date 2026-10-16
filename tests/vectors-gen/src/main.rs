@@ -1,6 +1,6 @@
 // Generator of the values in ../vectors-v1.md that were added on 2026-10-13: routing ID,
 // whole datagrams, trees, tokeniser targets, sets, torrent manifest, hidden set, friend
-// records, LAN announce, key conversion, hop keys, live segment; ext.rs and reject.rs print
+// records, LAN announce, key conversion, hop keys, live segment; ext.rs, paid.rs and reject.rs print
 // the later batches as markdown. The older values of that
 // file (targets, obfuscation keys, user hash, the signed KEYWORD record) are only asserted
 // here where a new value builds on them.
@@ -18,6 +18,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use sha2::Digest;
 
 mod ext;
+mod paid;
 mod reject;
 
 fn hx(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }
@@ -245,5 +246,6 @@ fn main() {
     dump("seg.bin", &seg);
 
     ext::run(&pk1, &seed1, &pk2, &seed2, &node_id, sample);
+    paid::run(&pk1, &seed1, &node_id, &pk2, sample, &dir);
     reject::run(&pk1, &seed1, &root);
 }

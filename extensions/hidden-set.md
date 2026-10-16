@@ -189,7 +189,7 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 | A node that stored it once | can compute where the record is on any later day, and search it there. It still cannot open it |
 | A node that stores `SOURCE` records | learns that some nodes share a file without a name |
 | A follower who passes the link on | gives full access. Followers are not told apart |
-| Taking access away | not possible. A new secret is a new set, and every follower needs the new link |
+| Taking access away | not possible. A new secret is a new set, and every follower needs the new link. A paid hidden set gives each follower a pass of their own that ends ([`subscription.md`](subscription.md) §8.3) |
 | A secret that leaks later | opens every version that someone kept. There is no forward secrecy |
 | Open members | are as visible as any shared file. Only that they belong together is hidden |
 | The author | is not named by the `HIDDEN` record when it stores through `signer` like any follower. Its `SOURCE` records for the sealed manifest (§4.3) are bound to its node ID like any source record, so a storing node sees who first offers a new version |
@@ -205,7 +205,7 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 | **A target from the secret**, which a storing node cannot check | a storing node learns nothing at all | anyone who knows the target can put a record of its own there first, and the real one finds no room |
 | **Sealing the head only** | manifests stay ordinary files | whoever comes across the root of a manifest reads the whole list |
 | **Always sealing members** | no choice to explain | a file that is public anyway loses its sources in the rest of the network |
-| **A key per follower**, so one follower can be removed | access can be taken away | the author wraps a key for every follower and changes it on every removal. A group key scheme of its own |
+| **A key per follower**, so one follower can be removed | access can be taken away | the author wraps a key for every follower and changes it on every removal. Per-follower access with epoch keys is the paid subscription extension ([`subscription.md`](subscription.md)) |
 | **A password typed by the user** in place of a random secret | easier to pass on | can be guessed off line by anyone who holds a sealed file |
 | **An authenticated cipher** | the usual choice | 16 bytes and a second check of what a signature or a signed root already fixes |
 
@@ -215,6 +215,7 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 
 - Push for hidden sets: a topic in [`pubsub.md`](pubsub.md) that subscribers enter with a
   proof of the secret, as the neighbours of a private channel do ([`live.md`](live.md) §10.3).
+  A paid hidden set has one: the `PAID` topic of [`subscription.md`](subscription.md) §8.4.
 - Whether the day is the right period. A shorter one moves the record more often and costs
   followers more stores.
 - A hidden set has the open point of every set: no successor for a lost key

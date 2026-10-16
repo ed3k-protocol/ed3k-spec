@@ -66,6 +66,7 @@ message Channel {
   uint32 segment_ms = 8;      // duration a segment aims at
   uint32 window = 9;          // segments a viewer keeps, 8 to 240; 0 or absent = 30
   uint64 created = 10;
+  // field 11 belongs to the optional paid subscription extension (subscription.md §3)
 }
 ```
 
@@ -575,7 +576,7 @@ Peers publish and look up their `LIVE` records under `target` (§10.1), not unde
 | A node that stores the `LIVE` records | learns that some peers share something for an hour, and their addresses |
 | A viewer | sees the addresses of its neighbours, as in any stream |
 | A viewer who passes the link on | gives full access. Viewers are not told apart |
-| Taking access away | not possible. A new secret is a new channel, and every viewer needs the new link |
+| Taking access away | not possible. A new secret is a new channel, and every viewer needs the new link. A paid channel gives each viewer a pass of their own that ends ([`subscription.md`](subscription.md)) |
 | A secret that leaks later | opens every recorded segment of that channel. There is no forward secrecy |
 | The broadcaster | is known to its neighbours as the node with the newest segments, not by name |
 
@@ -584,7 +585,7 @@ Peers publish and look up their `LIVE` records under `target` (§10.1), not unde
 | Alternative | Why not |
 |---|---|
 | **Encrypting the transport only** | It is encrypted already. That keeps observers out, not peers: anyone who finds the stream could join |
-| **A key per viewer**, so one viewer can be removed | The broadcaster would wrap a content key for every viewer and change it on every removal. A group key scheme of its own; left for later |
+| **A key per viewer**, so one viewer can be removed | The broadcaster would wrap a content key for every viewer and change it on every removal. A private channel keeps one secret; per-viewer access with epoch keys is the paid subscription extension ([`subscription.md`](subscription.md)) |
 | **Hash first, then encrypt per neighbour** | Peers could not verify or pass on blocks without decrypting; every hop would encrypt again |
 | **An authenticated cipher** | Adds 16 bytes and a second check of what the signed root already fixes |
 | **A fixed Kad target** | Simpler. The same few nodes would then see every viewer for as long as the channel exists |
@@ -630,4 +631,5 @@ recreates a central point inside Kad without the capacity of a server.
 - A successor for a lost or stolen channel key, as for a set head
   ([`file-set.md`](file-set.md) §10).
 - Whether a viewer that cannot upload at all (no free upstream) should be able to say so.
-- A private channel cannot take a viewer's access away (§10.5).
+- A private channel cannot take a viewer's access away (§10.5). A paid channel can, at the end of a
+  viewer's pass ([`subscription.md`](subscription.md) §5).

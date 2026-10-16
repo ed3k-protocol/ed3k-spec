@@ -835,3 +835,158 @@ and serves as a check here; the protocol does not use it.
 | 525288 | 3 | node(1, 0) ‖ node(1, 1) ‖ block 0 to 2 cv; node(1, 1) is block 2 cv, carried up | 160 | `96a14a72c5e25de2dc3e81186f0d1d62791351491f41477d17f288b4ba97cc96` | `183573acb52747e76ed44ae952b82f4b9af5685c7dc79027d08f670bbf607ea1` |
 | 1310720 | 5 | node(2, 0) ‖ node(2, 1) ‖ node(1, 0) to node(1, 2) ‖ block 0 to 4 cv; the values of the tree section | 320 | `103f4e723c6f36531b9d0be6e48c8c9187dfd7a6f98917a9ca878b43bc52859b` | `e30f4b6b49800f6f5fab779640a5c4ea0c720503fcdddca73f3b607f8c17e26a` |
 | 1073741824 | 4096 | levels 11 down to 0 | 262080 | `d7dd364a0856680d3bcc08ce10b9b1a4da2bc6b9cc86baf253f1a7f05a981025` | `59f5234a413cf114a466050379cf836e395169605ebba9f8698acf1b8a91dd47` |
+
+## Paid subscriptions (subscription.md §2 to §8)
+
+The publisher has the sample key; the channel and the set have the `id` `sid1`. `t0` is
+1767225600 (2026-01-01 00:00 UTC) and `period` 86400, so the sample time lies in epoch 285.
+The holder key is made from the seed byte *i* = `0x6b XOR i`; the viewer's node is the node of
+the second key, the receiver the node of the sample key. Messages are canonical (§0).
+
+**Scopes** (§2)
+
+```
+scope(1, key, "sid1") = 06d88de43163c009c0f83944f914165d      live channel
+scope(2, key, "sid1") = d47b2479f4900c25a6780ab1f052d520      set with an open manifest
+scope(3, key, "")     = 3575cab2145043e979c679fb1a42e9f2      hidden set
+```
+
+**Season and keys** (§4.1, §4.2). Season A covers epochs 270 to 299; its seed `K(299)` is 32
+bytes, byte *i* = `0x1f XOR i`. Season B begins at 290 after a leak (§4.5); its seed `K(319)`
+is byte *i* = `0x4e XOR i`. Season A is so abandoned after 289, and its tip is `K(289)`.
+
+```
+K(299) of A = 1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
+K(285)      = bbb70e1ded2207b1a364122f243149a65c8a1b04e0a0fde8be6dec4522f82e51
+K(284)      = H("ed3k v1 paid chain", K(285)) = 19dc090410cf8dea2025a5c61250bab672c98f67ec1137fd76280aadab38df16
+K(270)      = d484f123b85b548c1e5e7cabb45372db62a8aa1bba95d80ffb40f885704fefdc
+anchor A    = H("ed3k v1 paid anchor", K(270)) = 56297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f6
+tip of A    = K(289) = 8a3504ca7c48b8cebce66eee5a21d11f3723834c1388e67185a6e70842c10d05
+anchor B    = 308f6a0ae6385766d5db88095705f42fcdc1673a230ed957fd943e9bce3cc6b1
+K(291) of B = 97168934af2e304fa24bd375fbfeffb8a3f4731237c416bddec31997c6043566
+```
+
+```
+Chain A     = { scope = scope(1), base = 270, length = 30, anchor A }
+            = 0a1006d88de43163c009c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d139dfd
+              b33f74a462a1ab48f6
+              (57 bytes)
+signed      = "ed3k v1 paid season" ‖ Chain A      (76 bytes)
+signature   = 22a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d37
+              d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13855b62d1f201
+SignedChain = 0a390a1006d88de43163c009c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d13
+              9dfdb33f74a462a1ab48f612440801124022a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d
+              37d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13855b62d1f201
+              (129 bytes)
+```
+
+**Offer** (§3). `price` "4.99 EUR / month", `pay_url` `https://example.com/pay`,
+`pass_url` `https://example.com/pass`, `report_url` `https://example.com/report`,
+`devices` 1, `issued` the sample time, `chain` the SignedChain of A.
+
+```
+Offer       = 0a1006d88de43163c009c0f83944f914165d1080e9b5d6061880f2d6ca062080a3052a81010a390a1006d88de43163c0
+              09c0f83944f914165d108e02181e222056297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f6
+              12440801124022a106b058e2bf86bd0ecb57372b54f91b100f84051fe4477db6c0e61dce6d37d7d10b7a3099423b5027
+              434cd83419c6622391564bb13fb34f13855b62d1f2013a10342e393920455552202f206d6f6e7468421768747470733a
+              2f2f6578616d706c652e636f6d2f7061794a1868747470733a2f2f6578616d706c652e636f6d2f70617373621a687474
+              70733a2f2f6578616d706c652e636f6d2f7265706f72746801
+              (265 bytes)
+signature   = 0d7ae407024ff4d712baeb1dd72386851f202fb194c52cd49679d67f06394e84
+              34325941a165d74e18ae9fb9b83f251ec3d81e971f4d0f4c7ae0e1b101343107
+SignedOffer = 338 bytes
+```
+
+**Pass** (§5) for `scope(1)`, signed by the publisher, `until` = 1794441600 (30 days later):
+
+```
+holder key  = 8a84b06e1255ac4f98b95041a13cd11f81113da1ac477d4265a8beea51377df0
+Pass        = 0a1006d88de43163c009c0f83944f914165d12208a84b06e1255ac4f98b95041a13cd11f81113da1ac477d4265a8beea
+              51377df0188083d4d7062880e9b5d606
+              (64 bytes)
+signature   = ecef872796b6535d1695d0297bd1223c5bc85b18a06a455585b0c0e2cd8bb8cd
+              db5003cd5dfcaf73ca2da724c6edb8b182e933a1811dc21f7ad4d0bd430c7d02
+SignedPass  = 0a400a1006d88de43163c009c0f83944f914165d12208a84b06e1255ac4f98b95041a13cd11f81113da1ac477d4265a8
+              beea51377df0188083d4d7062880e9b5d6061220d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68
+              f707511a1a4408011240ecef872796b6535d1695d0297bd1223c5bc85b18a06a455585b0c0e2cd8bb8cddb5003cd5dfc
+              af73ca2da724c6edb8b182e933a1811dc21f7ad4d0bd430c7d02
+              (170 bytes)
+```
+
+**Proof** (§5.2), minute 29864160:
+
+```
+viewer node = 017da93e9fc9e3079a462d8b461dfc9b
+signed      = "ed3k v1 paid proof" ‖ scope(1) ‖ viewer node ‖ cf617f4479e97358c9d31741900a90ae ‖ 0000000001c7b0e0      (74 bytes)
+signature   = 5c9bb5632cc0e1b5329d03e95e3c0a25f86b6319b1135b10fb1ddec574afa586
+              9e20cd368822c3f6b2ad34a7bd744bcb1073f01b8ebc543477c6b582d9edc203
+PassProof   = 08e0e19e0e12405c9bb5632cc0e1b5329d03e95e3c0a25f86b6319b1135b10fb1ddec574afa5869e20cd368822c3f6b2
+              ad34a7bd744bcb1073f01b8ebc543477c6b582d9edc203
+              (71 bytes)
+```
+
+**Key exchange** (§6.1). The request shows the pass and asks for the offer. The answer gives
+`K(291)` of season B, the tip of A, and both `SignedChain`s:
+
+```
+KeyRequest  = 266 bytes
+KeyAnswer   = 0a2508a302122097168934af2e304fa24bd375fbfeffb8a3f4731237c416bddec31997c60435662a2508a10212208a35
+              04ca7c48b8cebce66eee5a21d11f3723834c1388e67185a6e70842c10d053281010a390a1006d88de43163c009c0f839
+              44f914165d10a202181e2220308f6a0ae6385766d5db88095705f42fcdc1673a230ed957fd943e9bce3cc6b112440801
+              1240d29d4dedffe8f7d7a0263e50ae34bbe404ba31dd042bee1b6e5aabc0c3e2f91ab91e29589ac56f93ad4bcd95b16a
+              8ba62823e414a2b9ef95c57438e96bd9360f3281010a390a1006d88de43163c009c0f83944f914165d108e02181e2220
+              56297c6365fbb20e80a9fb08530bf1774901ef0d139dfdb33f74a462a1ab48f612440801124022a106b058e2bf86bd0e
+              cb57372b54f91b100f84051fe4477db6c0e61dce6d37d7d10b7a3099423b5027434cd83419c6622391564bb13fb34f13
+              855b62d1f201
+              (342 bytes)
+```
+
+**Sealed segment** (§7.1). The sample file, sealed with the sample nonce under `K(285)`:
+
+```
+k_seg       = H("ed3k v1 paid live", K(285)) = 2e8935d8af2f72efb32acd5caa8706f43da8fdb4829c36b5afad885276eb9d1f
+stored      = 000102030405060708090a0b28afa18d320a2e9e84595c74ddcff00b      (28 bytes)
+root        = c3d4ac083380255346804616b84194683b988a573685e32628e8580a640ada89
+LiveSegment = { start = 1791849600, seq = 7, root, size = 28, ms = 4000, epoch = 285 }
+            = 0880e9b5d60610071a20c3d4ac083380255346804616b84194683b988a573685e32628e8580a640ada89201c28a01f50
+              9d02
+              (50 bytes)
+signed      = "ed3k v1 live segment" ‖ stream ‖ LiveSegment      (86 bytes)
+signature   = 4adc00976aabec4b22ba7984ef59e12b8fcf9303902279231f31b68e7dba1a0b
+              e5399ff76d50917050eb369c5fa419a75f9a26826f8536fa13b971ad8624e106
+```
+
+**Sealed member and hidden head** (§8.1, §8.3). The head is that of the hidden set section,
+sealed under `K(285)`:
+
+```
+k_data      = H("ed3k v1 paid data", K(285)) = 311a67039339577a999ff55830867fd925aa2c40887fe9728a355abc107e159c
+sealed file = 000102030405060708090a0bc9f5ef0a3d12b5b4c0754245ae0e0e6a      (28 bytes)
+k_head      = H("ed3k v1 paid head", K(285)) = 141eb8001466bea5bb45e4769033e4cb257468e2a807043ea9fee78b32f5ca48
+Sealed      = { seq = 1, data = nonce ‖ ChaCha20(k_head, nonce, Head), epoch = 285 }
+            = 08011238000102030405060708090a0b61597ea710abfe539620ff525c2771821e2c18bb69206e41c6e8d21fc01185a8
+              240105d8e610c0794ec23aee189d02
+              (63 bytes)
+```
+
+**Topic of the set** (§8.4), sample day:
+
+```
+target      = H("ed3k v1 paid topic", scope(2) ‖ 0000000000005103)[0..16) = e60266fd65e7e95d73d9e85b364b9178
+```
+
+**Share report** (§5.3). The holder key shows the pass from the viewer's node at the sample
+minute and from a node with ID byte *i* = `0x2c XOR i` three minutes later; `devices` is 1:
+
+```
+ShareReport = 0a1006d88de43163c009c0f83944f914165d12aa010a400a1006d88de43163c009c0f83944f914165d12208a84b06e12
+              55ac4f98b95041a13cd11f81113da1ac477d4265a8beea51377df0188083d4d7062880e9b5d6061220d75a980182b10a
+              b7d54bfed3c964073a0ee172f3daa62325af021a68f707511a1a4408011240ecef872796b6535d1695d0297bd1223c5b
+              c85b18a06a455585b0c0e2cd8bb8cddb5003cd5dfcaf73ca2da724c6edb8b182e933a1811dc21f7ad4d0bd430c7d021a
+              10cf617f4479e97358c9d31741900a90ae225b0a10017da93e9fc9e3079a462d8b461dfc9b124708e0e19e0e12405c9b
+              b5632cc0e1b5329d03e95e3c0a25f86b6319b1135b10fb1ddec574afa5869e20cd368822c3f6b2ad34a7bd744bcb1073
+              f01b8ebc543477c6b582d9edc203225b0a102c2d2e2f28292a2b2425262720212223124708e3e19e0e1240dec38650be
+              6528859ad8069bb343f0ccb2e601af761a22f22188ac1732a33f771ac3d6df40bb3eed37533240946078131db4c38308
+              80788103142e66992a9100
+              (395 bytes)
+```
