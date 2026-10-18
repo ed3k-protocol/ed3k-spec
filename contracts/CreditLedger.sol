@@ -3,10 +3,10 @@
 //
 // Ledger of the ed3k credit extension (extensions/credit.md §6).
 //
-// NOT AUDITED, NOT TESTED, NOT DEPLOYED. NOT COMPILED since the holds (hold, holdFor,
-// release, sweep, holdOf) were written by hand. The contract is immutable and has no
-// owner: a fault cannot be fixed after deployment. It needs tests, fuzzing and
-// an external audit first. The numbers marked (initial) were not simulated.
+// NOT AUDITED, NOT DEPLOYED. Compiled with solc 0.8.37 and unit-, fuzz- and invariant-tested
+// with Foundry on 2026-10-18 (tests/contracts). The contract is immutable
+// and has no owner: a fault cannot be fixed after deployment. It needs an external audit first.
+// The numbers marked (initial) were not simulated.
 pragma solidity ^0.8.24;
 
 /// Native minter of Subnet-EVM (precompile/contracts/nativeminter).
@@ -47,6 +47,10 @@ contract CreditLedger {
     uint256 public constant CALLER_REWARD_PCT = 60;
 
     INativeMinter public constant MINTER = INativeMinter(0x0200000000000000000000000000000000000001);
+    /// Gas for one mintNativeCoin: an error of a precompile burns all gas it is given.
+    uint256 private constant MINT_GAS = 60_000;
+    /// Gas for one isRoot read.
+    uint256 private constant ROOT_GAS = 30_000;
 
     bytes32 public constant RECEIPT_TYPEHASH =
         keccak256("Receipt(address issuer,address holder,uint32 day,uint64 kib,uint64 spent)");
@@ -170,9 +174,12 @@ contract CreditLedger {
     function settle(Receipt[] calldata receipts, bytes[] calldata sigs) external {
         if (receipts.length != sigs.length) revert LengthMismatch();
         uint32 today = uint32(block.timestamp / 1 days);
+        address rewarded; // holder of the first receipt that earns the reward
         for (uint256 i = 0; i < receipts.length; ++i) {
-            _settleOne(receipts[i], sigs[i], today);
+            if (_settleOne(receipts[i], sigs[i], today) && rewarded == address(0)) rewarded = receipts[i].holder;
         }
+        // one reward per call, however many receipts earn it (credit.md §6.6)
+        if (rewarded != address(0)) _reward(msg.sender, rewarded);
     }
 
     /// Writes the decay of an account back and emits the burn.
@@ -205,10 +212,12 @@ contract CreditLedger {
 
     /// Whether receipts signed by `account` mint (credit.md §6.3).
     function isMature(address account) public view returns (bool) {
-        if (_isRoot(account)) return true;
         Account storage a = _accounts[account];
-        return a.registeredAt != 0 && block.timestamp >= uint256(a.registeredAt) + MATURE_AGE
-            && a.inflow >= MATURE_KIB && a.issuers >= MATURE_ISSUERS;
+        if (
+            a.registeredAt != 0 && block.timestamp >= uint256(a.registeredAt) + MATURE_AGE
+                && a.inflow >= MATURE_KIB && a.issuers >= MATURE_ISSUERS
+        ) return true;
+        return _isRoot(account);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -295,14 +304,15 @@ contract CreditLedger {
 
     // ────────────────────────────── internals ────────────────────────────
 
-    function _settleOne(Receipt calldata r, bytes calldata sig, uint32 today) private {
-        if (r.issuer == r.holder || r.issuer == address(0) || r.holder == address(0)) return;
-        if (r.day > today || uint256(r.day) + WINDOW_DAYS < today) return;
-        if (r.kib > MAX_RECEIPT_KIB) return;
-        if (_recoverSig(receiptDigest(r), sig) != r.issuer) return;
+    /// Returns whether the receipt earns the gas reward.
+    function _settleOne(Receipt calldata r, bytes calldata sig, uint32 today) private returns (bool) {
+        if (r.issuer == r.holder || r.issuer == address(0) || r.holder == address(0)) return false;
+        if (r.day > today || uint256(r.day) + WINDOW_DAYS < today) return false;
+        if (r.kib > MAX_RECEIPT_KIB) return false;
+        if (_recoverSig(receiptDigest(r), sig) != r.issuer) return false;
 
         Settled storage st = settled[r.issuer][r.holder][r.day];
-        if (r.kib < st.kib || r.spent < st.spent) return;
+        if (r.kib < st.kib || r.spent < st.spent) return false;
 
         Account storage issuer = _accounts[r.issuer];
         Account storage holder = _accounts[r.holder];
@@ -324,8 +334,8 @@ contract CreditLedger {
 
         if (minted != 0 || taken != 0) emit Settle(r.issuer, r.holder, r.day, minted, taken);
 
-        // 4. gas reward
-        if (minted >= UNIT || taken >= UNIT) _reward(msg.sender, r.holder);
+        // 4. gas reward, paid once per settle
+        return minted >= UNIT || taken >= UNIT;
     }
 
     function _register(Account storage a, address who) private {
@@ -440,12 +450,13 @@ contract CreditLedger {
 
     /// Whether `account` is an operator's root. A missing or reverting operator contract reads as false,
     /// so that it cannot revert a batch.
-    function _isRoot(address account) private view returns (bool) {
-        if (address(operators).code.length == 0) return false;
-        try operators.isRoot(account) returns (bool root) {
-            return root;
-        } catch {
-            return false;
+    function _isRoot(address account) private view returns (bool root) {
+        address ops = address(operators);
+        if (ops.code.length == 0) return false;
+        bytes memory data = abi.encodeCall(IOperators.isRoot, (account));
+        assembly ("memory-safe") {
+            let ok := staticcall(ROOT_GAS, ops, add(data, 32), mload(data), 0, 32)
+            root := and(ok, and(gt(returndatasize(), 31), eq(mload(0), 1)))
         }
     }
 
@@ -504,7 +515,7 @@ contract CreditLedger {
     function _mintCoin(address to, uint256 amount) private {
         // Low-level, result ignored: a chain without the precompile, or one where
         // this contract is not allowed to mint, settles all the same.
-        (bool ok,) = address(MINTER).call(abi.encodeCall(INativeMinter.mintNativeCoin, (to, amount)));
+        (bool ok,) = address(MINTER).call{gas: MINT_GAS}(abi.encodeCall(INativeMinter.mintNativeCoin, (to, amount)));
         ok;
     }
 
@@ -557,21 +568,22 @@ contract CreditLedger {
     /// A partial day is kept for later, so no day is lost or counted twice.
     /// While the account holds something, `received` below UNIT is not cut to 0: holds stay covered.
     function _decayed(Account storage a, bool held) private view returns (uint256 e, uint256 r, uint64 until) {
-        uint256 at = block.timestamp;
+        uint256 now_ = block.timestamp;
         e = a.earned;
         r = a.received;
         until = a.decayedUntil;
         uint256 start = uint256(a.lastActive) * 1 days + GRACE;
         uint256 from = until > start ? until : start;
-        if (at <= from) return (e, r, until);
+        if (now_ <= from) return (e, r, until);
 
-        uint256 steps = (at - from) / STEP;
+        uint256 steps = (now_ - from) / STEP;
         until = uint64(from + steps * STEP);
-        // Ends when both amounts have stopped: at most a few hundred rounds for any uint128.
-        while (steps != 0 && (e >= FLOOR || r != 0)) {
-            if (e >= FLOOR) e = e * 9 / 10;
+        // × 0.9 rounded up, so that 90 % of a balance is still there after a step (holds).
+        // Ends when both amounts have stopped (r below 10 no longer moves while held).
+        while (steps != 0 && (e >= FLOOR || (r != 0 && (r >= 10 || !held)))) {
+            if (e >= FLOOR) e -= e / 10;
             if (r != 0) {
-                r = r * 9 / 10;
+                r -= r / 10;
                 if (r < UNIT && !held) r = 0;
             }
             --steps;

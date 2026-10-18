@@ -1,0 +1,29 @@
+# Tests of contracts/CreditLedger.sol (extensions/credit.md §6). See README.md.
+[profile.default]
+src = "../../contracts"
+test = "test"
+out = "out"
+cache_path = "cache"
+libs = ["lib"]
+allow_paths = ["../../contracts"]
+solc_version = "0.8.37"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+remappings = ["forge-std/=lib/forge-std/src/", "ledger/=../../contracts/"]
+gas_reports = ["CreditLedger"]
+
+[profile.default.fuzz]
+runs = 512
+
+[profile.default.invariant]
+runs = 128
+depth = 40
+fail_on_revert = false
+
+[profile.ir]
+via_ir = true
+
+[profile.noopt]
+optimizer = false

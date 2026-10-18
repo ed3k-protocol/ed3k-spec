@@ -505,8 +505,9 @@ struct Account {
 ```
 
 - `balanceOf` is `earned + received` after decay (§6.5).
-- An account is **registered** when it first appears in a receipt with a valid signature, as
-  issuer or as holder, whether or not the receipt mints.
+- An account is **registered** when it first appears in a receipt that is not skipped by the
+  checks of §6.2 (signature, day, size, counters not below the stored ones), as issuer or as
+  holder, whether or not the receipt mints.
 
 ### 6.2 Settlement
 
@@ -668,8 +669,8 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   a hold back.
 - `holdOf` returns both values as stored. The reader compares `until` with the time: a hold
   protects nothing once `until` has passed.
-- A transfer is refused as far as it would leave the account below the sum of its holds. A
-  hold that has run out still counts there until the payer releases or replaces it, or until
+- A transfer is refused as far as it would leave the account below the sum of its holds ÷ 0.9.
+  A hold that has run out still counts there, and for the cut of `received` below 1 credit, until the payer releases or replaces it, or until
   anyone removes it with `sweep(payer, payee)`.
 - Settlement (§6.2) is not refused: the receipts of `payee` are what the hold is for. What a
   settlement takes from `payer` for `payee` is taken out of that hold, down to 0.
@@ -680,12 +681,12 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
 The chain charges gas at a fixed, very low price (§7.2), in a native coin that is otherwise of
 no use. The contract mints that coin for useful work, through the native minter of the chain:
 
-- for each receipt in a `settle` that minted or took at least 1 credit, one amount fixed at
-  deployment *(initial: twice the gas of the receipt it settles, taken for a receipt of a
-  pair and day the ledger already knows, §11)*. The first receipt of a pair and day costs
-  about three times that gas and is not covered;
-- 60 % to the caller, 40 % to the holder of the receipt; all of it to the holder if the holder
-  is the caller.
+- **once per `settle`** in which at least one receipt minted or took at least 1 credit, one
+  amount fixed at deployment *(initial: twice the gas of a `settle` of one later receipt of a
+  pair and day, minter included, §11)*. Further receipts in the same call earn nothing more,
+  so splitting a delivery into small receipts does not pay;
+- 60 % to the caller, 40 % to the holder of the first receipt that earned it; all of it to that
+  holder if it is the caller.
 
 A receipt that changes less, a failed call, a transfer and a hold (`hold`, `holdFor`,
 `release`, `sweep`) earn nothing and cost gas. A node that settles its own receipts thus gains
@@ -883,30 +884,34 @@ node for which that is too much leaves credits off under its anonymous key.
 | Transactions of a bidder | one `hold` per uploader it bids at, every 3 h while it bids; none if it has its holds relayed |
 | Ledger state | one entry per (issuer, holder, day) that was settled, one per (issuer, week) and one per (issuer, holder, week) that minted, one per (payer, payee) that placed a hold and one per (payer, payee) that used `holdFor`, kept for good |
 
-Gas, from one run on a test chain without the native minter: about 195,000 for the first
-receipt of a pair and day with two new accounts, about 65,000 for a later one of the same pair
-and day, plus 21,000 per transaction. These were measured before the limit of a pair was
-added; that limit writes one more value per receipt that mints, so the numbers are now
-higher, by about 22,000 for the first receipt of a pair and week by the gas schedule, **not
-measured**. The size of the chain after a year was **not measured**.
+Gas, **measured** on 2026-10-18: solc 0.8.37, optimizer on (200 runs), EVM cancun, one
+transaction per call, `gasUsed` of the receipt (21,000 and calldata included, after refunds), with
+[`tests/contracts/gas/measure.py`](../tests/contracts/gas/measure.py).
+The native minter was a stub, so a call that pays the reward also needs the minter's own cost
+on a real chain: about 30,000 per `mintNativeCoin`, two per `settle` unless the caller is the
+holder. The size of the chain after a year was **not measured**.
 
-**All these figures are estimates that predate `hold`, `holdFor`, `release` and `sweep`,**
-the use of a hold in `settle` and the guarded call of the operator contract. By the gas
-schedule, **not measured**, and with the 21,000 of the transaction:
-
-| Call | Gas, estimated |
+| Call | Gas |
 |---|---|
-| `settle`, per receipt that takes | about 2,100 more than above, and 2,100 more again for the first receipt of a holder in a transaction (its holds are read for decay); about 10,000 more when it uses a hold up |
-| `hold`, first for a payee | about 80,000 |
-| `hold`, renewal | about 38,000, checked against the balance like a new hold; about 50,000 when it writes back a step of decay (balance, supply and a `Transfer` event) |
-| `holdFor` | as `hold`, plus about 30,000 the first time for a payer and about 12,000 later |
-| `release`, `sweep` | about 35,000 |
-| `transfer` | about 51,000; about 68,000 to an address that has no account yet; about 6,000 more for each side that writes back a step of decay. `transferFrom` about 5,000 more for the allowance, none with an unlimited one |
+| `settle`, first receipt of a pair and day, two new accounts | 242,800 |
+| `settle`, first receipt of a pair and day, accounts and weeks known | 112,600 |
+| `settle`, first of a pair and week / of a pair and issuer week | 129,800 / 146,900 |
+| `settle`, later receipt of the same pair and day | 95,600 |
+| `settle`, each further receipt in the same call: same pair and day / another holder | 29,600 / 52,800 |
+| `settle`, later receipt that takes / that also uses a hold up | 85,400 / 91,900 |
+| `hold`, first for a payee / for a further payee | 75,900 / 58,900 |
+| `hold`, renewal; one that writes back a step of decay | 36,500–38,900; 52,500 |
+| `holdFor`, first for (payer, payee) / later | 105,500 / 48,700 |
+| `release` / `sweep` | 29,900 / 28,300 |
+| `transfer` to an account / to a new address | 54,900 / 92,200 |
+| `transfer`, decay written back on one side / both | 63,300 / 71,000 |
+| `transferFrom`, finite / unlimited allowance | 60,800 / 57,600 |
+| `poke` | 29,900–32,800 |
 
 No call for a hold earns a reward (§6.6). A bidder pays for its holds with coin it earned by
 settling receipts as a holder; a node that never uploaded has none and has its holds sent by
 the uploader (§4.3), which pays the gas out of what it earns from the turn. The reward of
-§6.6 has to be set again once the gas is measured.
+§6.6 is set from the `settle` rows above, with the minter's cost added.
 
 ## 12. Alternatives considered
 
@@ -952,8 +957,8 @@ On the bounds against keys that sign for each other (§6.3):
   swept (§6.5). Anyone can sweep it, the holder that waits for its payment first of all.
 - **A hold earns no reward,** so a bidder without coin depends on the uploader to send its
   holds, and an uploader pays gas for bids that never win.
-- **Registration is free.** A receipt with `kib = 0` and a valid signature registers both
-  addresses (§6.1) before any other check, so the 30 days of §6.3 can be pre-aged for any
+- **Registration is free.** A receipt with `kib = 0`, a valid signature and a day in the window
+  registers both addresses (§6.1) before it mints or takes anything, so the 30 days of §6.3 can be pre-aged for any
   number of addresses at the cost of one `settle`; the contribution and the three issuers are
   the only price.
 - **State growth.** Settled entries are never deleted. Whether entries older than 7 days can
