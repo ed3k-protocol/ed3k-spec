@@ -274,9 +274,9 @@ ShareReport = {}
     let req_proof = p16("ed3k v1 paid private key", &viewer, node_id);
     let ans_proof = p16("ed3k v1 paid private answer", &viewer, node_id);
     let bad_proof = p16("ed3k v1 paid private key", node_id, &viewer); assert_ne!(bad_proof, req_proof);
-    // step 1: no pass, no other field
-    let preq = cat(&[&fb(1, &s1), &fb(8, &req_proof)]);
-    let preq_bad = cat(&[&fb(1, &s1), &fb(8, &bad_proof)]);
+    // step 1: no pass; the viewer holds the sample offer (from the channel file), so offer_issued = its issued
+    let preq = cat(&[&fb(1, &s1), &fv(7, time), &fb(8, &req_proof)]);
+    let preq_bad = cat(&[&fb(1, &s1), &fv(7, time), &fb(8, &bad_proof)]);
     let pans_bad = fv(4, 3); // KEY_UNKNOWN and nothing else
     // the answerer is a node of the publisher: its own viewer pass, holder key from byte i = 0x59 XOR i
     let hseed2: Vec<u8> = (0..32u8).map(|i| 0x59 ^ i).collect();
@@ -288,7 +288,7 @@ ShareReport = {}
     let pre2 = cat(&[b"ed3k v1 paid proof", &s1, node_id, &viewer, &minute.to_be_bytes()]);
     let prsig2a = sign(&hsk2, &pre2);
     let pproof2 = cat(&[&fv(1, minute), &fb(2, &prsig2a)]);
-    // step-1 answer: what §6.2 gives without a pass (KEY_NO_PASS; no released key, no tips, no offer asked) + pass, pass_proof, private_proof
+    // step-1 answer: what §6.2 gives without a pass (KEY_NO_PASS; no released key, no tips, no newer offer) + pass, pass_proof, private_proof
     let pans = cat(&[&fv(4, 1), &fm(7, &spass2), &fm(8, &pproof2), &fb(9, &ans_proof)]);
     dump("priv_keyreq.bin", &preq); dump("priv_keyreq_bad.bin", &preq_bad); dump("priv_keyans_bad.bin", &pans_bad); dump("priv_keyans.bin", &pans);
 
@@ -327,10 +327,11 @@ KeyAnswer.private_proof  = H(\"ed3k v1 paid private answer\", k ‖ {viewer} ‖
 node IDs swapped         = H(\"ed3k v1 paid private key\",    k ‖ {node} ‖ {viewer})[0..16) = {bp}      not valid
 ```
 
-**Key request, step 1** (subscription.md §6.1). Without a pass and with nothing else:
+**Key request, step 1** (subscription.md §6.1). Without a pass; the viewer holds the sample
+offer, from the channel file, so `offer_issued` is its `issued`:
 
 ```
-KeyRequest  = {{ scope = scope(1), private_proof }}
+KeyRequest  = {{ scope = scope(1), offer_issued, private_proof }}
             = {preq}
               ({preqlen} bytes)
 ```
@@ -347,7 +348,7 @@ To the valid request the answerer, a node of the publisher, shows its own viewer
 holder key is made from the Ed25519 private key byte *i* = `0x59 XOR i`; the pass is signed by
 the publisher, `until` and `issued` as in the paid section. The answer holds what
 subscription.md §6.2 gives without a pass, here only `refusal` = `KEY_NO_PASS`: there is no
-released key or tip, and the offer was not asked for.
+released key or tip, and the requester holds the offer (§6.2).
 
 ```
 holder key  = {holder2}

@@ -576,8 +576,8 @@ KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ requester's no
   chain or a key fails.
 - **Without a pass**, or with one that fails, a node answers `KEY_NO_PASS` with `released`, in
   `tips` the released tips (§4.3) of every ended season with a `base` of at least `tips_have`,
-  with their `chains`, and, if asked, `offer`. This is how a client that has only a link learns
-  the price and gets the released back catalogue.
+  with their `chains`, and `offer` as the next point says. This is how a client that has only a
+  link learns the price and gets the released back catalogue.
 - `offer` is in the answer when `want_offer` is set, and when the offer the node holds has a
   higher `issued` than `offer_issued`.
 - A node answers at most 6 *(initial)* requests with a key per holder key per hour, and

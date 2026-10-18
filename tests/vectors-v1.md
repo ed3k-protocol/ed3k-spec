@@ -1038,19 +1038,20 @@ KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ 017da93e9fc9e3
 node IDs swapped         = H("ed3k v1 paid private key",    k ‖ cf617f4479e97358c9d31741900a90ae ‖ 017da93e9fc9e3079a462d8b461dfc9b)[0..16) = f12cb21f70f1b42de51e697b69a4d149      not valid
 ```
 
-**Key request, step 1** (subscription.md §6.1). Without a pass and with nothing else:
+**Key request, step 1** (subscription.md §6.1). Without a pass; the viewer holds the sample
+offer, from the channel file, so `offer_issued` is its `issued`:
 
 ```
-KeyRequest  = { scope = scope(1), private_proof }
-            = 0a1006d88de43163c009c0f83944f914165d42104604f3ef18b76c353b107dfabb5dca86
-              (36 bytes)
+KeyRequest  = { scope = scope(1), offer_issued, private_proof }
+            = 0a1006d88de43163c009c0f83944f914165d3880e9b5d60642104604f3ef18b76c353b107dfabb5dca86
+              (42 bytes)
 ```
 
 The same request with the node IDs of its proof swapped is answered with `KEY_UNKNOWN` and
 nothing else:
 
 ```
-KeyRequest  = 0a1006d88de43163c009c0f83944f914165d4210f12cb21f70f1b42de51e697b69a4d149
+KeyRequest  = 0a1006d88de43163c009c0f83944f914165d3880e9b5d6064210f12cb21f70f1b42de51e697b69a4d149
 KeyAnswer   = { refusal = KEY_UNKNOWN } = 2003
 ```
 
@@ -1058,7 +1059,7 @@ To the valid request the answerer, a node of the publisher, shows its own viewer
 holder key is made from the Ed25519 private key byte *i* = `0x59 XOR i`; the pass is signed by
 the publisher, `until` and `issued` as in the paid section. The answer holds what
 subscription.md §6.2 gives without a pass, here only `refusal` = `KEY_NO_PASS`: there is no
-released key or tip, and the offer was not asked for.
+released key or tip, and the requester holds the offer (§6.2).
 
 ```
 holder key  = 2fb9f0ee9c5a71d7338a67edf9546a60dc3eccb559e8da2426fa9f4db6afaf2e
