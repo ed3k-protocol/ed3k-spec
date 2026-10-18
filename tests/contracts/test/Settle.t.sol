@@ -40,7 +40,7 @@ contract SettleTest is Base {
         settleRaw(r, sg);
         assertEq(L.balanceOf(alice), 2 * UNIT);
         assertEq(L.totalSupply(), 2 * UNIT);
-        (uint64 k, uint64 sp) = L.settled(root, alice, today());
+        (uint64 k, uint64 sp,) = L.settled(root, alice, today());
         assertEq(k, 2048);
         assertEq(sp, 0);
         assertEq(L.issuedKib(root, today() / 7), 2048);
@@ -69,20 +69,64 @@ contract SettleTest is Base {
         assertEq(minter.amounts(0), REWARD);
     }
 
-    function test_reward_oncePerSettle() public {
+    function test_reward_onePerEntryInABatch() public {
         CreditLedger.Receipt[] memory rs = new CreditLedger.Receipt[](3);
         bytes[] memory sg = new bytes[](3);
         rs[0] = rc(root, alice, today(), 512, 0);   // below 1 credit: earns nothing
-        rs[1] = rc(root, bob, today(), 2048, 0);    // first that earns: bob gets the holder share
-        rs[2] = rc(root, alice, today(), 4096, 0);
+        rs[1] = rc(root, bob, today(), 2048, 0);    // earns: entry (root, bob, today)
+        rs[2] = rc(root, alice, today(), 4096, 0);  // earns: first of (root, alice, today) to reach 1 credit
         for (uint256 i = 0; i < 3; ++i) sg[i] = sign(rootPk, rs[i]);
         vm.prank(carol);
         L.settle(rs, sg);
-        assertEq(minter.count(), 2);
+        assertEq(minter.count(), 4);
         assertEq(minter.tos(0), carol);
         assertEq(minter.amounts(0), REWARD * 60 / 100);
         assertEq(minter.tos(1), bob);
         assertEq(minter.amounts(1), REWARD - REWARD * 60 / 100);
+        assertEq(minter.tos(2), carol);
+        assertEq(minter.tos(3), alice);
+        (,, bool rw) = L.settled(root, alice, today());
+        assertTrue(rw);
+    }
+
+    function test_reward_oncePerPairAndDay_acrossCalls() public {
+        vm.startPrank(carol);
+        settle1(rootPk, rc(root, alice, today(), 4096, 0));
+        assertEq(minter.count(), 2);
+        // later receipts of the same pair and day earn nothing, in a later call or the same one
+        settle1(rootPk, rc(root, alice, today(), 8192, 0));
+        CreditLedger.Receipt[] memory rs = new CreditLedger.Receipt[](2);
+        bytes[] memory sg = new bytes[](2);
+        rs[0] = rc(root, alice, today(), 12288, 0);
+        rs[1] = rc(root, alice, today(), 16384, 0);
+        sg[0] = sign(rootPk, rs[0]);
+        sg[1] = sign(rootPk, rs[1]);
+        L.settle(rs, sg);
+        assertEq(minter.count(), 2);
+        assertEq(L.balanceOf(alice), 16 * UNIT);
+        // another day of the pair earns again
+        uint32 d = today() - 1;
+        settle1(rootPk, rc(root, alice, d, 4096, 0));
+        assertEq(minter.count(), 4);
+        vm.stopPrank();
+    }
+
+    function test_reward_laterPaymentSameEntry_none() public {
+        fund(alice, 10); // root → alice: rewarded
+        settle1(alicePk, rc(alice, bob, today(), 0, uint64(UNIT))); // alice → bob takes 1 credit: rewarded
+        uint256 n = minter.count();
+        settle1(alicePk, rc(alice, bob, today(), 0, uint64(3 * UNIT))); // same entry
+        assertEq(minter.count(), n);
+        assertEq(L.balanceOf(bob), UNIT * 3 / 10);
+    }
+
+    function test_reward_belowThenAbove() public {
+        settle1(rootPk, rc(root, alice, today(), 512, 0));
+        assertEq(minter.count(), 0);
+        (,, bool rw) = L.settled(root, alice, today());
+        assertFalse(rw);
+        settle1(rootPk, rc(root, alice, today(), 2048, 0)); // grows by 1.5 credits: first to earn
+        assertEq(minter.count(), 2);
     }
 
     function test_reward_noneBelowOneCredit() public {
@@ -259,7 +303,7 @@ contract SettleTest is Base {
         bytes memory s = sign(alicePk, r);
         settleRaw(r, s);
         assertEq(L.balanceOf(carol), 0);
-        (uint64 k,) = L.settled(alice, carol, d);
+        (uint64 k,,) = L.settled(alice, carol, d);
         assertEq(k, 0);
         assertEq(L.accountOf(carol).registeredAt, block.timestamp); // registered anyway
         vm.warp(t0 + 30 days);
@@ -281,7 +325,7 @@ contract SettleTest is Base {
         settle1(rootPk, rc(root, alice, d2, 1024, 0));
         if (d2 / 7 == d / 7) {
             assertEq(L.balanceOf(alice), before);
-            (uint64 k,) = L.settled(root, alice, d2);
+            (uint64 k,,) = L.settled(root, alice, d2);
             assertEq(k, 1024);
         }
     }
@@ -311,7 +355,7 @@ contract SettleTest is Base {
         assertEq(L.issuedKib(root, d / 7), 100 << 20);
         settle1(rootPk, rc(root, alice, d, 1 << 20, 0));
         assertEq(L.balanceOf(alice), 0);
-        (uint64 k,) = L.settled(root, alice, d);
+        (uint64 k,,) = L.settled(root, alice, d);
         assertEq(k, 1 << 20); // lost
     }
 
@@ -344,7 +388,7 @@ contract SettleTest is Base {
         pay(alicePk, bob, uint64(8 * UNIT));
         assertTrue(L.isOverdrawn(alice));
         assertEq(L.balanceOf(alice), 0);
-        (, uint64 sp) = L.settled(alice, bob, today());
+        (, uint64 sp,) = L.settled(alice, bob, today());
         assertEq(sp, 8 * UNIT); // the rest is not owed any more
     }
 
@@ -374,7 +418,7 @@ contract SettleTest is Base {
         settle1(alicePk, rc(alice, carol, today(), 4096, uint64(bal + UNIT)));
         assertTrue(L.isOverdrawn(alice));
         assertEq(L.balanceOf(carol), bal / 10);
-        (uint64 k,) = L.settled(alice, carol, today());
+        (uint64 k,,) = L.settled(alice, carol, today());
         assertEq(k, 0);
         settle1(alicePk, rc(alice, carol, today(), 8192, uint64(bal + UNIT)));
         assertEq(L.balanceOf(carol), bal / 10);

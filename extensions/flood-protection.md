@@ -100,9 +100,11 @@ groups of [`ip-diversity.md`](ip-diversity.md) §1.
   attacker cut off a victim by forging its address. Bans come only from §4.6 (node IDs) and §12.3 (bad blocks), after a completed handshake.
 - A node SHOULD also limit handshakes in progress in total, and drop the oldest unvalidated
   ones first.
-- Validated handshake starts are further limited per site and block while guarded: 120 and 480
-  per minute *(initial)*, four and sixteen times the host budget of §4.6. Above them the
-  handshake is refused, not banned, since a site or a block holds many unrelated users.
+- Validated handshake starts are further limited per host, site and block while guarded: 30,
+  120 and 480 per minute *(initial)*, one, four and sixteen times the host budget of §4.6.
+  They count starts, not completed handshakes: a token passes for its whole host for 24 h, and
+  a handshake that is never completed escapes §4.6. Above them the handshake is refused, not
+  banned, since a site or a block holds many unrelated users.
 
 ## 4. Kad datagrams
 

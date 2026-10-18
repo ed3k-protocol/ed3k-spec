@@ -67,7 +67,7 @@ contract CreditLedger {
     // ───────────────────────── deployment parameters ─────────────────────
 
     IOperators public immutable operators;
-    /// Native coin minted per receipt that did useful work (credit.md §6.6).
+    /// Native coin minted per (issuer, holder, day) for the first receipt that did useful work (credit.md §6.6).
     uint256 public immutable gasReward;
 
     uint256 private immutable _chainId;
@@ -108,6 +108,7 @@ contract CreditLedger {
     struct Settled {
         uint64 kib; // KiB of this pair and day that minted, or were lost to a limit
         uint64 spent; // µ of this pair and day already taken
+        bool rewarded; // the gas reward of this pair and day was paid (credit.md §6.6)
     }
 
     mapping(address => Account) private _accounts;
@@ -148,6 +149,7 @@ contract CreditLedger {
     event Held(address indexed payer, address indexed payee, uint256 amount, uint64 until);
 
     error AmountTooLarge();
+    error OutOfGas();
     error BadDeadline();
     error BadNonce();
     error BadSignature();
@@ -174,12 +176,10 @@ contract CreditLedger {
     function settle(Receipt[] calldata receipts, bytes[] calldata sigs) external {
         if (receipts.length != sigs.length) revert LengthMismatch();
         uint32 today = uint32(block.timestamp / 1 days);
-        address rewarded; // holder of the first receipt that earns the reward
         for (uint256 i = 0; i < receipts.length; ++i) {
-            if (_settleOne(receipts[i], sigs[i], today) && rewarded == address(0)) rewarded = receipts[i].holder;
+            // one reward per (issuer, holder, day), in this call or a later one (credit.md §6.6)
+            if (_settleOne(receipts[i], sigs[i], today)) _reward(msg.sender, receipts[i].holder);
         }
-        // one reward per call, however many receipts earn it (credit.md §6.6)
-        if (rewarded != address(0)) _reward(msg.sender, rewarded);
     }
 
     /// Writes the decay of an account back and emits the burn.
@@ -304,7 +304,8 @@ contract CreditLedger {
 
     // ────────────────────────────── internals ────────────────────────────
 
-    /// Returns whether the receipt earns the gas reward.
+    /// Returns whether the receipt earns the gas reward: it minted or took at least 1 credit,
+    /// and no earlier receipt of its pair and day did.
     function _settleOne(Receipt calldata r, bytes calldata sig, uint32 today) private returns (bool) {
         if (r.issuer == r.holder || r.issuer == address(0) || r.holder == address(0)) return false;
         if (r.day > today || uint256(r.day) + WINDOW_DAYS < today) return false;
@@ -334,8 +335,12 @@ contract CreditLedger {
 
         if (minted != 0 || taken != 0) emit Settle(r.issuer, r.holder, r.day, minted, taken);
 
-        // 4. gas reward, paid once per settle
-        return minted >= UNIT || taken >= UNIT;
+        // 4. gas reward, once per pair and day
+        if ((minted >= UNIT || taken >= UNIT) && !st.rewarded) {
+            st.rewarded = true;
+            return true;
+        }
+        return false;
     }
 
     function _register(Account storage a, address who) private {
@@ -453,6 +458,7 @@ contract CreditLedger {
     function _isRoot(address account) private view returns (bool root) {
         address ops = address(operators);
         if (ops.code.length == 0) return false;
+        _needGas(ROOT_GAS);
         bytes memory data = abi.encodeCall(IOperators.isRoot, (account));
         assembly ("memory-safe") {
             let ok := staticcall(ROOT_GAS, ops, add(data, 32), mload(data), 0, 32)
@@ -515,8 +521,15 @@ contract CreditLedger {
     function _mintCoin(address to, uint256 amount) private {
         // Low-level, result ignored: a chain without the precompile, or one where
         // this contract is not allowed to mint, settles all the same.
+        _needGas(MINT_GAS);
         (bool ok,) = address(MINTER).call{gas: MINT_GAS}(abi.encodeCall(INativeMinter.mintNativeCoin, (to, amount)));
         ok;
+    }
+
+    /// A capped call gets less than its cap when the caller sent too little gas (EIP-150), and its
+    /// failure is ignored. Refused instead, so a caller cannot starve it on purpose.
+    function _needGas(uint256 cap) private view {
+        if (gasleft() < cap * 64 / 63 + 2_000) revert OutOfGas();
     }
 
     function _transfer(address from, address to, uint256 value) private {

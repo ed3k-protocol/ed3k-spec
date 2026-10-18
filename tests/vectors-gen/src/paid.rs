@@ -1,6 +1,7 @@
 // Paid subscriptions (subscription.md): scopes, a season chain and its tip, offer, pass, proof,
-// key request, sealed segment, member and hidden head, topic target, share report.
-// Prints the section of ../vectors-v1.md as markdown.
+// key request, sealed segment, member and hidden head, topic target, share report; private
+// channel keys and secret proofs (live.md §10, §6.1).
+// Prints both sections of ../vectors-v1.md as markdown.
 use super::*;
 
 fn w(h: &str, ind: usize) -> String { h.as_bytes().chunks(96).map(|c| std::str::from_utf8(c).unwrap().to_string()).collect::<Vec<_>>().join(&format!("\n{}", " ".repeat(ind))) }
@@ -256,4 +257,120 @@ ShareReport = {}
         hx(&k285h), hx(&k_data), hx(&sealed_m), sealed_m.len(), hx(&k_head), w(&hx(&sealed_rec), 14), sealed_rec.len(),
         hx(&target),
         w(&hx(&report), 14), report.len());
+
+    // private channel (live.md §10) and its key exchange (§6.1): requester = viewer node, answerer = sample node
+    let secret: Vec<u8> = (0..32u8).map(|i| 0x37 ^ i).collect();
+    let k = h("ed3k v1 live private", &cat(&[&secret, pk1, b"sid1"]));
+    let pstream = h("ed3k v1 live private stream", &k)[..16].to_vec(); assert_ne!(pstream, stream);
+    let k_pdata = h("ed3k v1 live private data", &k);
+    let pstored = cat(&[&nonce, &chacha(&k_pdata, &nonce, sample)]);
+    let hour = time / 3600;
+    let ptarget = |p: u64| h("ed3k v1 live private target", &cat(&[&k, &p.to_be_bytes()]))[..16].to_vec();
+    let (pt0, pt1) = (ptarget(hour), ptarget(hour + 1));
+    // all four proofs: k ‖ joiner or requester ‖ peer or answerer
+    let p16 = |ctx: &str, a: &[u8], b: &[u8]| h(ctx, &cat(&[&k, a, b]))[..16].to_vec();
+    let join_proof = p16("ed3k v1 live private join", &viewer, node_id);
+    let state_proof = p16("ed3k v1 live private answer", &viewer, node_id);
+    let req_proof = p16("ed3k v1 paid private key", &viewer, node_id);
+    let ans_proof = p16("ed3k v1 paid private answer", &viewer, node_id);
+    let bad_proof = p16("ed3k v1 paid private key", node_id, &viewer); assert_ne!(bad_proof, req_proof);
+    // step 1: no pass, no other field
+    let preq = cat(&[&fb(1, &s1), &fb(8, &req_proof)]);
+    let preq_bad = cat(&[&fb(1, &s1), &fb(8, &bad_proof)]);
+    let pans_bad = fv(4, 3); // KEY_UNKNOWN and nothing else
+    // the answerer is a node of the publisher: its own viewer pass, holder key from byte i = 0x59 XOR i
+    let hseed2: Vec<u8> = (0..32u8).map(|i| 0x59 ^ i).collect();
+    let hsk2 = SigningKey::from_bytes(hseed2.as_slice().try_into().unwrap()); let holder2 = hsk2.verifying_key().to_bytes().to_vec();
+    assert_ne!(holder2, pk1);
+    let pass2 = cat(&[&fb(1, &s1), &fb(2, &holder2), &fv(3, until), &fv(5, time)]);
+    let psig2 = sign(&sk1, &cat(&[b"ed3k v1 paid pass", &pass2]));
+    let spass2 = cat(&[&fb(1, &pass2), &fb(2, pk1), &fm(3, &sigmsg(&psig2))]);
+    let pre2 = cat(&[b"ed3k v1 paid proof", &s1, node_id, &viewer, &minute.to_be_bytes()]);
+    let prsig2a = sign(&hsk2, &pre2);
+    let pproof2 = cat(&[&fv(1, minute), &fb(2, &prsig2a)]);
+    // step-1 answer: what §6.2 gives without a pass (KEY_NO_PASS; no released key, no tips, no offer asked) + pass, pass_proof, private_proof
+    let pans = cat(&[&fv(4, 1), &fm(7, &spass2), &fm(8, &pproof2), &fb(9, &ans_proof)]);
+    dump("priv_keyreq.bin", &preq); dump("priv_keyreq_bad.bin", &preq_bad); dump("priv_keyans_bad.bin", &pans_bad); dump("priv_keyans.bin", &pans);
+
+    println!("\n==== markdown of the private channel batch ====");
+    println!("\n## Private channels (live.md §10, subscription.md §6.1 and §7)
+
+The channel has the sample key, the `id` `sid1` and the sample secret. The joiner and
+requester is the viewer's node of the paid section, `{viewer}`; the peer
+and answerer is the node of the sample key, `{node}`. The sample time lies
+in hour {hour} (`{hourhex}`).
+
+**Keys** (live.md §10.1, §10.2). The sample file is encrypted with the sample nonce:
+
+```
+k           = H(\"ed3k v1 live private\", secret ‖ key ‖ \"sid1\") = {k}
+stream      = H(\"ed3k v1 live private stream\", k)[0..16) = {pstream}
+k_data      = H(\"ed3k v1 live private data\", k) = {kdata}
+stored      = {pstored}      ({pstoredlen} bytes)
+target      = H(\"ed3k v1 live private target\", k ‖ {hourhex})[0..16) = {pt0}
+next hour   = H(\"ed3k v1 live private target\", k ‖ {hour1hex})[0..16) = {pt1}
+```
+
+`stream` is not the `stream` of the open channel, `{ostream}`. The scope
+does not change: a private paid channel keeps `scope(1, key, \"sid1\")` =
+`{s1}` of the paid section, which is made from `key` and `id`, never from
+the secret or `stream`.
+
+**Secret proofs** (live.md §10.3, subscription.md §6.1). The joiner's or requester's node ID
+comes first, then the peer's or answerer's:
+
+```
+LiveJoin.proof           = H(\"ed3k v1 live private join\",   k ‖ {viewer} ‖ {node})[0..16) = {jp}
+LiveState.proof          = H(\"ed3k v1 live private answer\", k ‖ {viewer} ‖ {node})[0..16) = {sp}
+KeyRequest.private_proof = H(\"ed3k v1 paid private key\",    k ‖ {viewer} ‖ {node})[0..16) = {rp}
+KeyAnswer.private_proof  = H(\"ed3k v1 paid private answer\", k ‖ {viewer} ‖ {node})[0..16) = {ap}
+node IDs swapped         = H(\"ed3k v1 paid private key\",    k ‖ {node} ‖ {viewer})[0..16) = {bp}      not valid
+```
+
+**Key request, step 1** (subscription.md §6.1). Without a pass and with nothing else:
+
+```
+KeyRequest  = {{ scope = scope(1), private_proof }}
+            = {preq}
+              ({preqlen} bytes)
+```
+
+The same request with the node IDs of its proof swapped is answered with `KEY_UNKNOWN` and
+nothing else:
+
+```
+KeyRequest  = {preqbad}
+KeyAnswer   = {{ refusal = KEY_UNKNOWN }} = {pansbad}
+```
+
+To the valid request the answerer, a node of the publisher, shows its own viewer pass. Its
+holder key is made from the Ed25519 private key byte *i* = `0x59 XOR i`; the pass is signed by
+the publisher, `until` and `issued` as in the paid section. The answer holds what
+subscription.md §6.2 gives without a pass, here only `refusal` = `KEY_NO_PASS`: there is no
+released key or tip, and the offer was not asked for.
+
+```
+holder key  = {holder2}
+Pass        = {pass2}
+              ({pass2len} bytes)
+signature   = {psig2a}
+              {psig2b}
+SignedPass  = {spass2len} bytes
+signed      = \"ed3k v1 paid proof\" ‖ scope(1) ‖ {node} ‖ {viewer} ‖ {minhex}      ({pre2len} bytes)
+signature   = {prs2a}
+              {prs2b}
+PassProof   = {pproof2}
+              ({pproof2len} bytes)
+KeyAnswer   = {{ refusal = KEY_NO_PASS, pass, pass_proof, private_proof }}
+            = {pans}
+              ({panslen} bytes)
+```",
+        viewer = hx(&viewer), node = hx(node_id), hour = hour, hourhex = hx(&hour.to_be_bytes()), hour1hex = hx(&(hour + 1).to_be_bytes()),
+        k = hx(&k), pstream = hx(&pstream), kdata = hx(&k_pdata), pstored = hx(&pstored), pstoredlen = pstored.len(), pt0 = hx(&pt0), pt1 = hx(&pt1),
+        ostream = hx(&stream), s1 = hx(&s1),
+        jp = hx(&join_proof), sp = hx(&state_proof), rp = hx(&req_proof), ap = hx(&ans_proof), bp = hx(&bad_proof),
+        preq = w(&hx(&preq), 14), preqlen = preq.len(), preqbad = hx(&preq_bad), pansbad = hx(&pans_bad),
+        holder2 = hx(&holder2), pass2 = w(&hx(&pass2), 14), pass2len = pass2.len(), psig2a = hx(&psig2[..32]), psig2b = hx(&psig2[32..]),
+        spass2len = spass2.len(), minhex = hx(&minute.to_be_bytes()), pre2len = pre2.len(), prs2a = hx(&prsig2a[..32]), prs2b = hx(&prsig2a[32..]),
+        pproof2 = w(&hx(&pproof2), 14), pproof2len = pproof2.len(), pans = w(&hx(&pans), 14), panslen = pans.len());
 }

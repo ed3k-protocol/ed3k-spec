@@ -276,7 +276,10 @@ destination host (§5). A node that hides behind 0 hops sends `HopJoin` itself.
   one of them and dials (`Protocol.md` §9.4, §9.5). A punch that fails is a dial that fails
   (table below). One `HopConnect` counts as one dial for §5, whether `node` is dialled directly
   or through a punch; each further punch attempt counts as one more. Each relay is an address as
-  §2.2 asks of `node`; else `Error{MALFORMED}`.
+  §2.2 asks of `node`; else `Error{MALFORMED}`. A dial to a relay counts only in the row per
+  destination host, at the relay's host; a relay the last hop is already connected to is no
+  dial. A punch that the relay refuses counts as a failed dial of the neighbour host that
+  asked, not of the destination host (§5).
 
 **Inwards.** An owner that wants to be reached sends `HopGate` on the control stream of a
 path. The last hop answers with a gate value and is from then on a **gate** of the owner. A
@@ -377,9 +380,9 @@ first stream has the number 0, and its records follow the three messages of §3.
   `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys. A
   receiver that sets `ANON` treats a `Peer` with a node ID alone as an anonymous source and
   looks up its `GATE` record under the limits of §4.3; any other receiver drops it.
-- A node MUST limit the sessions of one node ID as it limits connections (`Protocol.md`
-  §4.6). What it counts per address, it counts per gate or per node that sent the `HopJoin`.
-  A session over a limit is refused by resetting its first stream; the opener does not open
+- A node MUST limit new sessions per node ID to the node-ID rate of `Protocol.md` §4.6, and
+  per gate or per node that sent the `HopJoin` to its host-address rate. Nothing is banned: a
+  session over a limit is refused by resetting its first stream; the opener does not open
   another session to that node ID for 60 s *(initial)*.
 - B can open a stream to A only through a gate of A. An uploader that offers a slot later
   (`Protocol.md` §12.5) looks up the `GATE` record of the downloader.
@@ -510,9 +513,14 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
 | Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |
-| Failed or pending dials caused by `HopExtend`/`HopConnect`, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
+| Dials caused by `HopExtend`/`HopConnect` that got no answer within 10 s, or are still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
 | Paths and dials per neighbour host address | 16 paths; 32 dials per minute |
+| Failed dials per neighbour host address: a wrong node ID, or a punch the relay refused | 8 per hour |
 | `HopJoin` per gate and host | 10 per minute |
+
+A dial whose QUIC handshake completed does not count in the row per destination host,
+whatever node ID answered. A wrong node ID, and a punch the relay refused, count as failed
+dials of the neighbour host that asked; above its limit that neighbour host gets `BUSY`.
 
 Above a limit it answers `Error{BUSY}`. A hop that takes no new paths clears `HOP` in its
 `Hello`.

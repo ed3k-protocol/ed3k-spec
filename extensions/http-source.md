@@ -139,6 +139,8 @@ Kad record by anyone but its publisher.
   against `digest`, the padding is checked, and the plaintext then goes to BLAKE3 verification.
   CBC allows resuming at any multiple of 16 bytes, with the preceding block as chaining value.
 - A response is refused when its length or `Content-Range` disagrees with the description.
+- Requests carry `Accept-Encoding: identity`. A response with a `Content-Encoding` other than
+  `identity` is refused (`HTTP_FAILED`).
 - Redirects are followed at most 3 times *(initial)*, and every target passes the checks of §5.
 - A node SHOULD send a `User-Agent` that names the client, so that operators can let it pass.
 
@@ -277,8 +279,8 @@ ed3k:cache?url=<url-encoded base URL>&key=<upload key>[&dn=<url-encoded name>][&
 - **The link is the credential.** Anyone who holds it can upload under that key. A client MUST
   ask the user before it applies such a link, and MUST NOT write the key to a log or show it in
   an error message.
-- A link longer than 4,096 bytes, or with a `url` or `key` that breaks the rules above, is
-  refused as a whole. Unknown parameters are ignored.
+- A link longer than 4,096 bytes, or with a `url` or `key` that breaks the rules above, or
+  with `url` or `key` repeated, is refused as a whole. Unknown parameters are ignored.
 - The link carries the same three things as HTTP Cache's own eD2K link (name, base URL,
   secret), so a server can show both for one account.
 
@@ -310,6 +312,7 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 - A literal address is checked at once, a name after it is resolved, and again for every
   redirect. The fetch connects to the address that was checked, not to a second resolution of
   the name.
+- `Alt-Svc` and similar hints are ignored. The fetch uses only the checked address.
 - An IPv4-mapped address (`::ffff:0:0/96`) is normalised to IPv4 first and checked as IPv4.
 - An address of NAT64 (`64:ff9b::/96`) or of 6to4 (`2002::/16`) is judged by the IPv4 address
   embedded in it: the last 32 bits of the first, bits 16 to 47 of the second. It is acceptable
@@ -334,6 +337,7 @@ resolves where the downloader is. The result (§2.1) therefore depends on the ch
 | Range: inside the file, but not wanted | `NOT_WANTED` |
 | Sealed: size, `alg`, the lengths of key, IV and digest, `expires` | `BAD_SOURCE` |
 | Target address, of the first URL or of a redirect, literal or resolved | `HTTP_FAILED` |
+| Scheme or form of a redirect target | `HTTP_FAILED` |
 | Load | `BUSY` |
 
 `BAD_SOURCE` is for what every node decides alike from the description alone. It says nothing
@@ -351,14 +355,19 @@ published under many files then costs its host no more than one file would, and 
 names dead URLs at a cache server or a content network uses up its own budget there, not that
 of other sources.
 
-- **Who named the URL** is the peer that sent it, by node ID, or the Kad record it came in, by
-  its publisher.
+Over all files and all namers together, a node allows at most 8 *(initial)* failed or pending
+fetches per host and hour. Node IDs cost nothing, so the count per namer alone does not bound
+what a host receives.
+
+- **Who named the URL** is the peer that sent it, by node ID. For a source from a Kad answer,
+  who named it is the pair of the target and the node that answered.
 - A fetch is **pending** from the request until the response header arrived. After that it is
   a failure or it counts nothing.
 - A fetch that was redirected counts at every address of the chain, the first included.
 - **Not counted over all files:** a fetch at a host that delivered a block which passed
   verification within the last hour, and a fetch at a gateway, a cache server or a link that
-  the user configured or pasted. The limit per file holds for these too.
+  the user configured or pasted. The same holds for the limit over all namers. The limit per
+  file holds for these too.
 
 ## 6. Who is blamed
 
@@ -367,6 +376,7 @@ of other sources.
 | Plain source, a block fails BLAKE3 | the URL: it is dropped. The node that named it is told `CORRUPT` and not banned, since it may have passed the URL on in good faith |
 | Sealed chunk, ciphertext does not match `digest`, or bad padding | nobody: a broken server and a wrong description look the same. `CORRUPT` is reported |
 | Sealed chunk, ciphertext matches `digest`, a block fails BLAKE3 | the peer that gave the description: it vouched for exactly these bytes. Treated like a peer that sent a corrupt block |
+| Sealed chunk, a block fails BLAKE3 before the whole ciphertext was checked against `digest` | nobody, unless the downloader fetches the rest of the chunk and a row above applies |
 | Sealed chunk, a block that lies partly outside the chunk fails | nobody: the describer vouched for the chunk's bytes only, and the rest of the block came from elsewhere. The block is fetched again from an ed3k source |
 | Source from Kad or a link | nobody; the URL is dropped |
 

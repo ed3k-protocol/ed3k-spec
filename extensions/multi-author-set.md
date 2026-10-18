@@ -236,8 +236,9 @@ message Change {
 - `max_size` and `max_files` of `Open` and of an `Issuer` lower the caps. A value of 0 sets no
   limit of its own: the caps alone hold.
 - `dir` MUST NOT be empty. It follows the path rules of `file-set.md` §2.2 and MUST NOT hold
-  members of its own: no member lies directly in `dir`, and no member's path is `dir` or a
-  directory above it. A reader refuses a manifest that breaks this.
+  members or directories of its own: no member's directory is `dir` or lies below it, no
+  entry of `dirs` is `dir` or lies below it, and no member's path is `dir` or a directory
+  above it. A reader refuses a manifest that breaks this.
 - **Several changes for one author.** The author is banned when any of them says `banned`.
   Every `below` applies, so the highest one counts. Of `max_size` and `max_files`, each is
   taken from the last change in `changes` that sets it to a value other than 0.
@@ -307,7 +308,8 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 ```
 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
-travels in `Store.head` with `Store.signer`, and in `KadAnswer.sets`. A search is paged with
+travels in `Store.head`, with `Store.signer` when the author's key is not the connection's,
+and in `KadAnswer.sets`. A search is paged with
 `offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records, in
 an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in `Protocol.md`
 §10.3.
@@ -320,13 +322,13 @@ an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in 
 | Size | `set_key` 32 B, `id` 1 to 32 B, `root` 32 B, `cert.issuer` 32 B, `cert.name` at most 64 B; else `REJECTED` | the same |
 | Certificate | when present: valid under `cert.issuer` for the signing key, and not expired | the same, and the issuer is one of the rules |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| Count | one record per author under a target; a higher `seq` replaces it, and so do the same `seq` with a lower `root`, and the same `seq` and `root` with a later `expires`; a valid record that does not replace is answered `OLDER`; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
+| Count | one record per author under a target; a higher `seq` replaces it, and so do the same `seq` with a lower `root`, and the same `seq` and `root` with a later `expires`; a valid record that does not replace is answered `OLDER`; at most 8 per host and 32 per site ([`ip-diversity.md`](ip-diversity.md) §2.4), `REJECTED` beyond; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
 
 - **With an issuer, the storing node keeps the door.** The target contains the issuer's key,
   and the node checks the certificate against it. A key without a certificate of that issuer
   cannot store there.
 - **Without an issuer, anyone can store.** What limits it are the flood limits per address,
-  the count per target, and the reader's checks.
+  the limits per host and per site, the count per target, and the reader's checks.
 - A reader searches one target per issuer of the rules, or the one target of an open set.
 - A follower that holds a part SHOULD store its record again when its own search no longer
   returns it. The author need not be online.
@@ -370,7 +372,7 @@ A part that fails is not shown, and an older version that passed is kept.
 | **A mounted author fills the directory** | `max_size` and `max_files`; the outer author removes the mount |
 | **Junk parts in a set with an issuer** | the storing node refuses keys without a certificate; the issuer decides who gets one |
 | **Junk parts in an open set** | per-part limits, 1,024 records per target, no automatic download. An open set can be filled; that is what open means |
-| **Filling the target so that real parts find no room** | with an issuer: not possible without certificates. Without: possible, since keys are free; the per-address rate of `Protocol.md` §10.3 is the only price |
+| **Filling the target so that real parts find no room** | with an issuer: not possible without certificates. Without: possible from 32 sites, since keys are free; the per-site limit of [`ip-diversity.md`](ip-diversity.md) §2.4 and the per-address rate of `Protocol.md` §10.3 are the only price |
 | **An issuer gives certificates to everyone** | the owner removes the issuer from the rules |
 | **Unwanted content in a part** | `banned` and `below` in the next version; the user's own filter lists |
 

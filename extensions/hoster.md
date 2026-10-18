@@ -116,9 +116,10 @@ needed, the file is gone.
 - **A link is used sparingly.** Many hosters allow one download at a time and a quota per day
   for each address. A client opens at most one stream per hoster and account at a time
   *(initial)*, and counts failed attempts per hoster with the limits of
-  [`http-source.md`](http-source.md) §5: per file, and over all files per pair of who named
-  the link and the hoster's address. A link from a manifest is named by that manifest. A link
-  the user pasted is not counted over all files.
+  [`http-source.md`](http-source.md) §5: per file, over all files per pair of who named the
+  link and the hoster's address, and over all files and namers together. A link from a
+  manifest is named by that manifest, a link from a Kad answer by the target and the node that
+  answered. A link the user pasted is not counted over all files.
 
 ---
 
@@ -141,8 +142,9 @@ bytes is invalid before the first step.
    `//` and the next `/`, `?` or `#`, and the path the rest. The scheme is `http` or `https` in any case
    of letters, and is not part of `canonical`; any other scheme makes the link invalid.
 2. **Authority.** A user name is removed: everything up to the last `@`, with it. A port is
-   removed: a `:` after the host (after the `]` of a host in brackets), with the digits behind
-   it. What is left is the host; an
+   removed: from the first `:` after the host, or the `:` right after the `]` of a host in
+   brackets, to the end of the authority. What follows that `:` MUST be digits only; an empty
+   port is allowed. Anything else after `]` makes the link invalid. What is left is the host; an
    empty host makes the link invalid. The port is dropped on purpose: the same path on 443, 80
    or another port is one `id`, and the fetch decides whether the bytes match.
 3. **Host in brackets.** It MUST be an IPv6 address (RFC 4291 §2.2) without a zone. It is
@@ -247,6 +249,8 @@ repeated string links = 11;   // links that deliver this member whole; at most 4
 - A link in a manifest is a claim of the manifest's author. Each block from it is verified
   under the member's root, so a wrong link costs a request and nothing else.
 - A client without this extension ignores the field and sees a plain set.
+- A reader with this extension ignores the links of a member beyond the fourth and links above
+  1,024 bytes. The manifest is not refused for them.
 - The manifest is immutable ([`file-set.md`](file-set.md) §1). Links that die are replaced in
   a new version of a set that changes ([`file-set.md`](file-set.md) §5), or found through
   `links` in the file stream and in Kad (§2).
@@ -272,7 +276,7 @@ Nothing in the manifest marks it as an archive.
 | `id` | the root of the file that comes out |
 | `rel` | `PACKED` |
 | `root`, `size`, `name` | the manifest of the volumes, also for an archive of one volume: `root` is always a manifest here, as the `Alias.root` comment says |
-| `entry` | the path of the file inside the archive; absent when the archive holds one file |
+| `entry` | the path of the file inside the archive; absent when the archive holds one file. `/` stands between components. It is compared byte for byte with the archive's path after the format's separator is replaced by `/` |
 | `password` | the password of the archive, if it has one |
 
 The target is computed from the root of the file that comes out. A client that looks for

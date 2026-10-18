@@ -40,7 +40,7 @@ message Alias {
   string name = 6;            // its file name
   uint32 set_files = 7;       // SET and PACKED: as in FileInfo (file-set.md §3)
   uint64 set_size = 8;
-  string entry = 9;           // PACKED: path of the file inside the archive; absent = the only file
+  string entry = 9;           // PACKED: path of the file inside the archive, "/" between components; absent = the only file
   string password = 10;       // PACKED: password of the archive, if it has one
 
   enum Relation {
@@ -120,16 +120,23 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 - **Records per root.** It keeps at most 3 *(initial)* records per root under a target, of
   different publishers, by the rule of `Protocol.md` §10.8. The site of a kept record is the
   site ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored
-  it, a renewal included. While fewer than 3 are kept, a valid record is added; else it
-  displaces the least fresh record of its own site, else the least fresh overall. A `Store`
-  with `signer` never displaces a record of another site and is answered `REJECTED` when it
-  cannot take a place. Otherwise the answer is `STORED`. This is the
-  limit of a storing node. The 4 records per root and scheme above are the limit of one
-  publisher, over the names it publishes.
-- **Sites per root.** The node remembers, per root under a target, the sites of the publishers
-  that stored a valid record for it, each until that record would have expired, also after the
-  record was displaced. One site counts once; the count saturates at 255 *(initial)*. `sites`
-  and the order below use this count.
+  it, a renewal included.
+  - A record of a publisher already kept takes the place of that publisher's record, whatever
+    site it comes from; the kept record then has the site of this `Store`.
+  - Otherwise a record from a site that holds one of the places takes the place of that
+    site's record (of the least fresh one, should a renewal have left two of one site).
+  - A record from another site is added while fewer than 3 are kept, else it takes the place
+    of the least fresh record kept.
+  - A `Store` with `signer` never takes the place of another publisher's record of another
+    site; it is answered `REJECTED`. Otherwise the answer is `STORED`.
+
+  This is the limit of a storing node. The 4 records per root and scheme above are the limit
+  of one publisher, over the names it publishes.
+- **Sites per root.** The node remembers, per root under a target, the sites (as above: of the
+  address of each `Store`) that stored a valid record for it, each until that record would have
+  expired, also after the record was displaced. A `Store` with `signer` adds no site, and only
+  stores answered `STORED` count. One site counts once; the count saturates at 255
+  *(initial)*. `sites` and the order below use this count.
 - A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
   publisher sites first, one record per root. Among equal counts the order is the node's own,
   which a publisher cannot choose (`Protocol.md` §10.3). A site is the group of

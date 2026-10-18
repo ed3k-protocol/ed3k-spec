@@ -120,6 +120,15 @@ contract Handler is Test {
     uint256 public holdsOk;
     uint256 public transfersOk;
 
+    struct Entry {
+        address issuer;
+        address holder;
+        uint32 day;
+    }
+
+    Entry[] public entries; // every (issuer, holder, day) handed to settle
+    mapping(bytes32 => bool) private _seen;
+
     constructor(CreditLedger l, uint256[] memory pks_, uint256[3] memory roots_) {
         L = l;
         pks = pks_;
@@ -143,7 +152,16 @@ contract Handler is Test {
         bytes[] memory ss = new bytes[](1);
         rs[0] = r;
         ss[0] = abi.encodePacked(rr, s, v);
+        bytes32 key = keccak256(abi.encode(r.issuer, r.holder, r.day));
+        if (!_seen[key]) {
+            _seen[key] = true;
+            entries.push(Entry(r.issuer, r.holder, r.day));
+        }
         L.settle(rs, ss);
+    }
+
+    function entryCount() external view returns (uint256) {
+        return entries.length;
     }
 
     function fund(uint256 ri, uint256 ai, uint256 kib) external {
@@ -151,7 +169,7 @@ contract Handler is Test {
         uint256 pk = rootPks[ri % 3];
         address i = vm.addr(pk);
         address h = actors[ai % actors.length];
-        (uint64 k, uint64 sp) = L.settled(i, h, _today());
+        (uint64 k, uint64 sp,) = L.settled(i, h, _today());
         _settle(pk, CreditLedger.Receipt(i, h, _today(), k + uint64(bound(kib, 0, 300_000)), sp));
     }
 
@@ -162,7 +180,7 @@ contract Handler is Test {
         address q = actors[qi % actors.length];
         if (p == q) return;
         uint32 d = yesterday ? _today() - 1 : _today();
-        (uint64 k, uint64 sp) = L.settled(p, q, d);
+        (uint64 k, uint64 sp,) = L.settled(p, q, d);
         _settle(pk, CreditLedger.Receipt(p, q, d, k, sp + uint64(bound(amount, 0, 80e6))));
     }
 
@@ -263,6 +281,17 @@ contract LedgerInvariants is Base {
         emit log_named_uint("holds ok", h.holdsOk());
         emit log_named_uint("transfers ok", h.transfersOk());
         emit log_named_uint("supply", L.totalSupply());
+    }
+
+    /// One reward per (issuer, holder, day), two mint calls each (the handler is never the holder).
+    function invariant_oneRewardPerPairAndDay() public view {
+        uint256 rewarded;
+        for (uint256 i; i < h.entryCount(); ++i) {
+            (address is_, address ho, uint32 d) = h.entries(i);
+            (,, bool rw) = L.settled(is_, ho, d);
+            if (rw) ++rewarded;
+        }
+        assertEq(minter.count(), 2 * rewarded);
     }
 
     function invariant_releaseNeverFailed() public view {

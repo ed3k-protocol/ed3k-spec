@@ -180,10 +180,11 @@ When a `REQUEST` carried a cookie from the previous secret, the responder SHOULD
 | Responder accepts a `REQUEST` | The cookie matches the source address: the requester receives at that address. The seal opens under `k_req`: the requester holds the private key of `requester_public_key`. Its node ID and routing ID are therefore **verified** in the sense of §6.3 |
 | Requester accepts an `ANSWER` | The seal opens under `k_ans` with the `txid` of a pending request: the answer was made by the holder of the responder's key, after seeing a request that was sent to that address. The responder is **verified** |
 
-A verified contact from this binding has the same standing as one verified by a QUIC handshake.
-A contact first verified by a `REQUEST` it sent is a dialled-in contact (`Protocol.md` §10.2),
-as one that opened a connection is, and is inserted with the source address and port of the
-datagram.
+A verified contact from this binding has the same standing as one verified by a QUIC handshake,
+with one exception: a datagram carries no `Hello`, so it does not show `nat = 1`. A contact
+first seen through a Kad datagram is not inserted until a `Hello` on a connection of that family
+says `ROUTER` and `nat = 1` (`Protocol.md` §10.2). A contact first verified by a `REQUEST` it
+sent is a dialled-in contact, as one that opened a connection is.
 
 ### 3.5 Properties and limits
 
@@ -286,14 +287,14 @@ always fits.
 ```protobuf
 message Hello {
   // ...
-  bytes dgram_cookie = 8;     // 8 B; sent by a node with KAD_DGRAM: your cookie for my address
+  bytes dgram_cookie = 8;     // 8 B; sent by a node with KAD_DGRAM: the cookie it accepts from your endpoint
 }
 ```
 
 A node that has had any QUIC session with a `KAD_DGRAM` node holds its public key (from the
 handshake) and a cookie, and can use datagrams with it at once. The cookie is tied to the
-address the QUIC connection came from; after an address change it fails and is replaced by a
-`CHALLENGE`.
+peer's endpoint on that connection: its source when the peer dialled, the endpoint dialled when
+the `KAD_DGRAM` node did. After an address change it fails and is replaced by a `CHALLENGE`.
 
 ---
 

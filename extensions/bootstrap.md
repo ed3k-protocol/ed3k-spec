@@ -142,7 +142,8 @@ signed with its node key, so that one user can help another who is cut off from 
   IP address is used, whatever its port and node ID; further entries of an IP address are
   dropped before the sample is taken. The sample holds at most 2 *(initial)* nodes of one site
   and 8 of one block ([`ip-diversity.md`](ip-diversity.md) §1); further entries of that site
-  or block are left out.
+  or block are skipped while the sample is drawn, and it takes up to 50 from the entries that
+  remain.
 - **A node from a list is a candidate, not a contact.** The client dials it. The handshake
   proves the node ID (T1) and with it the routing ID (§6.3). Only then is it inserted, under
   the rules of §10.2 and [`ip-diversity.md`](ip-diversity.md). A list gives a node no better

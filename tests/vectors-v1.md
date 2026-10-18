@@ -1003,3 +1003,83 @@ ShareReport = 0a1006d88de43163c009c0f83944f914165d12aa010a400a1006d88de43163c009
               80788103142e66992a9100
               (395 bytes)
 ```
+
+## Private channels (live.md §10, subscription.md §6.1 and §7)
+
+The channel has the sample key, the `id` `sid1` and the sample secret. The joiner and
+requester is the viewer's node of the paid section, `017da93e9fc9e3079a462d8b461dfc9b`; the peer
+and answerer is the node of the sample key, `cf617f4479e97358c9d31741900a90ae`. The sample time lies
+in hour 497736 (`0000000000079848`).
+
+**Keys** (live.md §10.1, §10.2). The sample file is encrypted with the sample nonce:
+
+```
+k           = H("ed3k v1 live private", secret ‖ key ‖ "sid1") = b8aa7cee2a261690c4bbbc66880f0a37920278b06f46cc13c03f30f2c29c21fc
+stream      = H("ed3k v1 live private stream", k)[0..16) = 50423b427d5de6debfa7e446bcb03b95
+k_data      = H("ed3k v1 live private data", k) = 11a28d003857a6707a6d2c5e7aa886ce4cb02cb2eb21e81e0349517066b3ef13
+stored      = 000102030405060708090a0b47d03f4089ec5fd2117cd85e7d4d515b      (28 bytes)
+target      = H("ed3k v1 live private target", k ‖ 0000000000079848)[0..16) = c9ac0b6c0024f53f938fde522686e3a3
+next hour   = H("ed3k v1 live private target", k ‖ 0000000000079849)[0..16) = 96a2d38bc00beaab64f7b7796ad26114
+```
+
+`stream` is not the `stream` of the open channel, `d6c1deaa5cf816f5f5430d7dd6c0e59a`. The scope
+does not change: a private paid channel keeps `scope(1, key, "sid1")` =
+`06d88de43163c009c0f83944f914165d` of the paid section, which is made from `key` and `id`, never from
+the secret or `stream`.
+
+**Secret proofs** (live.md §10.3, subscription.md §6.1). The joiner's or requester's node ID
+comes first, then the peer's or answerer's:
+
+```
+LiveJoin.proof           = H("ed3k v1 live private join",   k ‖ 017da93e9fc9e3079a462d8b461dfc9b ‖ cf617f4479e97358c9d31741900a90ae)[0..16) = 24c56268d8dc87d3894978aad793e8bc
+LiveState.proof          = H("ed3k v1 live private answer", k ‖ 017da93e9fc9e3079a462d8b461dfc9b ‖ cf617f4479e97358c9d31741900a90ae)[0..16) = bb398c3363c9e94e4010eace48146751
+KeyRequest.private_proof = H("ed3k v1 paid private key",    k ‖ 017da93e9fc9e3079a462d8b461dfc9b ‖ cf617f4479e97358c9d31741900a90ae)[0..16) = 4604f3ef18b76c353b107dfabb5dca86
+KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ 017da93e9fc9e3079a462d8b461dfc9b ‖ cf617f4479e97358c9d31741900a90ae)[0..16) = 6aae22f04b9b9e987e0318b3a8f8282a
+node IDs swapped         = H("ed3k v1 paid private key",    k ‖ cf617f4479e97358c9d31741900a90ae ‖ 017da93e9fc9e3079a462d8b461dfc9b)[0..16) = f12cb21f70f1b42de51e697b69a4d149      not valid
+```
+
+**Key request, step 1** (subscription.md §6.1). Without a pass and with nothing else:
+
+```
+KeyRequest  = { scope = scope(1), private_proof }
+            = 0a1006d88de43163c009c0f83944f914165d42104604f3ef18b76c353b107dfabb5dca86
+              (36 bytes)
+```
+
+The same request with the node IDs of its proof swapped is answered with `KEY_UNKNOWN` and
+nothing else:
+
+```
+KeyRequest  = 0a1006d88de43163c009c0f83944f914165d4210f12cb21f70f1b42de51e697b69a4d149
+KeyAnswer   = { refusal = KEY_UNKNOWN } = 2003
+```
+
+To the valid request the answerer, a node of the publisher, shows its own viewer pass. Its
+holder key is made from the Ed25519 private key byte *i* = `0x59 XOR i`; the pass is signed by
+the publisher, `until` and `issued` as in the paid section. The answer holds what
+subscription.md §6.2 gives without a pass, here only `refusal` = `KEY_NO_PASS`: there is no
+released key or tip, and the offer was not asked for.
+
+```
+holder key  = 2fb9f0ee9c5a71d7338a67edf9546a60dc3eccb559e8da2426fa9f4db6afaf2e
+Pass        = 0a1006d88de43163c009c0f83944f914165d12202fb9f0ee9c5a71d7338a67edf9546a60dc3eccb559e8da2426fa9f4d
+              b6afaf2e188083d4d7062880e9b5d606
+              (64 bytes)
+signature   = 46dbb39a04ca8a2509cdee9fa3f9aa0c501a42bdb98582399432a4b85de12670
+              d44df70df52a6c35b2f9b0f9fae03b5c27eb2a1f930084e0f1b0bebdad92aa06
+SignedPass  = 170 bytes
+signed      = "ed3k v1 paid proof" ‖ scope(1) ‖ cf617f4479e97358c9d31741900a90ae ‖ 017da93e9fc9e3079a462d8b461dfc9b ‖ 0000000001c7b0e0      (74 bytes)
+signature   = 1a307bdb5dff116d5d688ab5b55c368c58c1712e587997dafe2bd5f7c4c44e14
+              0fbcdef1e307bfebaabbe22dc88d940839b7341d0dbac2bf40076f2b1c376b06
+PassProof   = 08e0e19e0e12401a307bdb5dff116d5d688ab5b55c368c58c1712e587997dafe2bd5f7c4c44e140fbcdef1e307bfebaa
+              bbe22dc88d940839b7341d0dbac2bf40076f2b1c376b06
+              (71 bytes)
+KeyAnswer   = { refusal = KEY_NO_PASS, pass, pass_proof, private_proof }
+            = 20013aaa010a400a1006d88de43163c009c0f83944f914165d12202fb9f0ee9c5a71d7338a67edf9546a60dc3eccb559
+              e8da2426fa9f4db6afaf2e188083d4d7062880e9b5d6061220d75a980182b10ab7d54bfed3c964073a0ee172f3daa623
+              25af021a68f707511a1a440801124046dbb39a04ca8a2509cdee9fa3f9aa0c501a42bdb98582399432a4b85de12670d4
+              4df70df52a6c35b2f9b0f9fae03b5c27eb2a1f930084e0f1b0bebdad92aa06424708e0e19e0e12401a307bdb5dff116d
+              5d688ab5b55c368c58c1712e587997dafe2bd5f7c4c44e140fbcdef1e307bfebaabbe22dc88d940839b7341d0dbac2bf
+              40076f2b1c376b064a106aae22f04b9b9e987e0318b3a8f8282a
+              (266 bytes)
+```

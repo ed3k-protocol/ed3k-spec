@@ -3,7 +3,7 @@
 
 Run from the forge project root:  python3 -I gas/measure.py
 Starts anvil itself on port 8547 (ANVIL_PORT), deploys MockOperators + CreditLedger (gasReward 1e15),
-puts a no-op (STOP) at the native minter address, and prints receipt gasUsed (incl. 21,000
+puts a no-op (STOP) at the native minter address (its gas cap is still checked), and prints receipt gasUsed (incl. 21,000
 and calldata, after refunds).
 """
 import json, os, subprocess, sys, time
@@ -149,7 +149,7 @@ def run():
     at(t)
     rec("settle: first receipt of pair+day, 2 new accounts (also first pair+week, issuer+week)",
         settle([(ROOTK, H1, D, 4 * CR, 0)]))
-    rec("settle: later receipt, same pair+day (mints >=1 credit)", settle([(ROOTK, H1, D, 4 * CR, 0)]))
+    rec("settle: later receipt, same pair+day (mints >=1 credit; pair+day already rewarded)", settle([(ROOTK, H1, D, 4 * CR, 0)]))
     rec("settle: later receipt, same pair+day (again)", settle([(ROOTK, H1, D, 4 * CR, 0)]))
     g1 = settle([(ROOTK, H1, D, 4 * CR, 0)])
     g2 = settle([(ROOTK, H1, D, 4 * CR, 0)] * 2)
@@ -243,8 +243,12 @@ def run():
 
     # ───────── D+1: first receipt of a pair+day in a known pair-week ─────────
     at((D + 1) * DAY + 3600)
-    rec("settle: first receipt of a pair+day, pair-week known (new day)", settle([(ROOTK, H1, D + 1, 4 * CR, 0)]))
+    g1f = settle([(ROOTK, H1, D + 1, 4 * CR, 0)])
+    rec("settle: first receipt of a pair+day, pair-week known (new day)", g1f)
     rec("settle: later receipt same pair+day (D+1)", settle([(ROOTK, H1, D + 1, 4 * CR, 0)]))
+    g3f = settle([(ROOTK, H2, D + 1, 4 * CR, 0), (ROOTK, H3, D + 1, 4 * CR, 0), (ROOTK, H6, D + 1, 4 * CR, 0)])
+    rec("settle: batch of 3 first receipts of pair+day, 3 holders (each earns a reward)", g3f)
+    rec("settle: per extra first receipt of pair+day in a batch, other holder ((g3f-g1f)/2)", (g3f - g1f) // 2)
     # ───────── D+6: keep H1, H3 active ─────────
     at((D + 6) * DAY + 3600)
     settle([(ROOTK, H1, D + 6, 4 * CR, 0)])
@@ -268,14 +272,15 @@ def run():
     rec("transfer: decay write-back on sender only (T5 → T4)", send(T5K, L, "transfer(address,uint256)", T4, str(5 * U)))
     rec("transfer: no decay due, sender T5 → T4 again", send(T5K, L, "transfer(address,uint256)", T4, str(5 * U)))
     rec("poke (no decay due)", send(caller, L, "poke(address)", T4))
-    rec("poke (decay due, H2 idle since D)", send(caller, L, "poke(address)", H2))
+    rec("poke (decay due, H2 idle since D+1)", send(caller, L, "poke(address)", H2))
 
     # ───────── reward variants ─────────
     D8 = D + 8
     H9, H9K = A[3], K[3]
-    rec("settle: later receipt, holder is the caller (one minter call)",
-        (settle([(ROOTK, H9, D8, 4 * CR, 0)], sender=H9K), settle([(ROOTK, H9, D8, 4 * CR, 0)], sender=H9K))[1])
-    rec("settle: later receipt, receipt mints < 1 credit (no reward call)", settle([(ROOTK, H9, D8, 512, 0)]))
+    rec("settle: first receipt of pair+day, pair-week known, holder is the caller (one minter call)",
+        settle([(ROOTK, H9, D8, 4 * CR, 0)], sender=H9K))
+    rec("settle: first receipt of pair+day, pair-week known, mints < 1 credit (no reward call)",
+        settle([(ROOTK, H1, D8, 512, 0)]))
     L0 = json.loads(sh(FORGE, "create", "--rpc-url", RPC, "--private-key", dep, "--broadcast", "--json",
                        "../../contracts/CreditLedger.sol:CreditLedger", "--constructor-args", ops, "0"))["deployedTo"]
     nonlocal_L[0] = L0

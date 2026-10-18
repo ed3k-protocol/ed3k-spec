@@ -151,9 +151,9 @@ channel file (§1.2), nor that one of this.
 - **Order.** Records are ordered by `start`, then `seq`. A node ignores a record of an earlier
   `start` than the newest it has seen, and a `start` more than 1 h *(initial)* ahead of its
   clock. An old broadcast can therefore not be played back into a running one.
-- **Behind the window.** A node drops, without forwarding, a record whose `seq` is below the
-  newest `seq` it holds of that broadcast minus `window` (§3.3; nothing while the newest `seq`
-  is below `window`). Old records of a running broadcast then do not travel through the mesh
+- **Behind the window.** A node drops, without forwarding, a record whose `seq` is at or below
+  the newest `seq` it holds of that broadcast minus `window`, that is outside the newest
+  `window` segments (§3.3; nothing while the newest `seq` is below `window`). Old records of a running broadcast then do not travel through the mesh
   again. Such a record is not invalid and counts no miss.
 - **Two records for one `seq`** of one broadcast with different content are proof that the
   channel key signed both. The one with the lower `root`, compared as a byte string, wins: a
@@ -255,10 +255,17 @@ message LiveGet {
 - Either side leaves by closing the exchange.
 - `peers` MUST be peers the sender has itself had as verified neighbours of this stream within
   the last 10 min *(initial)*.
+- Two nodes keep at most one live exchange per stream. When two are open, both keep the one
+  opened by the node with the lower node ID, compared as bytes; of two opened by the same node,
+  the newer. The node that opened the other closes it. This is no refusal, no miss and no loss
+  (§6.2), and the two count as one neighbour.
 - **Limits.** `LiveJoin` names at most 2 relays per family, at addresses acceptable in the
   network (`Protocol.md` §8.2 (7)). `LiveState` carries at most 240 records and a `have` of at
   most 240 bits (30 bytes), the largest window. A message above these limits is malformed,
   and the node closes the exchange.
+- `first` is the sender's choice. It SHOULD be the `seq` of the oldest record it holds within
+  its window, so that `have` stays within `window` bits. A receiver accepts any `first`, and
+  does not ask for a segment that is behind the window (§2.2).
 
 ### 3.2 Fetching a segment
 
@@ -275,7 +282,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
   open. Anything else is answered `Error{DENIED}`.
 - A segment of more than one block may be fetched from several neighbours at once, by block.
 - **Init data** is asked of a neighbour whose `have` shows a segment whose record names it.
-  `Error{NOT_FOUND}` from such a neighbour counts as for a segment (below).
+  `Error{NOT_FOUND}` from such a neighbour counts as for a segment (below), unless every such
+  segment has left its window since.
 - A node that no longer wants a segment resets the exchange. One lost packet delays only the
   segment it belongs to, because each segment has an exchange of its own.
 - `Error{NOT_FOUND}` for a segment that the neighbour's last `have` showed counts as a miss
@@ -375,7 +383,9 @@ rate = hits / (hits + misses)
 ```
 
 - A request is **urgent** when its segment is within 3 segments *(initial)* of what the node is
-  playing. Only the asking node knows that, and only its own count uses it. A neighbour that
+  playing. **What the node is playing** is the oldest segment from its join point (§3.3) that
+  it has not yet handed to the player; a request is urgent when its `seq` is below that one
+  plus 3. Only the asking node knows that, and only its own count uses it. A neighbour that
   serves old segments promptly and lets the urgent one wait therefore loses rank fast, which a
   count of bytes would not show.
 - **A neighbour that was never asked has no rate and is not blamed.** Giving nothing because
@@ -406,6 +416,8 @@ All numbers are *(initial)*.
 - A request above the number its rank allows is answered `Error{BUSY}`. A node counts a `BUSY`
   as a miss only when it had at most one request outstanding at that neighbour, the allowance
   of every rank; a `BUSY` for a further request is its own doing and counts nothing.
+- A request counts against the allowance from its `LiveGet` until the node has handed every
+  block asked for on its exchange to the transport, or the exchange closed.
 - **Core limits.** At most 1 **core** neighbour per site and 2 per block. A further one stays
   **steady**. One network can then not hold a node's whole inner circle.
 - **Sudden loss.** A node that had at least 3 **core** neighbours and lost more than a third

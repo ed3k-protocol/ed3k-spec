@@ -1,6 +1,6 @@
 # Extension: credits (`credit`)
 
-**Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1. **The ledger contract ([`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol)) has not been compiled or tested since the holds (`hold`, `holdFor`, `release`, `sweep`, `holdOf`) were written by hand; an earlier revision without them compiled and passed a smoke test. It is not audited. Its numbers were not simulated against an attack model, and no chain has been deployed.**
+**Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1. **The ledger contract ([`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol)) compiles with solc 0.8.37 and passes unit, fuzz and invariant tests ([`tests/contracts`](../tests/contracts/README.md), 2026-10-18). It is not audited. Its numbers were not simulated against an attack model, and no chain has been deployed.**
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §12.1 and §12.5. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 16, `CREDIT`. Message types 35 to 37. One field in `FileRequest`, one in `FileStatus`.
 **Needs:** JSON-RPC access to a node of the credit ledger (§7). The ledger is a chain of its own, outside ed3k.
@@ -214,7 +214,8 @@ message CreditOffer {
   without `floor`, says: I take receipts and sell no priority.
 - An uploader with a `floor` sends `challenge` with `payee`. It draws it at random when the
   queue entry is made and sends the same value on every stream of the entry. A new entry
-  gets a new one.
+  gets a new one. A stream whose `CreditOffer` has `floor` but has not carried `challenge`
+  makes no bid eligible; the downloader treats the uploader as selling no priority.
 - **The bid is given blind,** in the first `FileRequest` of the queue entry. The price
   charged is set by the next bid, not by the own one (§5.2), so a downloader names the most
   it would pay and need not see `clearing` first. `clearing` is information for the user.
@@ -333,8 +334,9 @@ message CreditRelayAnswer {   // type 37, answer
   fails is answered `Error{DENIED}` as a whole, and the relay sends none of it.
 - The relay calls `settle` (§6.2) from its own account. The receipts say who is credited; the
   relay cannot change that. It is paid by the gas reward of §6.6.
-- A relay sends the call when the credits it expects the receipts to mint or take, computed
-  from the receipts and `settled()`, reach 1 credit, the threshold of the reward (§6.6).
+- A relay sends the call when at least one receipt, by itself, would mint or take at least
+  1 credit for a pair and day that has not earned the reward yet (computed from the receipt
+  and `settled()`), the threshold of the reward (§6.6).
   `settle` returns nothing, so there is nothing to simulate.
 - **Nothing worth sending:** receipts that verify and stay below that threshold, and no hold
   the relay sends, are answered `Error{BUSY}` with a `retry_after` above 0. The relay keeps
@@ -505,9 +507,8 @@ struct Account {
 ```
 
 - `balanceOf` is `earned + received` after decay (§6.5).
-- An account is **registered** when it first appears in a receipt that is not skipped by the
-  checks of §6.2 (signature, day, size, counters not below the stored ones), as issuer or as
-  holder, whether or not the receipt mints.
+- An account is **registered** when it first appears in a receipt that passes every check of
+  §6.2, as issuer or as holder, whether or not the receipt mints.
 
 ### 6.2 Settlement
 
@@ -546,7 +547,8 @@ Then, in this order:
 3. **Activity.** If at least 1 credit was minted, the holder's decay is written up to now and
    `lastActive` becomes today by the clock of the chain. The grace runs from the day of
    settlement.
-4. **Gas reward** (§6.6).
+4. **Gas reward:** the receipt earns the reward of §6.6 if it is the first of its pair and day
+   to mint or take at least 1 credit.
 
 - If the issuer is **not mature**, step 1 is done and step 2 is not. The settled `kib` stays
   where it was, so the same receipt can be settled again when the issuer has matured, within
@@ -611,9 +613,9 @@ at the next change.
 | | Value |
 |---|---|
 | Grace | 3 days after `lastActive`, no decay |
-| Then | × 0.9 per full 24 h, on the current balance |
+| Then | × 0.9 per full 24 h, on the current balance, rounded up (x − ⌊x/10⌋) |
 | `earned` | stops at the first step that takes it below 10 credits |
-| `received` | goes on; below 1 credit it becomes 0, except while the account holds something |
+| `received` | goes on; below 1 credit it becomes 0, except while the account holds something (it then stops below 10 µ) |
 | Activity | a settlement that minted at least 1 credit, on the day it is settled. Nothing else |
 
 An account that stops uploading keeps about 31 % after two weeks and ends just below 10
@@ -669,8 +671,8 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   a hold back.
 - `holdOf` returns both values as stored. The reader compares `until` with the time: a hold
   protects nothing once `until` has passed.
-- A transfer is refused as far as it would leave the account below the sum of its holds ÷ 0.9.
-  A hold that has run out still counts there, and for the cut of `received` below 1 credit, until the payer releases or replaces it, or until
+- A transfer is refused when it would leave the account below the sum of its holds ÷ 0.9,
+  rounded up. A hold that has run out still counts there, and for the cut of `received` below 1 credit, until the payer releases or replaces it, or until
   anyone removes it with `sweep(payer, payee)`.
 - Settlement (§6.2) is not refused: the receipts of `payee` are what the hold is for. What a
   settlement takes from `payer` for `payee` is taken out of that hold, down to 0.
@@ -681,12 +683,13 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
 The chain charges gas at a fixed, very low price (§7.2), in a native coin that is otherwise of
 no use. The contract mints that coin for useful work, through the native minter of the chain:
 
-- **once per `settle`** in which at least one receipt minted or took at least 1 credit, one
-  amount fixed at deployment *(initial: twice the gas of a `settle` of one later receipt of a
-  pair and day, minter included, §11)*. Further receipts in the same call earn nothing more,
-  so splitting a delivery into small receipts does not pay;
-- 60 % to the caller, 40 % to the holder of the first receipt that earned it; all of it to that
-  holder if it is the caller.
+- for each receipt in a `settle` that minted or took at least 1 credit, once per (issuer,
+  holder, day): a later receipt of the same pair and day earns nothing, in this call or a
+  later one, so splitting a delivery does not pay. The amount is fixed at deployment
+  *(initial: twice the gas of a `settle` of the first receipt of a pair and day, accounts and
+  weeks known, minter included, §11)*;
+- 60 % to the caller, 40 % to the holder of that receipt; all of it to the holder if it is the
+  caller.
 
 A receipt that changes less, a failed call, a transfer and a hold (`hold`, `holdFor`,
 `release`, `sweep`) earn nothing and cost gas. A node that settles its own receipts thus gains
@@ -741,7 +744,7 @@ function balanceOf(address account) external view returns (uint256);            
 function accountOf(address account) external view returns (AccountView memory);
 function isOverdrawn(address account) external view returns (bool);
 function isMature(address account) external view returns (bool);
-function settled(address issuer, address holder, uint32 day) external view returns (uint64 kib, uint64 spent);
+function settled(address issuer, address holder, uint32 day) external view returns (uint64 kib, uint64 spent, bool rewarded);
 function issuedKib(address issuer, uint32 week) external view returns (uint64);    // week = day / 7
 function pairKib(address issuer, address holder, uint32 week) external view returns (uint64);
 function holdOf(address payer, address payee) external view returns (uint256 amount, uint64 until);
@@ -888,17 +891,19 @@ Gas, **measured** on 2026-10-18: solc 0.8.37, optimizer on (200 runs), EVM cancu
 transaction per call, `gasUsed` of the receipt (21,000 and calldata included, after refunds), with
 [`tests/contracts/gas/measure.py`](../tests/contracts/gas/measure.py).
 The native minter was a stub, so a call that pays the reward also needs the minter's own cost
-on a real chain: about 30,000 per `mintNativeCoin`, two per `settle` unless the caller is the
-holder. The size of the chain after a year was **not measured**.
+on a real chain: about 30,000 per `mintNativeCoin`, two per reward unless the caller is the
+holder. Where the precompile refuses (ledger not allowed to mint), each such call burns its
+60,000 gas cap. The size of the chain after a year was **not measured**.
 
 | Call | Gas |
 |---|---|
-| `settle`, first receipt of a pair and day, two new accounts | 242,800 |
-| `settle`, first receipt of a pair and day, accounts and weeks known | 112,600 |
-| `settle`, first of a pair and week / of a pair and issuer week | 129,800 / 146,900 |
-| `settle`, later receipt of the same pair and day | 95,600 |
-| `settle`, each further receipt in the same call: same pair and day / another holder | 29,600 / 52,800 |
-| `settle`, later receipt that takes / that also uses a hold up | 85,400 / 91,900 |
+| `settle`, first receipt of a pair and day, two new accounts | 244,000 |
+| `settle`, first receipt of a pair and day, accounts and weeks known | 113,800 |
+| `settle`, first of a pair and week / of a pair and issuer week | 130,900 / 148,000 |
+| `settle`, later receipt of the same pair and day (no reward) | 91,900 |
+| `settle`, each further later receipt in the same call: same pair and day / another holder | 30,000 / 53,200 |
+| `settle`, each further first receipt of a pair and day in the same call, another holder (with its reward) | 72,700 |
+| `settle`, later receipt that takes / that also uses a hold up | 81,400 / 87,900 |
 | `hold`, first for a payee / for a further payee | 75,900 / 58,900 |
 | `hold`, renewal; one that writes back a step of decay | 36,500–38,900; 52,500 |
 | `holdFor`, first for (payer, payee) / later | 105,500 / 48,700 |
@@ -906,12 +911,12 @@ holder. The size of the chain after a year was **not measured**.
 | `transfer` to an account / to a new address | 54,900 / 92,200 |
 | `transfer`, decay written back on one side / both | 63,300 / 71,000 |
 | `transferFrom`, finite / unlimited allowance | 60,800 / 57,600 |
-| `poke` | 29,900–32,800 |
+| `poke` | 29,900–43,800 |
 
 No call for a hold earns a reward (§6.6). A bidder pays for its holds with coin it earned by
 settling receipts as a holder; a node that never uploaded has none and has its holds sent by
 the uploader (§4.3), which pays the gas out of what it earns from the turn. The reward of
-§6.6 is set from the `settle` rows above, with the minter's cost added.
+§6.6 is set from the second `settle` row above, with the minter's cost added.
 
 ## 12. Alternatives considered
 
@@ -964,7 +969,7 @@ On the bounds against keys that sign for each other (§6.3):
 - **State growth.** Settled entries are never deleted. Whether entries older than 7 days can
   be dropped by a later call is open.
 - **The validator manager** contract and the operator vote are named, not specified. The
-  ledger has no test suite and no audit.
+  ledger has tests ([`tests/contracts`](../tests/contracts/README.md)) and no external audit.
 - **Two thirds for bidders, and turns that bids can end,** leave a node without credits one
   slot in three at an uploader that sells, and no certainty of finishing a turn. Whether the network stays usable for newcomers at that share was not modelled.
 - **RPC endpoints** have no way to be found other than configuration. An index node

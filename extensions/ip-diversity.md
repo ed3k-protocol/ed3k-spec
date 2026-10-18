@@ -30,6 +30,8 @@ Every public address belongs to three groups. A limit counts contacts per group.
   ID check (`Protocol.md` §6.3). On the public network they are not exempt; they never become
   contacts there, so no limit meets them. `100.64.0.0/10` is neither private nor global unicast
   and is exempt nowhere.
+- Where a private address is counted per host address in a named network, the host is the
+  IPv4 /32 or the IPv6 /128, not the /64 (`Protocol.md` §9.2).
 - A LAN peer ([`lan-discovery.md`](lan-discovery.md)) is not a Kad contact and stores no
   record. No limit of this document counts it, in any network.
 - Addresses that `Protocol.md` §8.2 rejects (Teredo, 6to4, documentation, multicast) never become contacts, so
@@ -136,7 +138,8 @@ source address of `Protocol.md` §10.3.
   the host limit is above 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
 - `ANON`: the record names no address, so it is counted on the address the `Store` came from
   ([`hops.md`](hops.md) §4.2).
-- A record beyond a host or site limit is answered `REJECTED`, not `FULL`. `FULL` says that the
+- A record beyond a host or site limit of this table (the `KEYWORD`/`NOTE` row is a count, not
+  a limit) is answered `REJECTED`, not `FULL`. `FULL` says that the
   target has no room (`Protocol.md` §10.8). An address limit says nothing about the target: the
   storing node does not set `spill` for it, and the publisher does not start a lookup of its
   own because of it (`Protocol.md` §10.4).

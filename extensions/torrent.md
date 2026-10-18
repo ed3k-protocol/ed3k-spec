@@ -87,6 +87,8 @@ leaves nothing to choose.
   - that is marked private (§6.3),
   - whose paths or counts break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2,
   - that has a symbolic link (attribute `l`),
+  - that is hybrid and whose version 1 list, without padding files, does not name the files
+    of the file tree with the same paths and lengths in the same order,
   - whose info dictionary is larger than 32 MiB *(initial)*, the limit of `info_size` (§1),
   - or whose manifest would be larger than 4 MiB.
 
@@ -109,6 +111,7 @@ both together:
 | Infohash | every infohash that is set MUST match: the SHA-1 of the info dictionary is `btih` when `btih` is set, and its SHA-256 is `btmh` when `btmh` is set. A manifest with neither fails |
 | Size | `info_size` is at most 32 MiB *(initial)* |
 | Count | the manifest has one member per file of the dictionary that is not a padding file |
+| Hybrid | in a hybrid torrent the version 1 list, without padding files, names the files of the file tree with the same paths and lengths in the same order |
 | Order, size, path | member *i* has the length and the path of file *i* |
 | Not private | the dictionary is not marked private |
 
@@ -269,8 +272,9 @@ magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the ma
 - **`bt`** names the infohash of the torrent the manifest describes. It lets a client start
   from BitTorrent before it has the manifest (§4.1). The client MUST check it against the
   manifest once it has that; if they differ, `bt` is ignored.
-- `bt` MAY occur more than once: a hybrid torrent has two infohashes. Each is checked on its
-  own, and a value that is not 40 or 64 hex digits is ignored.
+- `bt` MAY occur twice, once with 40 and once with 64 hex digits: a hybrid torrent has two
+  infohashes. Each is checked on its own. Another length, a character outside hex, or two
+  values of one length make the link invalid (`Protocol.md` §13.2).
 - **`xs`** in a magnet link carries the `ed3k:file` link. A client that finds it starts as in
   §4.1: BLAKE3 is the judge. A BitTorrent client without ed3k ignores the parameter.
 - A client without this extension ignores `bt`.

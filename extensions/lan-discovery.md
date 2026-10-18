@@ -74,7 +74,7 @@ Neither group nor port is registered.
 - A node accepts an announce only when its source address is a private address of
   `Protocol.md` §8.2 (8) other than loopback (`127.0.0.0/8`, `::1`), **and** lies in a network
   of the interface it arrived on. Everything else is dropped.
-- It remembers (node ID, address, port) as a **LAN peer** for 15 min *(initial)* after the last
+- It remembers (node ID, address, port, interface) as a **LAN peer** for 15 min *(initial)* after the last
   announce.
 - An announce is not a reason to connect. A node dials a LAN peer when it has something to ask
   (§2 of this document).

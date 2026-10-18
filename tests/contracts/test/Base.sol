@@ -117,7 +117,7 @@ abstract contract Base is Test {
     /// Mints `kib` more to `h` from root issuer `pk`, today.
     function fundKib(uint256 pk, address h, uint64 kib) internal {
         address i = vm.addr(pk);
-        (uint64 k, uint64 sp) = L.settled(i, h, today());
+        (uint64 k, uint64 sp,) = L.settled(i, h, today());
         settle1(pk, rc(i, h, today(), k + kib, sp));
     }
 
@@ -133,7 +133,7 @@ abstract contract Base is Test {
 
     function payOn(uint256 pk, address h, uint32 day, uint64 amount) internal {
         address i = vm.addr(pk);
-        (uint64 k, uint64 sp) = L.settled(i, h, day);
+        (uint64 k, uint64 sp,) = L.settled(i, h, day);
         settle1(pk, rc(i, h, day, k, sp + amount));
     }
 

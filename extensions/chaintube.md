@@ -191,7 +191,8 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
 - A client without this extension reads the link as a plain set link and follows the head.
   So that it sees the same video, the author and every node of this extension that store a
   head for the set MUST store the one of the version the chain names, and a newer one only
-  after its transaction is in a block.
+  after its transaction is in a block that the chain treats as final (§4.3). This holds also
+  for a head pushed on a `SET_HEAD` topic ([`pubsub.md`](pubsub.md) §4.1).
 - One channel key in the links of two accounts means that both accounts chose it. It says
   nothing more.
 

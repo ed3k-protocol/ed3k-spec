@@ -75,7 +75,7 @@ exchange**; after that both sides are equal.
 message TopicJoin {
   bytes     topic = 1;        // 16 B
   TopicType type = 2;
-  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), 0 = none
+  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), or the highest remembered (§4.1, §4.2) when it ran out; 0 = none
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
@@ -111,10 +111,11 @@ never sent: both sides know it, or they could not have computed `topic`.
   notices with the same `issued` a node keeps the first it verified.
 - For `SET_HEAD` the subscriber sends both parts of the order number: `held_grant` and `held`.
   The peer sends its item when the pair (grant number, `seq`) of its item is not below
-  (`held_grant`, `held`). `held_grant` is 0 for `ON_AIR`.
+  (`held_grant`, `held`). `held_grant` is 0 for `ON_AIR` and `PAID`.
 - An item whose `expires` has passed is not given out, neither in this answer nor later.
 - A peer that does not take the subscriber answers with `refusal` set and closes. With
-  `TOPIC_FULL` it SHOULD still fill `peers` and send its item. A peer that is not subscribed
+  `TOPIC_FULL` it SHOULD still fill `peers` and send its item, except to a node it refuses
+  for 24 h (§2.2). A peer that is not subscribed
   to the topic, or does not know the type, answers `TOPIC_LEFT`.
 - After the first answer **both sides send `TopicState`** when they have verified a newer item,
   and at once to a new neighbour whose answer showed no item or an older one.
@@ -125,6 +126,10 @@ never sent: both sides know it, or they could not have computed `topic`.
   ([`Protocol.md`](../Protocol.md) §4.1). A neighbour is gone when the exchange or the
   connection closes. Either side leaves by closing the exchange.
 - Several topics shared by two nodes use one connection, with one exchange per topic.
+- Two nodes keep at most one topic exchange per topic. When two are open, both keep the one
+  opened by the node with the lower node ID, compared as bytes; of two opened by the same node,
+  the newer. The node that opened the other closes it. This is no refusal, and the two count
+  as one neighbour.
 - `peers` MUST be peers the sender has itself had as neighbours of this topic within the last
   hour *(initial)*.
 
@@ -139,11 +144,17 @@ A node checks an item before it does anything else with it (§4). Then:
 | fails its signature or content check | drops it, closes the exchange and does not take that node as a neighbour of any topic for 24 h *(initial)* |
 | fails a time check (`expires`, `issued`) | drops it. Clocks differ, so this is no fault of the neighbour |
 
+- A node answers a `TopicJoin` from a node it refuses for 24 h with `TOPIC_FULL` and nothing
+  else: no `peers` and no item. In a `PAID` topic it answers `TOPIC_LEFT`
+  ([`subscription.md`](subscription.md) §6.3).
 - **Size.** The `Signed` of an item is at most 1 KiB ([`Protocol.md`](../Protocol.md) §10.7).
   A larger one fails the content check.
 - **At most one item per topic is passed on per 10 s** *(initial)*. An item that arrives
   earlier waits, and only the newest one that waited is sent. An author who signs a thousand
   versions in a minute then costs each subscriber six messages per neighbour.
+- The rule limits passing on only. The answer to a `TopicJoin` and the item sent at once to a
+  new neighbour (§2.1) carry the newest item the node holds, one that waits included, and do
+  not count in the 10 s.
 - A subscriber that learns a newer item in another way, by polling Kad or because it is the
   author, passes it on in the same way. This is how an item enters the mesh, and how two parts
   of a mesh that lost each other meet again.
@@ -200,8 +211,9 @@ with the same key, the same `id` and the `seq` of the head.
 - A head has **run out** when its `expires` has passed (`expires` < now). It is not given out
   (§2.1) and not stored in Kad. The node keeps its order number, so that an older head is
   still not newer.
-- A subscriber stores the head in Kad as a follower does (once per 24 h). The push changes
-  nothing in that. For a joint head it sets `Store.signer` to the key of the grant under which
+- A subscriber stores the head it holds in Kad as a follower does, once per 24 h on its own
+  schedule; taking a new head from the push does not move that schedule. The author stores
+  each new head (§3). For a joint head it sets `Store.signer` to the key of the grant under which
   the record signature verified.
 
 ### 4.2 `ON_AIR`

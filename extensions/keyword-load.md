@@ -39,16 +39,25 @@ Nothing on the wire changes when the rules below are switched on.
 
 A storing node keeps one **entry** per file (root) and target. An entry holds:
 
-- up to 3 *(initial)* signed records of different publishers, kept by the rule of §10.8. The
-  site of a kept record is the site of the address of the `Store` that last stored it, a
-  renewal included. While fewer than 3 are kept, a valid record is added; else it displaces
-  the least fresh record of its own site, else the least fresh overall. A `Store` with
-  `signer` never displaces a record of another site; it is answered `REJECTED` when it cannot
-  take a place
+- up to 3 *(initial)* signed records of different publishers, kept by the rule of §10.8, one
+  place per site. The site of a kept record is the site of the address of the `Store` that
+  last stored it, a renewal included.
+  - A record of a publisher already kept takes the place of that publisher's record, whatever
+    site it comes from; the kept record then has the site of this `Store`.
+  - Otherwise a record from a site that holds one of the places takes the place of that
+    site's record (of the least fresh one, should a renewal have left two of one site).
+  - A record from another site is added while fewer than 3 are kept, else it takes the place
+    of the least fresh record kept.
+  - A `Store` with `signer` never takes the place of another publisher's record of another
+    site; it is answered `REJECTED`.
 - the **sites** of the publishers that stored or offered the file, each remembered until the
   record that publisher sent expires. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count
-  saturates at 255 *(initial)*
+  saturates at 255 *(initial)*. Of the stores, only those answered `STORED` add a site; an
+  offer answered `FULL` adds its site to the candidates (§2.2 of this document). A `Store` with
+  `signer` adds no site, neither to `sites` and the rank nor to the candidate sites (§2.2 of
+  this document): its site is that of the last hop, which an anonymous key borrows for free
+  ([`hops.md`](hops.md) §4.2)
 
 The **rank** of an entry is its number of sites. The node verifies every record it is sent
 (§10.7), also those it does not keep.
@@ -59,15 +68,17 @@ A target holds at most S = 100,000 *(initial)* entries: the **level size**.
 
 A record for file F arrives under target T:
 
+Rows are tried in order; the first that applies decides.
+
 | Situation | Action | Result |
 |---|---|---|
-| F is held under T | renew the entry, add the site | `STORED` |
+| F is held under T with a record from the same publisher that is not older than this one (§10.7) | nothing | `OLDER` |
+| F is held under T and not leaving | renew the entry, add the site | `STORED` |
 | F is held but **leaving** (§2.3 of this document) | add the site to the candidates | `FULL` |
+| F is not held, and the node has no room at all | nothing | `BUSY` |
 | F is not held, T has fewer than S entries | create the entry | `STORED` |
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
-| The node has no room at all | nothing | `BUSY` |
-| F is held under T with a record from the same publisher that is not older than this one (§10.7) | nothing | `OLDER` |
 
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
@@ -109,7 +120,7 @@ admitted by outranking.
 A publisher remembers one level L per (file, keyword), starting at 0.
 
 The outcome of a store at one level is taken over the storing nodes that answered
-`responsible`, ignoring `BUSY`:
+`responsible`, ignoring `BUSY` and `REJECTED`:
 
 - **placed:** at least half of them answered `STORED` or `OLDER`: both say that the node
   holds the file
@@ -121,6 +132,10 @@ A refresh:
 2. Store at level L. If placed, stop.
 3. If full, set L to L + 1 and repeat step 2, up to level 15.
 4. If level 15 is full, give up until the next refresh.
+
+When every responsible node answered `REJECTED`, the publisher stays at L and stores again at
+the next refresh. `REJECTED` is a limit per address or publisher (§10.8), not a full level: a
+publisher that moved down on it would get a fresh quota on every level.
 
 - Step 1 is how a file rises: the nodes one level up count the sites that offer it and admit it
   once it outranks their weakest file. A file rises at most one level per refresh.
@@ -179,8 +194,9 @@ What happens in between:
 
 ## 7. What an attacker can still do
 
-- **Buy rank with addresses.** Rank counts sites, so 256 /24 networks give rank 255, the
-  maximum. An attacker with a /16 can put its files at the top of a keyword. Honest popular
+- **Buy rank with addresses.** Rank counts the sites of direct stores; stores through a last
+  hop add none (§2.1 of this document). 256 /24 networks give rank 255, the maximum. An
+  attacker with a /16 can put its files at the top of a keyword. Honest popular
   files keep the same rank and are not displaced by equal rank.
 - **Lie as a storing node.** A node among the closest can report any `sites` value, withhold
   records or answer `FULL`. The median over a level, the "at least half" rule and the diversity

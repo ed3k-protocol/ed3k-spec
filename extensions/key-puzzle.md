@@ -97,8 +97,8 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
   be inserted as a dialled-in contact (`Protocol.md` §10.2), and stays out until then. A node
   verifies at most 1 *(initial)* dialled-in contact per host group
   ([`ip-diversity.md`](ip-diversity.md) §1) per hour. When such a check fails, the result is
-  kept for that node ID and site until the end of the epoch; the host group waits 1 h
-  *(initial)* before the next dialled-in contact of it is verified.
+  kept for that node ID, site and `puzzle` value until the end of the epoch; the host group
+  waits 1 h *(initial)* before the next dialled-in contact of it is verified.
 - **Own lookups first.** Contacts that the node found by its own lookups are verified before
   any contact that dialled in. A dialled-in contact is checked only while none of the others
   waits.
@@ -108,9 +108,11 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
 - **A capped queue.** The queue holds at most 64 *(initial)* contacts. When it is full, the
   newest one is dropped: it stays unverified and is queued again the next time it would be
   inserted, counted or stored on.
-- **Cached.** The result is kept per (node ID, family, site, epoch) and SHOULD be written to
-  disk with the routing table. A known router costs nothing until its epoch runs out. A failed
-  check is kept as well, so the same solution is not checked twice.
+- **Cached.** The result is kept per (node ID, family, site, `puzzle` value) and SHOULD be
+  written to disk with the routing table. A known router costs nothing until its epoch runs
+  out. A failed check is kept as well, so the same solution is not checked twice. Another
+  `puzzle` value of that node ID and site is checked again at most once per hour *(initial)*:
+  a router that moved shows its old solution once before it learns its new address.
 - **Datagram binding.** A node that only sent `REQUEST`s has shown no solution (§3). It is
   puzzle-verified only by an exchange in which it is the responder.
 

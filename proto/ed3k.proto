@@ -74,7 +74,7 @@ message Hello {               // type 1
   bytes  ep6 = 5;
   uint32 nat = 6;             // my class in the family of this connection: 0 unknown, 1 open, 2 cone, 3 symmetric   Protocol.md §9.2
   string nick = 7;            // optional; at most 64 B
-  bytes  dgram_cookie = 8;    // 8 B; your cookie for my address; not part of version 1   kad-datagram.md §6, Protocol.md §10.6
+  bytes  dgram_cookie = 8;    // 8 B; sent by a node with KAD_DGRAM: the cookie it accepts from your endpoint; not part of version 1   kad-datagram.md §6, Protocol.md §10.6
   bytes  puzzle = 9;          // epoch(4, big-endian) ‖ nonce(8); not part of version 1   key-puzzle.md §3, Protocol.md §6.3
   uint32 dict = 10;           // highest zstd dictionary ID held; 0 or absent = holds no dictionary   Protocol.md §5.3
   reserved 11;                // `bindings` of docs/transport-bindings.md; not part of version 1
@@ -519,7 +519,7 @@ message Usenet {
 
 // The article list file is "ed3knzb" ‖ 0x01 ‖ ArticleList (usenet.md §2).
 message ArticleList {
-  repeated Post files = 1;    // in ascending order of their file ids          usenet.md §1
+  repeated Post files = 1;    // in ascending order of their file ids; equal file ids once   usenet.md §1
 }
 
 message Post {
@@ -548,7 +548,7 @@ message Alias {
   string name = 6;            // its file name
   uint32 set_files = 7;       // SET and PACKED: as in FileInfo (file-set.md §3)
   uint64 set_size = 8;
-  string entry = 9;           // PACKED: path of the file inside the archive; absent = the only file
+  string entry = 9;           // PACKED: path of the file inside the archive, "/" between components; absent = the only file
   string password = 10;       // PACKED: password of the archive, if it has one
 
   enum Relation {
@@ -657,7 +657,7 @@ enum TopicType {
 message TopicJoin {           // type 22
   bytes     topic = 1;        // 16 B                                          pubsub.md §2
   TopicType type = 2;
-  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), 0 = none
+  uint64    held = 3;         // order number of the item I hold (SET_HEAD: Head.seq, ON_AIR: issued, PAID: Sealed.seq), or the highest remembered (pubsub.md §4.1, §4.2) when it ran out; 0 = none
   uint32    want_peers = 4;   // max number of peers wanted, 0 = none
   bytes     relays4 = 5;      // n × 22 B compact nodes: my relays, if I am a leaf
   bytes     relays6 = 6;      // n × 34 B
@@ -914,7 +914,7 @@ message KeyRequest {          // type 40
   bytes      scope = 1;       // 16 B                                          subscription.md §6.1
   SignedPass pass = 2;        // absent: asks for the offer, the released keys and the answerer's pass only
   PassProof  proof = 3;       // with `pass`                                   subscription.md §5.2
-  uint64     have = 4;        // newest epoch whose key I hold, plus 1; 0 = none
+  uint64     have = 4;        // the newest epoch whose key I hold of the season that epoch belongs to (subscription.md §4.2), plus 1; 0 = none
   bool       want_offer = 5;
   uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
   uint64     offer_issued = 7;  // `issued` of the offer I hold; 0 = none

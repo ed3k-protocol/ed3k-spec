@@ -120,9 +120,9 @@ A manifest comes from a stranger and names places in the reader's file system.
 - A reader MUST refuse a manifest that breaks these rules. It MUST NOT repair it.
 - A reader writes every member below one directory that the user chose for the set, and MUST
   NOT follow a symbolic link that leaves it.
-- Names that the reader's file system cannot hold (reserved names, a trailing dot or space,
-  names that differ only in case, names that are too long) are changed by the reader. The
-  manifest is not changed.
+- Names that the reader's file system cannot hold or would treat as one (reserved names, a
+  `:`, a trailing dot or space, names that differ only in case or in Unicode normalisation,
+  names that are too long) are changed by the reader. The manifest is not changed.
 
 ### 2.3 Starting a download
 
@@ -182,8 +182,9 @@ copying its list.
   several places; it is counted each time. Without this limit a few small manifests that name
   each other many times would describe more files than any disk holds.
 - A path, with the directories of all levels, has at most 32 components. Only directories
-  count: those above the outer manifest, the `dir` of each `set` member and its `name`, and
-  the `dirs` of the inner set; a file name does not. §2.1's limit is per
+  count, counted from the top of the outer set: the `dir` of each `set` member and its
+  `name`, and the `dirs` of the inner set; a file name, and the directory the user chose for
+  the set, do not. §2.1's limit is per
   manifest; this one is over the levels. An inner set that would exceed it is shown as a plain
   file and not opened; the manifest that names it is not refused for that.
 - A manifest cannot contain itself: its root would have to be known before it is written. The
@@ -389,6 +390,10 @@ ed3k:file?b3=<manifest root>&sz=<size>&dn=<name>[&path=<url-encoded path>]
   version. It is the link to hand out for a set that will grow.
 - `key` and `id` are base32 as `Protocol.md` §13.2 fixes: written lower case without padding,
   read either way.
+- An `ed3k:set` link is invalid when `key` is missing or does not decode to 32 bytes, when it
+  has neither `id`, `s` nor `paid`, when `id` decodes to 0 or more than 32 bytes, or when
+  `key`, `id`, `dn` or `path` is repeated. Here `id` is base32; the hex rule of
+  `Protocol.md` §13.2 is for `ed3k:node`.
 - `ed3k:file` with the root of a manifest names one version, as before.
 - **`path`** selects one member or one directory of the set, with `/` between components, as
   `ipfs://<root>/dir/file` does. It passes through inner sets by their directory names. A
@@ -453,14 +458,20 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 - It keeps at most 3 *(initial)* records per set under a target, of different publishers, by
   the rule of `Protocol.md` §10.8. The site of a kept record is the site
   ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored it,
-  a renewal included. While fewer than 3 are kept, a valid record is added; else it displaces
-  the least fresh record of its own site, else the least fresh overall. A `Store` with
-  `signer` never displaces a record of another site and is answered `REJECTED` when it cannot
-  take a place. Otherwise the answer is `STORED`.
-- The node remembers, per set under a target, the sites of the publishers that stored a valid
-  record for it, each until that record would have expired, also after the record was
-  displaced. One site counts once; the count saturates at 255 *(initial)*. `sites` and the
-  order below use this count.
+  a renewal included.
+  - A record of a publisher already kept takes the place of that publisher's record, whatever
+    site it comes from; the kept record then has the site of this `Store`.
+  - Otherwise a record from a site that holds one of the places takes the place of that
+    site's record (of the least fresh one, should a renewal have left two of one site).
+  - A record from another site is added while fewer than 3 are kept, else it takes the place
+    of the least fresh record kept.
+  - A `Store` with `signer` never takes the place of another publisher's record of another
+    site; it is answered `REJECTED`. Otherwise the answer is `STORED`.
+- The node remembers, per set under a target, the sites (as above: of the address of each
+  `Store`) that stored a valid record for it, each until that record would have expired, also
+  after the record was displaced. A `Store` with `signer` adds no site, and only stores
+  answered `STORED` count. One site counts once; the count saturates at 255 *(initial)*.
+  `sites` and the order below use this count.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
