@@ -16,8 +16,9 @@ and replaces the wire format, transport and identity:
 
 **ed3k does not require eD2K.** A compliant ed3k implementation needs no eD2K, eMule-Kad or TCP
 code at all. The reference implementation, eMuleQt, speaks both protocols; §14 specifies how such a
-dual-protocol client tells eD2K peers that it also speaks ed3k. §14 is the only part of this
-document that concerns eD2K, and it is OPTIONAL.
+dual-protocol client tells eD2K peers that it also speaks ed3k. Apart from the optional `ed2k`
+alias of a file (§7.4), §14 is the only part of this document that concerns eD2K, and it is
+OPTIONAL.
 
 ---
 
@@ -29,7 +30,8 @@ read as in RFC 2119.
 - Protobuf is **proto3**. `bytes` fields with a fixed layout state it in a comment; integers inside
   such layouts, and inside the inputs of `H` and of signatures, are **big-endian** (network order).
 - `H(ctx, data)` is BLAKE3 in `derive_key` mode with context string `ctx`, 32 bytes of output
-  unless a length is given. `H(ctx, data)[a..b)` is a byte slice.
+  unless a length is given; a longer output is the extended output of the same `derive_key`
+  call, so its first 32 bytes are the 32-byte value. `H(ctx, data)[a..b)` is a byte slice.
 - `varint` is the protobuf base-128 varint.
 - Integer fields are `uint32` or `uint64`; both are a varint on the wire, and the type states the
   range a reader accepts. A field that holds a random 64-bit value is `fixed64`
@@ -201,7 +203,8 @@ and a path to close it are described in [`docs/transport-bindings.md`](docs/tran
   first `FileRequest` arrived, follows §12.5 instead.
 - Congestion control is the sender's choice. BBR is RECOMMENDED.
 - A node MUST accept a Retry packet (RFC 9000 §8.1.2) and repeat its Initial with the token. A
-  node MAY answer an Initial with Retry at any time (§4.6).
+  node MAY answer an Initial with Retry at any time
+  ([`extensions/flood-protection.md`](extensions/flood-protection.md) §2).
 
 **Close codes.** An application close (`CONNECTION_CLOSE` with an application error code,
 RFC 9000 §10.2) uses one of:
@@ -337,19 +340,27 @@ holds one packet (above); a datagram with several packets is a `HANDSHAKE` and i
   it sent does not: this layer adds its header and padding to every datagram. Until the
   peer's address is validated, the bytes a node puts on the wire towards it, header and
   padding of this layer included, MUST NOT exceed 3 times the bytes that arrived from it on
-  the wire (RFC 9000 §8.1). A receiver MUST NOT answer a `PROBE` and MUST NOT emit anything
-  for an incomplete fragment set. With these bytes counted, a server whose flight of 1,200
-  bytes is lost twice has, once its datagrams carry any padding or fragment overhead, no
-  budget for a third; it sends again when the client's next Initial arrives.
+  the wire (RFC 9000 §8.1). This holds again for a new client address after a migration,
+  until QUIC has validated it (RFC 9000 §9.3). A receiver MUST NOT answer a `PROBE` and MUST
+  NOT emit anything for an incomplete fragment set. The dial of a punch initiator to a
+  `PROBE`'s source (§9.5 step 4) is not an answer: it needs the nonce of the initiator's own
+  punch. With these bytes counted, a server whose flight of 1,200 bytes is lost twice may have
+  no budget for a third, when its padding and fragment overhead exceed the client's; it sends
+  again when the client's next Initial arrives.
 - The QUIC maximum datagram size MUST be set 13 bytes below the path limit. An unsplit Initial
   without padding is then 1213 bytes, which fits the IPv6 minimum MTU (1232 bytes of UDP
   payload); with padding it fits up to `pad_len = 19`.
 - The binding needs a path that carries 1,213 bytes of UDP payload. A handshake sent in
   fragments never puts a datagram of that size on the path, so the test that QUIC makes with
-  its padded Initial (RFC 9000 §14.1) is missing. A side that has not had an unsplit datagram
-  of 1,213 bytes or more acknowledged MUST send a PING padded to that size, and have it
-  acknowledged, before it sends file data. When 3 *(initial)* such probes are lost it treats
-  the peer as unreachable on that path and closes with `CLOSED`.
+  its padded Initial (RFC 9000 §14.1) is missing. Each side checks the path once per
+  connection, after the handshake; datagrams of the handshake do not count. The check passes
+  when any datagram of 1,213 bytes or more on the wire that the side sent after the handshake
+  is acknowledged, whatever it carries. Until then the side sends a PING padded to at least
+  1,213 bytes and at most the path limit, and holds back file data (the bytes of an exchange
+  from its first `Block` on, §12.3); other frames are not held back. When 3 *(initial)* such
+  probes are lost it closes with `CLOSED`. After a migration the check is not repeated:
+  QUIC's path validation expands its datagrams to 1,200 bytes (RFC 9000 §8.2.1), 1,213 on the
+  wire.
 
 This follows the approach of Hysteria 2's Salamander (salted XOR mask) and Gecko (fragmenting
 long-header packets), with a real keystream instead of a repeating 32-byte pad and without a
@@ -377,7 +388,8 @@ the first 5 bytes only and checks `magic`.
 3. Otherwise the datagram is not ed3k. Drop it, or hand it to another protocol sharing the socket
    (§14.1).
 
-A random datagram passes step 2 with probability 2⁻³².
+A random datagram passes step 2 with probability 2⁻³² (2⁻³¹ with the Kad datagram binding,
+[`extensions/kad-datagram.md`](extensions/kad-datagram.md)).
 
 A datagram from the server of a connection that arrives from an address the client does not
 know matches no step and is dropped, as QUIC itself would drop it (RFC 9000 §9): the server
@@ -413,7 +425,9 @@ A node MUST limit the new connections it accepts from one peer.
 - **Open connections.** A node keeps at most 64 *(initial)* open connections with peers at one
   host address and 256 *(initial)* with peers in one site
   ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1). A further connection from
-  there is closed with `BUSY` once its handshake completes. Private addresses are exempt where
+  there is closed with `BUSY` once its handshake completes. Connections in both directions
+  count, but only accepted ones are closed: whether a node dials beyond the limits is local
+  policy. Such a connection still counts in the rows above. Private addresses are exempt where
   they are exempt from the host-address row (below). A node with the `INDEX` capability MAY use
   wider limits.
 - An address ban, which only bad blocks cause (§12.3), drops the datagrams of that address
@@ -734,7 +748,8 @@ r          = NodeID[15] & 0x07
 
 IPv4:  m = ip[0..4)  AND  03 0F 3F FF
 IPv6:  m = ip[0..8)  AND  01 03 07 0F 1F 3F 00 00
-       m[0] = m[0] OR (r << 5)
+
+both:  m[0] = m[0] OR (r << 5)
        c    = CRC32C(m)                              (Castagnoli, as in BEP 42)
 
 RoutingID(address) = top 21 bits of c  ‖  bits 21..127 of NodeID
@@ -856,7 +871,7 @@ root, and then verifies each received block on its own. A corrupt block is detec
 and its sender is known exactly. The hash data is 32 bytes per block, 0.012 % of the file.
 A file of at most one block needs no hash exchange.
 
-This replaces both the eD2K part hashes (MD4 over 9.28 MB) and AICH (SHA-1 tree over 180 KiB
+This replaces both the eD2K part hashes (MD4 over 9.28 MiB) and AICH (SHA-1 tree over 180 KiB
 blocks, trusted by majority vote because the eD2K hash does not commit to it). In ed3k the root
 commits to every block; there is nothing to vote on.
 
@@ -866,7 +881,7 @@ One function is used for files, node IDs, Kad targets, key derivation and the ob
 keystream. BLAKE3 is chosen because the hash tree is part of the function: the specification
 does not have to define one, and the root is something a standard tool computes. It also
 supplies keyed hashing, key derivation with context strings and an extendable output, so no
-second primitive is needed for §4 and §6. The cost is a thinner round margin than the
+second primitive is needed for §4 and the node ID (§6.1). The cost is a thinner round margin than the
 alternatives and one more dependency.
 
 SHA-256 with a tree defined on top is the fallback if BLAKE3 is ever weakened: the root field is
@@ -878,7 +893,7 @@ The comparison with the alternatives is in
 
 ### 7.4 The eD2K alias
 
-`FileInfo.ed2k` carries the file's eD2K hash (MD4 root of the 9.28 MB part hashes). Together with
+`FileInfo.ed2k` carries the file's eD2K hash (MD4 root of the 9.28 MiB part hashes). Together with
 `size` it is the eD2K identity, which lets a dual-protocol client resolve an eD2K link on ed3k and
 download one file from both networks at once.
 
@@ -921,7 +936,8 @@ starts small. Fully separate instances per family were rejected outright.
 5. In the family a connection arrived on, the address of an advertised endpoint is **observed**
    and therefore trusted for routing; a port that differs from the observed one, and an endpoint
    of the other family, are **claimed** until dialled.
-6. Abuse limits count per IPv4 address and per IPv6 /64.
+6. Abuse limits count per IPv4 address and per IPv6 /64; a private address in a named network
+   counts as IPv4 /32 or IPv6 /128 (§9.2).
 7. An address is acceptable only if it is global unicast. For IPv4 this excludes at least
    `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`,
    `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.168.0.0/16`, `198.18.0.0/15`,
@@ -949,8 +965,11 @@ starts small. Fully separate instances per family were rejected outright.
 When a peer has endpoints in both families and so does the dialler, IPv6 is tried first and IPv4
 250 ms *(initial)* later; the first handshake to complete wins. The dialler closes the other
 one with `CLOSED` at once, also when it has completed, unless a rule needs a connection in
-that family as well (§4.6); it counts in the budget of §4.6 like any connection. A connection
-stays in the family it was opened in.
+that family as well (§4.6); it counts in the budget of §4.6 like any connection. A dialler that
+tries several addresses of a peer in one family, such as the source of a `PROBE` and `eps(T)`
+(§9.5), runs one handshake per address and closes the others with `CLOSED` once one completes;
+until then they are not a second connection in the sense of §4.6. A connection stays in the
+family it was opened in.
 
 A node SHOULD advertise a stable IPv6 address rather than a temporary one (RFC 4941), and send
 from the address it advertises.
@@ -1048,8 +1067,8 @@ open.
   sites in turn, so that no single peer decides its class.
 - When no prober was asked (`ok` not set, or no answer), it tries again with another peer after
   30 s *(initial)*, doubling the wait each time up to 60 min *(initial)*.
-- An `open` node that was asked a prober and received no `PROBE` in two *(initial)* tests in
-  a row is no longer `open`, unless unasked connections arrived since the first of the two. It classifies
+- An `open` node whose tests had a prober asked (`ok = true`) and that received no `PROBE` in
+  two *(initial)* such tests in a row is no longer `open`, unless unasked connections arrived since the first of the two. It classifies
   itself from its address reports and takes relays (§9.4).
 - An `open` node MAY skip a test that is due while it has evidence from unasked connections
   that is less than 60 min *(initial)* old. A test after an address change is never skipped.
@@ -1067,7 +1086,9 @@ message ReachTest {
 
 1. The asker sends `ReachTest{nonce}` to a peer A, on a connection the asker opened in the
    family to test. `nonce` is random and chosen by the asker, so that it can recognise the
-   `PROBE`.
+   `PROBE`. The asker SHOULD NOT dial a contact of its routing table to ask it as A: its NAT may
+   already hold a mapping for that host. A connection the asker already opened MAY serve as A,
+   also to a contact of its table; step 5 judges the host the `PROBE` comes from.
 2. A picks a `ROUTER` contact B of its routing table in that family that is not the asker and
    that A believes has no connection with the asker, and forwards the request to B on a new exchange
    with `target_id`, `target_ep` and the asker's `nonce`. `target_ep` MUST be the asker's
@@ -1214,7 +1235,13 @@ initiator I                        relay R                          target T
   dial QUIC to eps(T)
 ```
 
-1. I opens an exchange to one of T's relays and sends `Punch` with a random `nonce` it chose.
+1. I dials the endpoints of T first, where it has any (§8.3). When no handshake has completed
+   2 s *(initial)* after the first direct attempt, or at once when T has no endpoint I can
+   dial, I opens an exchange to one of T's relays and sends `Punch` with a random `nonce` it
+   chose; the direct attempts go on. When that relay cannot be reached, answers
+   `Error{NOT_FOUND}`, `Error{UNSUPPORTED}` or `Error{DENIED}`, or gives no answer within 7 s
+   *(initial)*, I asks the next relay of T in the same try. An `Error{BUSY}` ends the try: it
+   can come from R or from T (step 4).
 2. R forwards it to T on a new exchange, with `peer_id` replaced by I's ID, the endpoint of
    the family the `Punch` arrived on replaced by I's observed endpoint as R sees it (as §9.3
    does for `target_ep`) when I's `Punch` holds one there (a family I left out stays
@@ -1236,15 +1263,21 @@ initiator I                        relay R                          target T
    reservation replaced by T's observed endpoint when T's answer holds one there (a family T
    left out stays declined), and `seen` set to that family. I dials T
    with a normal QUIC handshake; its retransmitted Initials open I's mapping. I is the QUIC client, T the server. A `PROBE` with I's `nonce` that
-   reaches I tells I the address T's packets leave from: I dials that address first, when it
-   is acceptable, and `eps(T)` after it. A `PROBE` with a nonce I did not choose is ignored (§9.3).
+   reaches I before the answer, or within 5 s *(initial)* after it, tells I the address T's
+   packets leave from: when that address is acceptable, I dials it at once, beside the dials
+   to `eps(T)`. One handshake runs per address; an attempt that already dials an address of
+   the answer is started again when the answer arrives, so that its Initials fall into T's 5 s
+   of `PROBE`s. A `PROBE` with a nonce I did not choose is ignored (§9.3).
    An `Error` from T is returned to I unchanged, `retry_after` included.
-5. I tries up to 3 times *(initial)*. After that the source is marked unreachable for
+5. A try has failed when no handshake with T has completed 8 s *(initial)* after the relay's
+   answer, or when it ended at an `Error`. I tries up to 3 times *(initial)*, and for the next
+   try prefers a relay that the last try did not ask. After that T is marked unreachable for
    30 min *(initial)*.
 
-**Who may ask.** T acts on a forwarded `Punch` (`seen` not 0) only when it arrives on the
-connection to a relay at which T holds a reservation; any other forwarded `Punch` is answered
-`Error{DENIED}`. A forwarded `Punch` whose `seen` is not 1 or 2 is `Error{MALFORMED}`. A
+**Who may ask.** A forwarded `Punch` (`seen` not 0) whose `seen` is not 1 or 2 is
+`Error{MALFORMED}`, wherever it arrives. T acts on any other forwarded `Punch` only when it
+arrives on the connection to a relay at which T holds a reservation, and answers it
+`Error{DENIED}` elsewhere. A
 `Punch` with `seen` 0 is a request to the node as a relay; a node that
 offers no relay service (§9.4) answers it `Error{UNSUPPORTED}`. A node can be a relay of a
 peer and a leaf at it at once and tells the two apart by `seen`, which only a relay sets.
@@ -1533,13 +1566,16 @@ Rules:
   requester that already knows the responsible nodes, such as a client of an index node (§11).
 - **Paging.** Each node pages the results of a search in an order of its own, which a
   publisher cannot choose: records by `H("ed3k v1 page", secret ‖ root ‖ publisher key)`
-  (a note by its publisher key alone), sources by `H("ed3k v1 page", secret ‖ node ID)`,
+  (a note by `H("ed3k v1 page", secret ‖ publisher key)`), sources by `H("ed3k v1 page", secret ‖ node ID)`,
   compared as bytes. `secret` is 32 random bytes that the node keeps to itself and replaces
   every 24 h *(initial)*. A searcher MUST NOT expect two nodes to page alike. An answer holds at most 100 *(initial)*
   `files`, 100 `notes` or 100 `sources`; `offset` counts records in that order and `more` says
-  that records remain. The node keeps no state between pages; what changes in between can be
-  missed or seen twice, and the searcher merges by publisher and file. An extension that pages
-  its own records says how many an answer holds.
+  that records remain. Where an answer carries records in several fields, they are paged as
+  one sequence: the fields in the order of their field numbers, each in its own order.
+  `offset` counts in that sequence, and records are left out from its end only. The node
+  keeps no state between pages; what changes in between can be missed or seen twice, and the
+  searcher merges by publisher and file. An extension that pages its own records says in what
+  order and how many an answer holds.
 - **Every `ROUTER` stores every record kind of version 1**, those of extensions included,
   whether or not it sets the extension's capability: a kind that comes into use later then
   needs no network upgrade. The content and the storing-node checks of each kind are in the
@@ -1571,8 +1607,8 @@ Rules:
   ([`extensions/alias.md`](extensions/alias.md) §3).
 - **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
-  which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the `ANON`
-  records of the target. A `Store` of a signed kind MAY carry `signer` (§10.7); the record is
+  which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the node IDs
+  of the `ANON` records of the target, in `anon`. A `Store` of a signed kind MAY carry `signer` (§10.7); the record is
   then checked under that key in place of the key of the connection.
   Every `ROUTER` MUST do all of this, whether or not it sets `ANON`
   ([`extensions/hops.md`](extensions/hops.md) §4).
@@ -1598,7 +1634,7 @@ Rules:
   [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5. A dial through a relay whose
   `Punch` is refused, with `Error{DENIED}`, with `Error{UNSUPPORTED}` from a node that is no
   relay, or with `Error{NOT_FOUND}` for want of a reservation (§9.5), counts as a failed dial
-  there. A connection that has no observed address, such as a session through
+  at the relay's address ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5). A connection that has no observed address, such as a session through
   a path ([`extensions/hops.md`](extensions/hops.md) §3), cannot store a source record: the
   answer is `REJECTED`, and a node that hides publishes `ANON` records instead.
 - **The searcher checks `sources`** of an answer by the same rules: it drops a `Peer` whose `id`
@@ -1760,7 +1796,7 @@ other cost off that number:
 | Keyword records batched per node | All files sharing a keyword go in one `Store` |
 | Source records batched per region | Targets that share their closest nodes go in one `Store` per node (§10.4) |
 | Index nodes | A node logged in to an index node (§11) publishes and searches there over one connection and needs Kad for keywords only as a fallback |
-| Long record lifetimes | Publishing is the dominant Kad load; it happens every 5 h and 24 h, not per search |
+| Long record lifetimes | Publishing is the dominant Kad load; a source is stored again every 4 h and a keyword record before its 24 h end, not per search |
 
 Expected cost of a lookup with operation: 3–4 hops and 8–12 nodes contacted (at least M = 9
 for a store), of which 5–9 are new
@@ -1835,7 +1871,7 @@ record cannot be replayed under another keyword or file. One kind signs a value 
   §5.2) and how a last hop stores for a node that hides
   ([`extensions/hops.md`](extensions/hops.md) §4.2). Source records, which are bound to the
   connection, never use it: `signer` in a `Store` of `SOURCE` or of a kind stored like it
-  (`LIVE`, `SUB`, §10.3) is ignored. In a `KadAnswer` the key is `keys[key]`, sent once per publisher.
+  (`LIVE`, `SUB`, §10.3), or of `FRIEND`, is ignored. In a `KadAnswer` the key is `keys[key]`, sent once per publisher.
 - `sigs` is a list from version 1 on. It holds at most one signature per algorithm; a second
   one of the same `alg`, or one with `alg` = 0, makes the record invalid.
 - **Ed25519** is verified as RFC 8032 §5.1.7 says, with every choice fixed, so that all nodes
@@ -1869,7 +1905,7 @@ record cannot be replayed under another keyword or file. One kind signs a value 
 
 A record that fails a check on the storing node is answered `REJECTED` in `results` (§10.3).
 A `Store.signer` that is not 32 bytes makes a request of a kind that uses it `Error{MALFORMED}`
-(§0); for `SOURCE`, `LIVE` and `SUB` it is ignored whatever its length.
+(§0); for `SOURCE`, `LIVE`, `SUB` and `FRIEND` it is ignored whatever its length.
 **Newer.** Every signed kind keeps one record per publisher and file, target or root (of all
 publishers together a keyword file, a `MEMBER` set and an `ALIAS` root keep at most 3, §10.8
 and their documents), and a
@@ -1878,7 +1914,7 @@ an order of their own, stated in their documents; for every other signed kind th
 the later `expires` is the newer one. A valid record that is not newer than the one held is
 answered `OLDER`, and nothing changes. This holds also for a record that a third party stores
 again with `signer`: an older copy never replaces a newer one. `Error{MALFORMED}` is for a
-request that does not parse (§5.6); a `Signed.body` that does not parse fails its record only. A searcher drops a record that fails. There are no unsigned
+request that does not parse or breaks a rule of §10.3 (§5.6); a `Signed.body` that does not parse fails its record only. A searcher drops a record that fails. There are no unsigned
 keyword or note records. A storing node deletes a record at `expires`.
 
 The publisher's node ID, `H("ed3k v1 node id", key)[0..16)`, is the author of the record. It is
@@ -1915,18 +1951,24 @@ same few nodes. Version 1 bounds that as follows.
   site: where rule 3 would give it the place of such a record, it is answered `REJECTED`
   (not `FULL`: the target is not full).
 - So each site holds one place, and one site cannot keep two by renewing often.
-- A file target keeps at most 64 *(initial)* notes; a further one is `FULL`. At most 4
+- A file target keeps at most 64 *(initial)* notes; a note of a further publisher is `FULL`,
+  and a held one is renewed. At most 4
   *(initial)* of them come from one publisher host address and 8 *(initial)* from one
   publisher site ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1); a further
   one from there is `REJECTED`.
-- A file target holds at most 10,000 *(initial)* `SOURCE` records; a further one is `FULL`.
+- A file target holds at most 10,000 *(initial)* `SOURCE` records; a record of a further node
+  is `FULL`, and a held one is renewed.
 - Of the files under one keyword target, at most 1,000 *(initial)* come from one publisher
   key and 2,000 *(initial)* from one publisher site
   ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1). A record for a further
-  file of that publisher is `REJECTED`.
+  file of that publisher key or site is `REJECTED`. A file counts for a key and for a site
+  while a kept record of it has that publisher and that site. A record that keeps its file
+  under the same publisher and site, or under the same site by rule 2, adds no file to that
+  site; rule 2 adds one to the new publisher key, and rule 1 from another site adds one to that
+  site.
 - `FULL` is for a target that has no room. A record that is over a limit per address or per
   publisher is `REJECTED`: that says nothing about the target, does not set `spill`, and is
-  no reason for a lookup of the target's own (§10.4).
+  no reason for a lookup of its own for the target (§10.4).
 - While a target is full, a record for a file the node already holds is renewed (`STORED`), and
   a record for a new file is refused (`FULL`).
 - `BUSY` means the node as a whole is out of room, or the sender is over its request rate
@@ -2109,7 +2151,8 @@ is kept for 30 min as after a lost connection (§12.5).
   does the same; a `have` that did not change would leave the range outstanding.
 - **When a slot is taken away** (`FileStatus` with `rank` above 0), every outstanding range
   is void on both sides. That `FileStatus` MUST carry `recheck`. The uploader finishes at
-  most the `Block` it is sending. With `recheck` above 0 the downloader does not answer, and
+  most the `Block` it is sending, and the downloader accepts that one `Block`; it is no
+  protocol fault (§12.3). With `recheck` above 0 the downloader does not answer, and
   the stream closes (§12.5). With `recheck` = 0 the
   downloader answers with an empty `FileRequest`, and the uploader ignores every
   `BlockRequest` until that arrives: one that crossed the `FileStatus` on the way is neither
@@ -2355,7 +2398,7 @@ not, or the connection is lost, the uploader closes the stream. The entry is the
 - Connected: `FileStatus` with `rank` = 0 on the open stream.
 - Not connected: the uploader dials the downloader at the observed endpoint of its last
   connection, and at a claimed endpoint (§8.2 (5)) only if it is acceptable (§8.2 (7), and
-  (8) in a named network), or by `Punch` through the relays of its last `FileRequest` (§9.5);
+  (8) in a named network), or by `Punch` through the relays its `FileRequest`s last named (§9.5);
   of `relays4` and `relays6` it uses only those at acceptable addresses, as for a source
   record (§10.3). It opens an exchange and sends `SlotOffer`. The downloader answers on that exchange with a first `FileRequest`, which
   names a file by `root`: the one it is queued for, or another one of this uploader that it
@@ -2385,10 +2428,11 @@ not, or the connection is lost, the uploader closes the stream. The entry is the
   granted the slot.
 - After 16 MiB the uploader MAY go on while nobody else is waiting.
 - A slot with no outstanding range for 30 s *(initial)* is taken away.
-- A slot outlives its stream only by a hold: when the downloader closes the stream that holds
-  its slot, or a `SlotOffer` exchange that would have granted it is answered `NOT_FOUND`, the
-  uploader holds the slot for 30 s *(initial)* for a new file stream and then takes it away;
-  the bytes and time of the turn go on counting. A slot whose connection is lost is taken
+- A slot outlives its stream only by a hold: when the downloader closes or resets the stream
+  that holds its slot, or the uploader answers the `FileRequest` on a `SlotOffer` exchange with
+  `NOT_FOUND`, the uploader holds the slot for 30 s *(initial)* for a new file stream and then
+  takes it away. A hold is not started again while it runs, and the rule of no outstanding
+  range does not apply during it; the bytes and time of the turn go on counting. A slot whose connection is lost is taken
   away at once.
 - A downloader that loses its slot stays in the queue. Its new position is local policy; the
   `FileStatus` that takes the slot carries it as a `rank` of 1 or above. Where no new
@@ -2700,7 +2744,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Keep-alive (PING) by the side that wants a connection kept | 20 s |
 | `Hello` of the peer awaited on stream 0 | 30 s |
 | Fragment reassembly: messages per source, timeout, one message at most, all messages at most (bytes / messages), attempts in fragments per packet type before an unsplit one; `msg_id` not used again towards one address within | 4, 3 s, 1,500 B, 4 MiB / 65,536, 2; 3 s |
-| Full-size path probes lost before a path is given up | 3 |
+| Full-size path probes lost before the connection is closed | 3 |
 | `agent`, `nick` at most **(wire)**; `retry_after` read as at most | 64 B; 24 h |
 | Compression threshold | 64 B |
 | Maximum frame body **(wire)** | 1 MiB |
@@ -2719,6 +2763,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Punches a target starts per minute: in all, towards one host address; `PROBE`s per punch (shared evenly over I's endpoints), per destination host address and minute | 30, 3; 50, 100 |
 | `Punch` forwards per minute: per leaf, per initiator address and leaf | 30, 3 |
 | Punch: probe interval per endpoint, duration, probes to a claimed endpoint at most, attempts, back-off (also after an answer that leaves no family to try) | 100–300 ms, 5 s, 3, 3, 30 min |
+| Punch, initiator: direct dials before a relay is asked, a relay's answer awaited, handshake awaited after the answer, a `PROBE` used after the answer | 2 s, 7 s, 8 s, 5 s |
 | Dual-stack head start for IPv6 | 250 ms |
 | Kad: K, α, contacts per answer, R (search / store) | 10, 3, 16, 4 / 8 |
 | Kad: nodes that must answer before a lookup may stop, M (search / store) | 5 / 9 |
@@ -2768,24 +2813,25 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
 | Anonymous paths, a hop: paths per neighbour, streams per path, further exchanges per path, held per stream and direction, base rate, lookups per path, dials per path / per neighbour | 8, 64, 65, 256 KiB, 16 KiB/s, 20 per minute, 4 / 16 per minute |
 | Anonymous paths: `ANON` records per target (in total / per host / per site), `GATE` lifetime and renewal, session idle time, failed `GATE` lookups or gates dialled per file and hour | 64 / 4 / 8, 1 h and 45 min, 10 min, 4 |
-| Anonymous paths: dials caused by `HopExtend`/`HopConnect` (relay dials and punches included) with no answer within 10 s, or still pending, per destination host (IPv4 /32, IPv6 /64) and hour; per neighbour host address: paths, dials per minute, failed dials (wrong node ID, refused punch) per hour | 8; 16, 32, 8 |
-| Anonymous paths: hops known before a path is built, reach a new hop or a `HopConnect` node within, status frame awaited, `HopJoin` per gate and host, give and take measured over, relays per family in `HopConnect` | 20, 10 s, 10 s, 10 per minute, 7 days, 2 |
+| Anonymous paths: dials caused by `HopExtend`/`HopConnect` (relay dials and punches included) whose handshake did not complete within 10 s, or still pending, per destination host (IPv4 /32, IPv6 /64) and hour; per neighbour host address: paths, dials per minute, failed dials (wrong node ID, refused punch) per hour | 8; 16, 32, 8 |
+| Anonymous paths: hops known before a path is built, reach a new hop or a `HopConnect` node within, status frame awaited (after `HopStream` or `HopJoin` / after `HopConnect`), `HopJoin` per gate and host, give and take measured over, relays per family in `HopConnect` | 20, 10 s, 10 s / 30 s, 10 per minute, 7 days, 2 |
+| Anonymous paths: answer awaited by the last hop to its `HopCreate`; by the owner after `HopCreate` or `HopGate` / after `HopExtend`; a refused session not opened again to that node ID for | 10 s; 10 s / 30 s; 60 s |
 | Anonymous paths: replay window for stream numbers of a path and of a session, PING on a path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most; senders remembered at most, of them per host address | 10 min, 1,024; 256, 16 |
-| HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed | 8, 3, 16; 3; 3 |
+| HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed; a sealed source's `expires` ahead at least | 8, 3, 16; 3; 3; 120 s |
 | HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per hour, per host / site / block, counted per file and, over all files, per namer of the URL; over all files and namers together, per host; a host is exempt over all files after a verified block for | 2; 2 / 4 / 8; 8; 1 h |
 | File sets, a manifest at most: size, `files`, `dirs`, path component, components in a path, depth, files with all inner sets | 4 MiB, 65,536, 65,536, 1–255 B, 32, 8, 1,000,000 |
 | File sets: head `expires` at most, follower stores the head every, check a followed set at most / suggested | 7 days (+1 h), 24 h, 1 per hour / 1 per 6 h |
 | File sets: `MEMBER` sets per file and publisher, sets per target (in all / per publisher key / per site), records kept per set, records per answer, site count saturates at | 4, 64 / 4 / 16, 3, 16, 255 |
 | Hidden sets: head `expires` at most, follower stores within the first, sealed `data`, record dropped after its day | 7 days (+1 h), 6 h, 12–256 B, 48 h |
 | Sets with several authors: grant keys, signatures required, mounts per manifest / over all levels of a set, issuers, changes, part (size, files, manifest), `PART` records per target (per host / per site) / per answer, parts read per set | 8, 4, 64 / 256, 8, 4,096, 64 MiB / 256 / 64 KiB, 1,024 (8 / 32) / 16, 1,024 |
-| Live: `start` at most ahead, `end` kept, `have` update, sign of life, neighbour gone after, `peers` seen within, give up on a request after | 1 h, 30 min, 1 per s, 10 s, 30 s, 10 min, 4 s plus 1 s per MiB asked for |
-| Live: join behind the newest, neighbours aimed at / kept, interrupted after, leave after, `LIVE` record stored every, `window` | 3 segments, 6 / 3–8, 60 s, 10 min, 5 min, 8 to 240 (0 or absent = 30) |
+| Live: `start` at most ahead, `end` kept, `have` update, sign of life, neighbour gone after, `peers` seen within, give up on a request after, a second exchange of a stream reset after | 1 h, 30 min, 1 per s, 10 s, 30 s, 10 min, 4 s plus 1 s per MiB asked for, 10 s |
+| Live: join behind the newest, neighbours aimed at / kept, interrupted after, leave after, `LIVE` record stored every, `window`; a cut-off broadcaster continues its `seq` when it returns within; neighbours a broadcaster takes at least | 3 segments, 6 / 3–8, 60 s, 10 min, 5 min, 8 to 240 (0 or absent = 30); 10 min; 3 |
 | Live, rating: outcomes kept, urgent within, probe after, steady (age, outcomes, rate), core (age, outcomes, rate), requests at a time new / steady / core | 20, 3 segments, 60 s, 2 min / 5 / 80 %, 5 min / 10 / 90 %, 1 / 2 / 4 |
 | Live, rating: down (rate, outcomes), out (second down within), `LIVE_BLOCKED` for, core per site / block, sudden loss (core neighbours at least, share, within, hold), returning within | 50 % / 5, 10 min, 30 min, 1 / 2, 3 / more than 1/3 / 2 min / 2 min, 30 min |
 | Live, private channel: look under the previous hour during the first, under the next hour during the last | 10 min, 10 min |
-| Publish and subscribe: `peers` seen within, bad neighbour refused for, items passed on per topic, neighbours aimed at / kept, topics pushed | 1 h, 24 h, 1 per 10 s, 3 / 2–4, 16 |
+| Publish and subscribe: `peers` seen within, bad neighbour refused for, items passed on per topic, neighbours aimed at / kept, topics pushed, a second exchange of a topic reset after | 1 h, 24 h, 1 per 10 s, 3 / 2–4, 16, 10 s |
 | Publish and subscribe: on-air notice `expires` after `issued` at most, sent every, highest `issued` remembered after `expires`; `SUB` record stored every | 15 min, 5 min, 1 h; 30 min |
 | Local network: group IPv4 / IPv6, port, announce every, multicast announces per interface at most, announce datagram at most, reply wait up to, replies per node, replies per minute, LAN peer kept, LAN peers at most, new per minute | 239.255.101.51 / ff02::6533:6b, 6533, 5 min, 1 per minute, 512 B, 1 s, 1 per 5 min, 10, 15 min, 256, 10 |
 | Local network: `LanQuery` per peer, once more on a new download, roots per query | 1 per 10 min, 1 per minute, 256 |
@@ -2795,7 +2841,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Videos on a chain: files per upload set, subtitles, picture and playlist at most, link at most, blocks per log read, gateways per video | 64, 1 MiB, 512 B, 2,048, 3 |
 | Videos on a chain, shown at most: title, tag, tags, comment; avatar picture at most | 256 B, 64 B, 16, 8,192 B; 1 MiB |
 | Videos on a chain, attachments: `media` value at most, files per set, gateways per file; fetched unasked: manifest at most, picture at most, pictures per entry; picture refused above (side, pixels) | 512 B, 64, 3; 64 KiB, 1 MiB, 4; 16,384 px, 64 million |
-| Filter lists: list file at most, lists followed, list files per set, list files kept in all | 4 MiB, 32, 64, 64 MiB |
+| Filter lists: list file at most, lists followed, list files per set, list files read in all | 4 MiB, 32, 64, 64 MiB |
 | First contact: saved contacts, fetch lists when fewer than N answered / at most per first contact, list at most, redirects followed, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (at most half from one list, for at most), listed nodes reachable for; nodes taken per list from one site / block | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8 |
 | Finding a known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of a record or a request at most ahead, record stored every, lookup of a friend at most, sealed values opened per search at most | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
@@ -2814,8 +2860,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Flood protection: Retry token, return token valid for; per second: handshakes without token per host / site / block (Retry above), Retry packets per host (dropped above) | 10 s, 24 h; 4 / 16 / 64, 4 |
 | Flood protection: validated handshakes per minute per host / site / block while guarded; Kad datagrams per second: `CHALLENGE`s per host, key derivations per host / site / block | 30 / 120 / 480; 4, 8 / 32 / 128 |
 | Keyword levels (reserved): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |
-| Kad datagrams (reserved): `INIT` at least, cookie secret replaced every, request timer, `CHALLENGE`s per second per host (IPv4 address, IPv6 /64), key derivations per second per host (IPv4 address, IPv6 /64), `REQUEST`s per second per host / site / block, exchanges outstanding (total / per responder), `INIT` fallback to QUIC after | 70 B, 1 h, 1 s, 4, 8, 16 / 64 / 256, 16 / 2, 300 ms |
-| Key puzzle (reserved): leading zero bits, memory, epoch, dialled-in contacts verified per host group, verification queue at most; host group waits after a failed dialled-in check; another `puzzle` value of one node ID and site rechecked at most | 13, 64 MiB, 30 days, 1 per hour, 64; 1 h; 1 per hour |
+| Kad datagrams (reserved): `INIT` at least, cookie secret replaced every, request timer, `CHALLENGE`s per second per host, key derivations per second per host, `REQUEST`s per second per host / site / block (host, site and block of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1; a private address in a named network exempt), exchanges outstanding (total / per responder), `INIT` fallback to QUIC after | 70 B, 1 h, 1 s, 4, 8, 16 / 64 / 256, 16 / 2, 300 ms |
+| Key puzzle (reserved): leading zero bits, memory, epoch, dialled-in contacts verified per host group (whatever the result), verification queue at most; another `puzzle` value of one node ID, family and site rechecked at most | 13, 64 MiB, 30 days, 1 per hour, 64; 1 per hour |
 
 ## Appendix B — open points
 
@@ -2828,8 +2874,10 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   announce, one live segment record, one exchange of Kad datagrams, the key puzzle, a Usenet
   post, the `canonical` of hoster links, the hash body, and of paid subscriptions the scopes,
   a season with its tip, an offer, a pass, a proof, a key exchange, the sealed forms and a
-  share report. The credit receipts have none yet:
-  they wait on the chain ID ([`extensions/credit.md`](extensions/credit.md) §7.1).
+  share report, the node list tag, the keys of private channels, the hop session, the pair key
+  of friend records, and the credit signatures of a bid and a receipt, under a test domain:
+  the chain ID and the contract of the public network are not assigned yet
+  ([`extensions/credit.md`](extensions/credit.md) §7.1).
 - The zstd dictionary does not exist yet; it needs a message corpus. Until it is published
   every node announces `dict = 0` and sends frames without a dictionary (§5.3).
 - The field numbers of every message are collected in `proto/ed3k.proto`; a change in a
@@ -2860,7 +2908,9 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   The BEPs as a whole are compared in [`docs/bittorrent-comparison.md`](docs/bittorrent-comparison.md)
 - [I2P](https://geti2p.net/) and [ZeroNet](https://github.com/HelloZeroNet/ZeroNet); compared in
   [`docs/i2p-zeronet-comparison.md`](docs/i2p-zeronet-comparison.md).
-  [RFC 8439](https://www.rfc-editor.org/rfc/rfc8439) (ChaCha20), used by private channels and hidden sets
+- [RFC 8439](https://www.rfc-editor.org/rfc/rfc8439) (ChaCha20 and ChaCha20-Poly1305), used by
+  private channels, hidden sets and friend records, and by paths, paid subscriptions and Kad
+  datagrams
 - [IPFS specifications](https://specs.ipfs.tech/), the
   [Kubo configuration reference](https://github.com/ipfs/kubo/blob/master/docs/config.md) and the
   [Hyphanet wiki](https://github.com/hyphanet/wiki/wiki) (Freenet); compared in

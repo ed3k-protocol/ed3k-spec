@@ -125,9 +125,10 @@ message SignedOffer {
 - A chain covers epochs from `base` up to `base + length − 1`. A newer offer keeps the chain
   of the one held, or names one with a higher `base`. An offer whose chain has a lower `base`,
   or the same `base` with another `length` or `anchor`, is refused.
-- **No gaps.** A new season begins at most at `base + length` of the one before. An offer that
-  names a chain with a later `base` is refused, and the one held is kept. A chain whose `scope` is
-  not the offer's, or whose signature fails, makes the offer invalid.
+- **No gaps.** A publisher begins a new season at most at `base + length` of the one before. A
+  reader does not check this: it cannot tell a gap from a season it has not seen. A gap only
+  leaves epochs without a key. A chain whose `scope` is not the offer's, or whose signature
+  fails, makes the offer invalid.
 - **The offer names the current season.** `chain` is the season of the epoch of `issued`, or,
   after a leak, the new season that begins at the next epoch (§4.5). A planned season (§4.4) is
   not named in an offer before it begins: it travels with its keys (§6.1), and the publisher
@@ -406,7 +407,8 @@ sig = Ed25519 signature by holder over
   key is of no use at all.
 - `minute` is the sender's clock. A receiver refuses a proof more than 10 min *(initial)* from
   its own clock. The minute makes a proof evidence of a connection at a time (§5.3).
-- **A receiver checks**, in this order: the signature of the pass under `key`; that `scope` is
+- **A receiver checks**, in this order: the signature of the pass under `key`; that `issued`
+  is at most 1 h ahead of its clock (§5); that `scope` is
   in `scopes`; that `key` is the publisher or an issuer of the offer it holds; that the pass
   covers the current epoch, or for a relay pass that `until` is in the future; the proof.
   Ed25519 is verified as [`Protocol.md`](../Protocol.md) §10.7 says.
@@ -561,16 +563,17 @@ KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ requester's no
   answered: with the newest key it covers and the tips of the seasons before that key's, never
   with a key of the current epoch or a later one. A viewer whose pass ran out so gets what
   §10 says it keeps.
-- **Tips.** To a viewer pass, a node adds the tips it holds of every season that ended before
+- **Tips.** To a viewer pass, a node adds the tips it holds of every season that comes before
   the season of `key` and has a `base` of at least `tips_have`. A tip that a requester lacks
   comes in a further request with `have` = 0, as the next two points say.
 - A node that has more than 256 tips to give, with a pass or without one, gives the oldest
   256. A requester asks for the rest, and for tips it dropped unchecked (§4.1), in a further
   request with `tips_have` = the `base` of the newest tip it verified, plus 1, and `have` = 0.
-- A requester knows that it lacks a tip when the epoch of the newest key it holds of a season
-  (§4.2), plus 1, is below the `base` of the next season it holds. It then asks with
-  `tips_have` = the `base` of that season, and `have` = 0, at most once per day *(initial)* per
-  scope.
+- A requester knows that it lacks the tip of a season when the next season it holds has a
+  `base` above the epoch of the newest key it holds of that season (§4.2), plus 1, and that key
+  is not the last of its chain, `base + length − 1`. A season it holds with no key lacks its
+  tip. It then asks with `tips_have` = the `base` of that season, and `have` = 0, at most once
+  per day *(initial)* per scope.
 - `chains` holds the `SignedChain` of each season that a key in the answer belongs to. A
   requester verifies each key against the anchor of its season, and drops the answer when a
   chain or a key fails.
@@ -624,8 +627,9 @@ TOPIC_PASS = 3;
   The peer's first answer carries its own `pass` and `pass_proof`, `offer` when it is newer
   than `offer_issued`, in a private channel the `proof` of [`live.md`](live.md) §10.3, and
   nothing else of the scope: no peers, no records, no item, no `refusal` other than
-  `LIVE_LEFT` or `TOPIC_LEFT`. A node without a pass of the scope, and one that refuses the
-  joiner for 24 h (§4.1), answers so. A node that left a paid stream with its `end` record
+  `LIVE_LEFT` or `TOPIC_LEFT`. A node without a pass of the scope that covers the current epoch
+  (for a relay pass: whose `until` is in the future), and one that refuses the joiner for 24 h
+  (§4.1), answers with `LIVE_LEFT` or `TOPIC_LEFT` and nothing else. A node that left a paid stream with its `end` record
   sends that record with `LIVE_LEFT` ([`live.md`](live.md) §2.2); it carries no epoch and seals
   nothing.
 - The joiner checks that pass (§5.2). When it is absent or fails, the joiner closes the
@@ -647,7 +651,7 @@ TOPIC_PASS = 3;
 - **Offers are pushed** the same way: a node that learns a newer offer sends it at once in
   `LiveState.offer` or `TopicState.offer` to every neighbour of the scope, relays included. A
   new season after a leak (§4.5) so reaches every node within seconds.
-- At an epoch boundary a node refuses on from then a neighbour whose pass no longer covers the
+- At an epoch boundary a node refuses a neighbour whose pass no longer covers the
   current epoch: it sends `refusal = LIVE_PASS` or `TOPIC_PASS` and closes the exchange.
 - `peers` in a paid exchange MUST be peers whose pass the sender checked.
 
@@ -824,13 +828,22 @@ target = H("ed3k v1 paid topic", scope ‖ day(8))[0..16)       day = Unix time 
 | Opened | once the node holds a key that covers `epoch`: `data` opens with `k_head` to a `Head` whose `seq` is the one outside and whose `root` is 32 B |
 
 A failed check is a content failure of [`pubsub.md`](pubsub.md) §2.2, except `expires` and
-`epoch`, which are time checks, and `Opened`, which only the set key's signer can fail: the
-node drops such an item, does not pass it on, and keeps its order number as one held, as for
-a head that ran out ([`pubsub.md`](pubsub.md) §4.1). It is no fault of the neighbour that sent
-it. A node MAY keep the item it held before until a newer one opened, and then gives that one
-out again. A node that holds
-no key for `epoch` yet passes the item on when the other checks hold, and gets a key (§6)
-before it opens it. A relay passes it on unopened.
+`epoch`, which are time checks, and `Opened`. On a failed `epoch` the node drops the item, and
+it is no fault of the neighbour. On a failed `expires` or `Opened`, which only the set key's
+signer can fail, the node drops the item, does not pass it on, and keeps its order number as
+one held, as for a head that ran out ([`pubsub.md`](pubsub.md) §4.1). It is no fault of the
+neighbour that sent it. A node MAY keep the item it held before until a newer one opened, and
+then gives that one out again. A node that holds no key for `epoch` yet passes the item on
+when the other checks hold, and gets a key (§6) before it opens it. A relay passes it on
+unopened.
+
+A node that holds a newer item and has opened it goes on as
+[`hidden-set.md`](hidden-set.md) §3 *Reading* does from step 3: it downloads the sealed
+manifest by the `root` of the opened `Head`, opens it with `k_data` of `Sealed.epoch` (§8.3),
+and accepts it only when it is signed by the set key, with the `seq` and `id` of that `Head`.
+A relay does not download it. A manifest that fails that check does not change the item: the
+item was verified and stays the one held and passed on; the node keeps its old version of the
+set.
 - A pass holder of a set SHOULD join its topic while it follows the set, within the limit of
   16 topics of [`pubsub.md`](pubsub.md) §2.3. The `PAID` topic counts as one topic toward that
   limit, for either form; the `SET_HEAD` topic of a catalogue counts on its own.

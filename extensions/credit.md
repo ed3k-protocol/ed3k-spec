@@ -4,6 +4,7 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §12.1 and §12.5. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 16, `CREDIT`. Message types 35 to 37. One field in `FileRequest`, one in `FileStatus`.
 **Needs:** JSON-RPC access to a node of the credit ledger (§7). The ledger is a chain of its own, outside ed3k.
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Credit signatures*.
 
 In ed3k, credits are local policy (`Protocol.md` §12.1): an uploader remembers who uploaded to
 it, and nobody else can use that. This extension adds credits that count at **every** uploader.
@@ -30,8 +31,9 @@ thirds of an uploader's slots can go to bidders (§5.1), and a bid can end its t
  Downloader D                          Uploader U                      Ledger (own chain)
  ────────────                          ──────────                      ──────────────────
  FileRequest{credit: payer, bid} ───▶
-            ◀─── FileStatus{rank, credit: payee, floor, clearing}
- Receipt{counters as they stand} ───▶  verify signature: `payer` is D's
+            ◀─── FileStatus{rank, credit: payee, challenge, floor, clearing}
+ Receipt{counters as they stand,
+         proof} ────────────────────▶  verify `proof`: `payer` is D's
  hold(payee, 16 × bid) ──────────────────────────────────────────────▶ locked for 6 h
                                        bid wins a priority slot:
                                        eth_call holdOf(payer, payee) ▶
@@ -214,8 +216,11 @@ message CreditOffer {
   without `floor`, says: I take receipts and sell no priority.
 - An uploader with a `floor` sends `challenge` with `payee`. It draws it at random when the
   queue entry is made and sends the same value on every stream of the entry. A new entry
-  gets a new one. A stream whose `CreditOffer` has `floor` but has not carried `challenge`
-  makes no bid eligible; the downloader treats the uploader as selling no priority.
+  gets a new one. `challenge` counts for the rest of the stream once a `CreditOffer` of it
+  carried it. An uploader that sets a `floor` later on a stream sends `challenge` with the
+  first `CreditOffer` that has `floor`. While no `CreditOffer` of the stream has carried
+  `challenge`, `floor` makes no bid eligible; the downloader treats the uploader as selling no
+  priority.
 - **The bid is given blind,** in the first `FileRequest` of the queue entry. The price
   charged is set by the next bid, not by the own one (§5.2), so a downloader names the most
   it would pay and need not see `clearing` first. `clearing` is information for the user.
@@ -268,16 +273,20 @@ signature and that
   would skip it,
 - `kib` is not below that of the receipt it holds for that `day`: the counters only grow
   (§3),
-- `spent` is not below the receipt before of that `day`.
+- `spent` is not below that of the receipt it holds for that `day`.
 
 A receipt that fails is dropped. A receipt is not answered. **Whether `spent` covers `due`
 (§3.2) does not make a receipt valid or not.** It decides only whether the uploader serves the
 next tranche: a last receipt that pays less than was due still counts for its `kib` and for
 what it pays.
 
-**`proof`** is an EIP-712 signature by the issuer's credit key over
-`Bid(address payer,address payee,bytes16 challenge)`, with `challenge` from the `CreditOffer`
-of this queue entry, and the domain and the 65 bytes of a receipt (§3). It is what makes an
+**`proof`** is an EIP-712 signature by the issuer's credit key, with the domain and the 65
+bytes of a receipt (§3), over the struct hash
+`keccak256(abi.encode(keccak256("Bid(address payer,address payee,bytes16 challenge)"), payer, payee, challenge))`.
+`payer` and `payee` are those of the stream, and `challenge` is the one of the `CreditOffer`
+of this queue entry. As in EIP-712, each address is left-padded and `challenge` right-padded
+with zeros to 32 bytes. The contract has no type hash for it: only the uploader checks a
+`proof`. It is what makes an
 entry eligible (§5.2) and is needed once per queue entry, in the receipt of §3.1; later
 receipts MAY leave it out. A `proof` that does not verify does not void the receipt: the
 receipt counts as one without `proof`. `proof` is not part of the signed receipt and not
@@ -329,14 +338,18 @@ message CreditRelayAnswer {   // type 37, answer
   or `sig` of the wrong length, `Protocol.md` §5.6). So is one that the ledger would refuse:
   a receipt whose `issuer` or `holder` is the zero address, whose `issuer` is its `holder`,
   whose `kib` is above 52,428,800 (50 GiB), or whose `day` is after the relay's today or more
-  than 7 days back; a hold whose `payer` is the zero address or whose `deadline` has passed,
+  than 7 days back; a hold whose `payer` or `payee` is the zero address or whose `deadline` has passed,
   and a hold that `eth_estimateGas` shows would revert. A request in which any receipt or hold
   fails is answered `Error{DENIED}` as a whole, and the relay sends none of it.
 - The relay calls `settle` (§6.2) from its own account. The receipts say who is credited; the
   relay cannot change that. It is paid by the gas reward of §6.6.
 - A relay sends the call when at least one receipt, by itself, would mint or take at least
-  1 credit for a pair and day that has not earned the reward yet (computed from the receipt
-  and `settled()`), the threshold of the reward (§6.6).
+  1 credit for a pair and day that has not earned the reward yet, the threshold of the reward
+  (§6.6). It computes this with the views of §7.3: `settled()` of the pair and day,
+  `accountOf()` of the issuer, and `issuedKib()` and `pairKib()` of the receipt's week. An
+  issuer that is not mature, or is `overdrawn`, counts as minting and taking nothing. What is
+  minted stays within what is left of both weekly limits (§6.3). What is taken is at most the
+  issuer's balance. Holds for other payees cannot be read, so this is an upper bound.
   `settle` returns nothing, so there is nothing to simulate.
 - **Nothing worth sending:** receipts that verify and stay below that threshold, and no hold
   the relay sends, are answered `Error{BUSY}` with a `retry_after` above 0. The relay keeps
@@ -374,9 +387,8 @@ An uploader with a `floor` gives some of its upload slots to bidders.
 When a priority slot is free, the uploader takes the waiting entry with the highest
 `max_price` that is at least `floor` and whose payer is **eligible**:
 
-- a valid receipt (§4.2) for (`payer`, `payee`) arrived on this queue entry with `proof`: an
-  EIP-712 signature by the credit key over `Bid(address payer,address payee,bytes16 challenge)`,
-  with `challenge` from the `CreditOffer` of this entry. It need not add to `kib` or `spent`
+- a valid receipt (§4.2) for (`payer`, `payee`) arrived on this queue entry with a `proof`
+  (§4.2) that verifies. It need not add to `kib` or `spent`
   (§3.1). `payer` is not signed, and a receipt can be replayed, so without this anybody could
   bid under the address of another node. A receipt without a valid `proof` counts for its
   `kib` and `spent` and makes no entry eligible,
@@ -396,9 +408,11 @@ for 6 h *(initial)*, and in that time it can neither move it away nor lower the 
   it can lose, and the ledger refuses holds beyond 90 % of the balance, at every renewal.
 - A payment that is settled uses the hold up (§6.5). For a further turn the bidder raises it
   again, at the latest with its next renewal.
-- A bidder that stops bidding lets the hold run out and then releases it. The uploader MAY
+- A bidder that stops bidding lets the hold run out and then releases it (`hold` with
+  `amount` = 0). The uploader MAY
   release it before (`release`, §6.5).
-- **The uploader MUST settle a receipt whose `spent` grew before the `until` it read**
+- **The uploader MUST settle a receipt whose `spent` grew, and do so before the `until` it
+  read**
   (§6.2). It MAY settle inside a turn. What it serves for payments it cannot settle before
   `until` is at its own risk.
 - A node that hides (§9.1) sends no transaction of its own. It signs its hold and sends it
@@ -553,8 +567,8 @@ Then, in this order:
 - If the issuer is **not mature**, step 1 is done and step 2 is not. The settled `kib` stays
   where it was, so the same receipt can be settled again when the issuer has matured, within
   the 7 days.
-- A holder MUST settle a receipt whose `spent` grew **before the `until` of the hold** it
-  read for that turn (§5.2). After `until` the issuer can move the credits away.
+- A holder MUST settle a receipt whose `spent` grew, and do so **before the `until` of the
+  hold** it read for that turn (§5.2). After `until` the issuer can move the credits away.
 - A holder MUST settle its other receipts **at least every 48 h** while it has new ones, at a
   random time and not right after a transfer (§9). The 7 days are what the contract takes.
 - A holder that settles a payment late cannot brand the issuer `overdrawn` (§6.4) for a
@@ -582,7 +596,7 @@ issuer is **mature**:
 - A new node downloads, earns and spends from the first day. Only the receipts it *signs* do
   not mint yet. The uploaders it took from are credited later, if it matures within the 7 days
   a receipt can be settled in (§6.2).
-- To make one more key an accepted issuer, an attacker has to upload 1 GiB to three accepted
+- To make one more key a mature issuer, an attacker has to upload 1 GiB to three mature
   issuers through it and wait 30 days. What that key can then mint is bounded per week.
 - **The limit of a pair** keeps one issuer from pouring its week onto one holder. To use its
   100 GiB a key has to sign for 10 holders, so a mature user that signs for a friend gives
@@ -707,7 +721,10 @@ a little coin with each, and one that sends other transactions uses it up.
 
 A network with a name (`Protocol.md` §4.3) has its own ledger or none. A node of such a
 network MUST NOT use the ledger of the public network. Until both parameters are assigned no
-receipt can be signed or verified, and the test vectors of this extension wait on that.
+receipt can be signed or verified on the public network. A client takes both from the network
+it is in, and has no default for them; it sets `CREDIT` only when it has them. The test vectors
+use a test domain: chain ID 31337 and the contract address
+`0x5fbdb2315678afecb367f032d93f642f64180aa3`.
 
 ### 7.2 The chain
 
@@ -787,7 +804,7 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 | Downloader does not sign | the uploader earns no credits | one tranche; local ranking (§3.1) |
 | Downloader stops paying in a turn | none | payment is one tranche ahead |
 | Downloader signs payments to many uploaders | each gives up to a tranche for nothing | `overdrawn`, for good (§6.4); a fresh address costs a 10 % burn |
-| Uploader sends data that fails verification | none: only verified blocks count in `kib` | it is banned by the downloader after 2 blocks (`Protocol.md` §12.3) |
+| Uploader sends data that fails verification | none: only verified blocks count in `kib` | it is banned by the downloader after 2 bad blocks within 24 h (`Protocol.md` §12.3) |
 | Two keys of one person sign for each other | credits without upload | maturity, 10 GiB per pair and week, and the weekly limit (§6.3) |
 | A mature user signs large receipts for friends | the same | 10 GiB per friend and week |
 | A group of mature keys makes new keys mature | more keys that mint, each up to the weekly limit | 30 days and 1 GiB of the group's limits per key; **not bounded in number** (§13) |

@@ -22,7 +22,8 @@ The model is the reseed of I2P ([`docs/i2p-zeronet-comparison.md`](../docs/i2p-z
 A client tries these in order and stops when its lookups work:
 
 1. **The contacts it saved.** A client SHOULD save up to 200 *(initial)* verified `ROUTER`
-   contacts when it stops, and from time to time while it runs.
+   contacts when it stops, and while it runs at least once an hour, as local policy, so that a
+   crash does not lose them.
 2. **Nodes in the local network** ([`lan-discovery.md`](lan-discovery.md)). A LAN peer is not
    put into the routing table, but it answers a `KadRequest` with contacts.
 3. **`ed3k:node` links** the user opened (§13.2).
@@ -92,7 +93,7 @@ A reader refuses a list
 A list that names more than 200 *(initial)* nodes per family is not refused; the entries after
 the 200th of a family are ignored. The 200 are the first 200 entries as written, usable or not.
 An entry with port 0, an IPv4-mapped address or an address that is not acceptable in the
-client's network (§8.2 (7)) is skipped; the list is not refused for it.
+client's network (§8.2 (7), and (8) in a named network) is skipped; the list is not refused for it.
 
 The file SHOULD be named `nodes.ed3knod`.
 
@@ -197,7 +198,7 @@ For whoever runs a source:
 
 **What a fetch shows.** The network between client and source sees an HTTPS connection to the
 host of the source, and the source sees the client's address. Anyone who knows the sources
-therefore knows that the host starts an ed3k client. The obfuscation of §4.2 does not cover
+therefore knows that the host starts an ed3k client. The obfuscation of §4 does not cover
 this first step. A user for whom that matters turns the automatic fetch off and uses a list
 received by hand, or a proxy.
 

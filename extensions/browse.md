@@ -51,7 +51,7 @@ message BrowseAnswer {
   sorted by the bytes of the name in UTF-8.
 - An answer holds as many entries as the answering node chooses, at most 1,000 *(initial)*,
   starting at entry `offset` of that order. It sets `more` when entries remain. An answer with
-  more entries ends the listing: the node is dropped for it.
+  more than 1,000 entries ends the listing: the node is dropped for it.
 - The requester asks again with `offset` raised by the number of entries it received (`dirs`
   plus `files`), until an answer comes without `more`.
 - A requester asks at most 100 *(initial)* pages and takes at most 10,000 *(initial)* entries

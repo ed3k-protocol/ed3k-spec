@@ -50,8 +50,9 @@ is 0 and the top 5 bits of `out[1]` are 0.
 - The site is the one of the **observed** address (`Protocol.md` §9.2), the same address the routing ID is
   checked against.
 - A dual-stack router needs one solution per family.
-- Private addresses (`Protocol.md` §8.2 (8)) are exempt in a named network, as in
-  `Protocol.md` §6.3; on the public network they never become contacts.
+- In a named network a router at a private address (`Protocol.md` §8.2 (8)) needs no
+  solution, as it needs no routing-ID check there (`Protocol.md` §6.3); on the public network
+  such addresses never become contacts.
 
 ### 2.1 Epochs
 
@@ -76,7 +77,9 @@ during it; there is no moment at which all routers must solve at once.
   verified by connecting to it (`Protocol.md` §6.3), and the `Hello` of that connection brings the solution.
 - With the datagram binding ([`kad-datagram.md`](kad-datagram.md)) there is no `Hello`. The
   solution then follows the responder's public key in `CHALLENGE`, 12 bytes more; an `INIT` is
-  at least 70 bytes so that this fits ([`kad-datagram.md`](kad-datagram.md) §2.1).
+  at least 70 bytes so that this fits ([`kad-datagram.md`](kad-datagram.md) §2.1). The
+  solution is the one for the family of the datagram, as `Hello` carries it for the family of
+  its connection, and is sent only while the node is `ROUTER` and has a valid one.
 - A `REQUEST` carries no solution. A node is therefore never puzzle-verified by an exchange in
   which it is the requester, only by one in which it is the responder, or by a `Hello`.
 
@@ -96,9 +99,8 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
   it shows, so its runs are rationed. A contact that dialled in is verified only when it would
   be inserted as a dialled-in contact (`Protocol.md` §10.2), and stays out until then. A node
   verifies at most 1 *(initial)* dialled-in contact per host group
-  ([`ip-diversity.md`](ip-diversity.md) §1) per hour. When such a check fails, the result is
-  kept for that node ID, site and `puzzle` value until the end of the epoch; the host group
-  waits 1 h *(initial)* before the next dialled-in contact of it is verified.
+  ([`ip-diversity.md`](ip-diversity.md) §1) per hour, whatever the result. A failed result is
+  kept as below.
 - **Own lookups first.** Contacts that the node found by its own lookups are verified before
   any contact that dialled in. A dialled-in contact is checked only while none of the others
   waits.
@@ -109,12 +111,13 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
   newest one is dropped: it stays unverified and is queued again the next time it would be
   inserted, counted or stored on.
 - **Cached.** The result is kept per (node ID, family, site, `puzzle` value) and SHOULD be
-  written to disk with the routing table. A known router costs nothing until its epoch runs
-  out. A failed check is kept as well, so the same solution is not checked twice. Another
-  `puzzle` value of that node ID and site is checked again at most once per hour *(initial)*:
+  written to disk with the routing table. A valid result is kept while its epoch is accepted
+  (§2.1), so a known router costs nothing until then. A failed result is kept until the end of
+  the current epoch, so the same solution is not checked twice. Another `puzzle` value of that
+  node ID, family and site is checked again at most once per hour *(initial)*:
   a router that moved shows its old solution once before it learns its new address.
 - **Datagram binding.** A node that only sent `REQUEST`s has shown no solution (§3). It is
-  puzzle-verified only by an exchange in which it is the responder.
+  puzzle-verified only by an exchange in which it is the responder, or by a `Hello`.
 
 A lookup that meets 10 to 20 routers for the first time costs roughly 0.4 to 2 seconds of one
 core in total. A warm node pays close to nothing.
@@ -133,7 +136,7 @@ treated as a leaf by its peers.
 |---|---|---|
 | Average | 2¹³ = 8192 | about 5 min at 35 ms per try, about 14 min at 100 ms |
 | Median | 5678 | about 0.7 × the average |
-| 1 search in 20 | more than 24 500 | more than 3 × the average |
+| 1 search in 20 | more than 24 500 | about 3 × the average |
 
 One try took about 35 ms with OpenSSL 3.6 on an Apple M3 Max, process start included. 100 ms is
 an estimate for an older desktop core. Low-power routers may need an hour.
@@ -173,7 +176,7 @@ Costs at n = 13 with 35–100 ms per try. One ID is one key at one site for one 
 | Attacker goal | IDs needed | Cost |
 |---|---|---|
 | Hold the closest set of one key | 8–16 | 0.6–3.6 core-hours; minutes on a 16-core machine with 1 GiB of memory |
-| 1,000 router identities | 1,000 | 3–9 core-days per month |
+| 1,000 router identities | 1,000 | 3–10 core-days per month |
 | 100,000 router identities | 100,000 | 0.9–2.6 core-years per month |
 
 - **A targeted attack on one key stays cheap.** It needs few identities. The addresses are the

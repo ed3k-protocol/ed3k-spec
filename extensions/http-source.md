@@ -302,7 +302,7 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 | Scheme | `http` or `https`, with a host; no user name or password in the URL |
 | Target address | global unicast, for the first URL and for every redirect (below) |
 | Range | `offset` and `length` lie inside the file and cover bytes still wanted. `offset` is below the file size, so a source of a file of size 0 never passes |
-| Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s ahead |
+| Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s *(initial)* ahead |
 | Origin | from a peer: the peer is a source for that file on an open or recent file stream. From Kad or a link: the node itself chose the file |
 | Load | below the node's limit of concurrent fetches; no other fetch running for the same range |
 

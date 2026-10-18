@@ -4,6 +4,7 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §9, §10.1, §10.3 and §13.2. Section numbers (§) refer to that document unless this one is named.
 **Capability:** none. Record kind 10. One field in `Store`, one in `KadAnswer`, one link.
 **Required of every `ROUTER`:** storing and returning the record kind `FRIEND` (§4 of this document). The rest is optional.
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Friend records*.
 
 A node is found through what it shares: its source records. A node that a user *knows*, a
 friend, cannot be found at all once its address has changed. Chat
@@ -44,7 +45,8 @@ k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the 
 ```
 
 - The Ed25519 node keys are used for X25519 through the conversion of `Protocol.md` §6.4. A
-  node MUST refuse an `ss` that is all zero.
+  node MUST refuse an `ss` that is all zero. The keys in `k` are the 32-byte Ed25519 node
+  keys, not the converted ones.
 - Both nodes compute the same `ss`. Each direction has a `k` of its own: one for the record A
   stores for B, one for the record B stores for A.
 - **The link is not a secret.** Whoever has a node's key and was not added by that node can
@@ -192,7 +194,7 @@ padding is encrypted and a record and a request have one length on the wire:
   answers `FULL` after that. A holder of the link thus needs several sites to lock the real
   node out of its place.
 - The lifetime is 5 h *(initial)*.
-- It checks the size and nothing else: a `sealed` of any length other than 384 bytes is
+- Of the content it checks the size and nothing else: a `sealed` of any length other than 384 bytes is
   `REJECTED`. It cannot
   read the record. All three forms have one length, so it cannot tell them apart by their
   size. It can tell a request from a record with some effort: a request begins with an

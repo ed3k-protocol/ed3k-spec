@@ -6,9 +6,9 @@ use chacha20poly1305::aead::Payload;
 use idna::uts46::{AsciiDenyList, DnsLength, Hyphens, Uts46};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-fn w(h: &str, ind: usize) -> String { h.as_bytes().chunks(96).map(|c| std::str::from_utf8(c).unwrap().to_string()).collect::<Vec<_>>().join(&format!("\n{}", " ".repeat(ind))) }
+pub(crate) fn w(h: &str, ind: usize) -> String { h.as_bytes().chunks(96).map(|c| std::str::from_utf8(c).unwrap().to_string()).collect::<Vec<_>>().join(&format!("\n{}", " ".repeat(ind))) }
 fn seal(key: &[u8], nonce: &[u8], aad: &[u8], msg: &[u8]) -> Vec<u8> { ChaCha20Poly1305::new(key.into()).encrypt(nonce.into(), Payload { msg, aad }).unwrap() }
-fn conv(seed: &[u8]) -> ([u8; 32], Vec<u8>) {
+pub(crate) fn conv(seed: &[u8]) -> ([u8; 32], Vec<u8>) {
     let sk = SigningKey::from_bytes(seed.try_into().unwrap());
     let mut p = sha2::Sha512::digest(seed)[..32].to_vec(); p[0] &= 248; p[31] &= 127; p[31] |= 64;
     (sk.verifying_key().to_montgomery().0, p)

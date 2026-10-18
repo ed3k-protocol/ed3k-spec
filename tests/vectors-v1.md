@@ -4,11 +4,12 @@ Every value below was computed with the reference BLAKE3 implementation (the `bl
 1.8.7: `derive_key` for `H`, keyed XOF for the mask stream, the `hazmat` chaining values for
 the tree) and a bitwise CRC32C. An implementation that reproduces them has the derivations of
 `Protocol.md` §4.3, §6.1, §6.3, §6.4, §10.1, §10.7, §12.4 and §14.2 right, and those of the
-extensions named in the headings. Signatures were made with `ed25519-dalek` 2.2.0 and pass its
+extensions named in the headings. Ed25519 signatures were made with `ed25519-dalek` 2.2.0 and pass its
 `verify_strict`, except the five of the section on rejected signatures, which it rejects; X25519 and the key conversion are `curve25519-dalek` 4.1.3, ChaCha20 and
 ChaCha20-Poly1305 the `chacha20` 0.9 and `chacha20poly1305` 0.10 crates, SHA-1, SHA-256 and
 SHA-512 the `sha1` and `sha2` crates, Argon2id the `argon2` crate 0.5.3 (the two outputs also
-with OpenSSL 3.6), UTS 46 the `idna` crate 1.1.0. The words of the tokeniser cases were made with the Unicode 16.0.0
+with OpenSSL 3.6), UTS 46 the `idna` crate 1.1.0, keccak256 the `sha3` crate 0.10.9, ECDSA on secp256k1 the `k256`
+crate 0.13.4 (the credit values also with a second, independent implementation). The words of the tokeniser cases were made with the Unicode 16.0.0
 tables (`unicodedata` of Python 3.14). Every serialised message below is in the canonical
 serialisation of §0 and was read back with `protoc`. Hex is lower case; `‖` is
 concatenation; integers in a layout are big-endian (§0).
@@ -44,7 +45,8 @@ output as it stands.
 | time | 1791849600 (2026-10-13 00:00 UTC, the start of day 20739) |
 
 The one sample key serves as the node key and as the key of a set, a channel or a topic: `key`
-in the preimages below is it.
+in the preimages below is it. This reuse is for the vectors only: hidden-set.md §1 forbids a node key
+as the key of a hidden set.
 
 ## Identity (§6.1, §4.3)
 
@@ -443,6 +445,61 @@ k_in,  stream 0                                  = e19180f27614e216058b93c5fd2b6
 k_out, stream 5 (nonce 000000000000000000000005) = c2a45231d8cd935606c3a0e036879def
 ```
 
+## Hop session (hops.md §3.2 and §3.3)
+
+A opens. It has the second key and the pair `(x, e)` as `(a, e_A)`; B has the sample key and
+the pair `(y, f)` as `(b, e_B)`. Neither hides, so the keys are their node keys. `seal` has
+the nonce `000000000000000000000000`.
+
+```
+ss              = X25519(x, f) = 4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742      ss2 of the hop keys above
+k_b ‖ k_a ‖ k_s = H("ed3k v1 hop session", ss ‖ e ‖ f), 96 bytes
+k_b             = d6f158d1eafe7c1f3e50a75c8c5092cd714679bfa1c3c3016a52145eeb73a3be
+k_a             = 0a6e616eb111d1ad12d140ba6b258f417414bc5d556dbb1b7dc58d1a02751157
+k_s             = c4b3546c6d4e751d674e029f18a76a34ec437b13406b7c0f180b4147f664060c
+sid             = H("ed3k v1 hop session id", k_s)[0..16) = 6be352aebdbad146e0354822aded8424
+signed by B     = "ed3k v1 hop session sig" ‖ 02 ‖ e ‖ f      (88 bytes)
+sig_B           = 2e5cecbcd748e44eb99004a15dee0b52b78dd4357bb1140c78093f9a595ec484
+                  3b72b3554ee0ee3e7f8036f9986d3447fd1aeb714514271bcf0654d0ba46580d
+signed by A     = "ed3k v1 hop session sig" ‖ 01 ‖ e ‖ f ‖ sample key      (120 bytes)
+sig_A           = 609128a8d7ab1c57aba36f37f98a364c7a4d13091b882ce0651c972aff354c69
+                  6e284d9818722e047bb00a9cf6a16efe14eb74c582c16eb9da20f536a3487509
+```
+
+The three messages that open the first stream:
+
+```
+A → B  = 01 ‖ e      (33 bytes)
+B → A  = f ‖ seal(k_b, sample key ‖ sig_B)      (144 bytes)
+       = de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4fa255d8ba50da95c2f23f61a093e496df
+         c38249df165804c72e9b82c5ad50829d4b6ebf2d2fdac1b46e468cfbeda87ba54b1f786fbab5a1272554dd9846642243
+         4e02515a68df4ec71cf6d9a80fbbf2146de6fd2aa4ec052c4e299368129e6ae1fb5b0f124090ddc58ca9a746c6445f7e
+A → B  = seal(k_a, second key ‖ sig_A)      (112 bytes)
+       = 266172ae77ae9a2197d2f915f0e8f6333773cea67eaee0d4760d91b0fb790de65fefdfb35d486aa03dd79ff962833cc0
+         686d048ff96a65b47833f11ac349c6e229c842b07790b0013b470c3729a591a62fc2d59e91340fdbdbf421aee9cd3b90
+         5752de6241349d54fea5ba64decc4b65
+```
+
+The first stream has the number 0. A sends one record with the plaintext `ed3k` and then ends
+its direction:
+
+```
+key(0, 00) = H("ed3k v1 hop session stream", k_s ‖ 0000000000000000 ‖ 00)
+           = b52308a85d7729bf8e1ca487a35dee6df411d662c70d48c67d865e3f9b3a2b79
+key(0, 01) = H("ed3k v1 hop session stream", k_s ‖ 0000000000000000 ‖ 01)
+           = faef2f7bc78d9aed7864747c889b1a3a9e818fc30e5a7314c87e1eb8062208b1
+record 0   = len ‖ ChaCha20-Poly1305(key(0, 00), nonce 000000000000000000000000, "ed3k")
+           = 0014e8914ea1cc541c33b0f04ad0be43851c3e03c0bb      (22 bytes)
+record 1   = len ‖ ChaCha20-Poly1305(key(0, 00), nonce 000000000000000000000001, empty)
+           = 001066a8412fcf6e7cb3d585d7d1129af45f      (18 bytes, the end of A's direction)
+```
+
+A further stream that A opens with the number 2 starts with
+
+```
+02 ‖ sid ‖ 0000000000000002 = 026be352aebdbad146e0354822aded84240000000000000002      (25 bytes)
+```
+
 ## Manifest and signatures (file-set.md §1 and §2.4, multi-author-set.md §1)
 
 ```
@@ -625,7 +682,27 @@ signature = e60c764f765a3e642804265178fb1de104edbbcd641285cba8781293add3e12f
             89331ce926caa0fa6aa6ecf08b58642c9d219e120ef390b687b0218e063fb20b
 ```
 
-## Friend records (friend.md §3 and §4)
+## Friend records (friend.md §1, §3 and §4)
+
+**Friend pair** (§1). The sample key and the second key are friends. `ss` is the one of the
+Kad datagrams below, from the two keys converted as in §6.4; `period` is the sample period.
+
+```
+ss     = X25519(x_private of one key, x_public of the other)
+       = 5166f24a6918368e2af831a4affadd97af0ac326bdf143596c045967cc00230e
+
+the sample key publishes, the second key reads:
+k      = H("ed3k v1 friend pair", ss ‖ sample key ‖ second key)
+       = 041bf93e4d30d38e1822a32758952c5e2e2b35407b8669026f921fe79fb2f919
+k_rec  = H("ed3k v1 friend record", k)                = af463f1cf603f96ec36077c354f69af5fc17f4e093c0b655155d51bf5f9fef3e
+target = H("ed3k v1 friend target", k ‖ period)[0..16) = 735cbdd394801aaef437da8b1bbe52e5
+
+the second key publishes, the sample key reads:
+k      = H("ed3k v1 friend pair", ss ‖ second key ‖ sample key)
+       = d1a8dafa28cb4651a8a30ad1a82b60efc7b486873a07f5d935fe5c41886acfbc
+k_rec  = H("ed3k v1 friend record", k)                = 9e816bbc054e07e3a439b51f2f46fee2bbb64c864ba8b6482c62909ca523b924
+target = H("ed3k v1 friend target", k ‖ period)[0..16) = 6f25eb0112ae1a9fde17b1f0d7c07458
+```
 
 **Record of the open link** (`k_rec` above), sealed with the sample nonce:
 
@@ -835,6 +912,57 @@ and serves as a check here; the protocol does not use it.
 | 525288 | 3 | node(1, 0) ‖ node(1, 1) ‖ block 0 to 2 cv; node(1, 1) is block 2 cv, carried up | 160 | `96a14a72c5e25de2dc3e81186f0d1d62791351491f41477d17f288b4ba97cc96` | `183573acb52747e76ed44ae952b82f4b9af5685c7dc79027d08f670bbf607ea1` |
 | 1310720 | 5 | node(2, 0) ‖ node(2, 1) ‖ node(1, 0) to node(1, 2) ‖ block 0 to 4 cv; the values of the tree section | 320 | `103f4e723c6f36531b9d0be6e48c8c9187dfd7a6f98917a9ca878b43bc52859b` | `e30f4b6b49800f6f5fab779640a5c4ea0c720503fcdddca73f3b607f8c17e26a` |
 | 1073741824 | 4096 | levels 11 down to 0 | 262080 | `d7dd364a0856680d3bcc08ce10b9b1a4da2bc6b9cc86baf253f1a7f05a981025` | `59f5234a413cf114a466050379cf836e395169605ebba9f8698acf1b8a91dd47` |
+
+## Credit signatures (credit.md §3 and §4.2)
+
+The ledger domain is a test domain, not the public network: chain ID 31337 and the address of
+the first contract that the first default account of a local test chain creates (nonce 0).
+The credit key is the secp256k1 private key 1; it is the issuer and `payer`. The uploader's
+address is 20 bytes `b2`. Signatures are ECDSA over the digest with the nonce of RFC 6979
+(HMAC-SHA-256), `r ‖ s ‖ v` with `s` in the lower half, and recover to the issuer's address.
+The words of the EIP-712 encoding are 32 bytes: an address and an integer padded on the left,
+`bytes16` on the right.
+
+```
+domain       = { name = "ed3k credit", version = "1", chainId = 31337,
+                 verifyingContract = 5fbdb2315678afecb367f032d93f642f64180aa3 }
+domain type  = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+             = 8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f
+separator    = keccak256(domain type ‖ keccak256(name) ‖ keccak256(version) ‖ chainId ‖ verifyingContract)
+             = c5a889472a3440d210993204c686a1fce378293f73da5de5a63d45654d2d3d17
+issuer       = keccak256(x ‖ y of the public key)[12..32) = 7e5f4552091a69125d5dfcb7b8c2659029395bdf
+digest       = keccak256(1901 ‖ separator ‖ struct hash)
+```
+
+**Bid** (§4.2), the `proof` of the first receipt, with the `challenge` `00112233445566778899aabbccddeeff`:
+
+```
+type hash    = keccak256("Bid(address payer,address payee,bytes16 challenge)")
+             = cf06e57a7dd83cf9b1f5c204e11efcebf75323ed5c8259ede5361417f3b52d09
+struct hash  = keccak256(type hash ‖ payer ‖ payee ‖ challenge)
+             = 9e825b9ef12b275ccab52d9698f8dc976ef3c31a29be653f58b9a37fe1d773d7
+digest       = 0d5e17820d5a72e8614687603b98523285e39f17603bc7d4760cdabbf7d97eda
+proof        = d21c085f283e12a11432bd5f50338417d6ac6296d4404f7be911978261d18f4d
+               39deda80fad066dc3b15703848f4c0fd9c0e3cd4ad6317aa2397917ed6425b7f1c
+```
+
+**Receipt** (§3) for day 20739, `kib` = 4096, `spent` = 0, sent with `proof` as the first
+receipt of a queue entry (§3.1). `spent` = 0 is left out of the message:
+
+```
+type hash    = keccak256("Receipt(address issuer,address holder,uint32 day,uint64 kib,uint64 spent)")
+             = 94d9df924274365a9d330ec8608d7ce7599abb64e425b6b42d1ee291c40b2566
+struct hash  = keccak256(type hash ‖ issuer ‖ holder ‖ day ‖ kib ‖ spent)
+             = e6d70098b941fae1b6b187df16540cfc633a4a3a7fddafbd2635179692047f7c
+digest       = e05abe8c103063e94f122d7d6d1b9d7aa4f88d4b479e6e0dc6293ba1d7bbccdc
+sig          = ea5a302dda933e0388e87b65d465e8a292349ecb7b2bdcf2733e3a131a9770d9
+               13ebf1ba788a5c2f502a3d7418552582b38b30427d08140220d195d9df6762031b
+Receipt      = { day = 20739, kib = 4096, sig, proof }
+             = 0883a2011080202241ea5a302dda933e0388e87b65d465e8a292349ecb7b2bdcf2733e3a131a9770d913ebf1ba788a5c
+               2f502a3d7418552582b38b30427d08140220d195d9df6762031b2a41d21c085f283e12a11432bd5f50338417d6ac6296
+               d4404f7be911978261d18f4d39deda80fad066dc3b15703848f4c0fd9c0e3cd4ad6317aa2397917ed6425b7f1c
+               (141 bytes)
+```
 
 ## Paid subscriptions (subscription.md §2 to §8)
 

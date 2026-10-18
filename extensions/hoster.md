@@ -189,8 +189,9 @@ bytes is invalid before the first step.
 | `SAME` | the link delivers exactly this file | the file |
 | `SET` | the link names a folder or a list | a manifest that lists its files, with their links (§5) |
 
-**Publisher.** A node publishes the record when it fetched the whole file from the link and
-the bytes gave the root, or when it uploaded the file there itself. A node that shares the
+**Publisher.** A node publishes the `SAME` record when at least one block it fetched from the
+link verified under the root (block hashes from ed3k, `Protocol.md` §12.4), or when the whole
+file it fetched from the link gave the root, or when it uploaded the file there itself. A node that shares the
 file does so unless it holds links back (§4.1). For `SET`: when it
 expanded the link itself and holds every member.
 
@@ -275,7 +276,7 @@ Nothing in the manifest marks it as an archive.
 |---|---|
 | `id` | the root of the file that comes out |
 | `rel` | `PACKED` |
-| `root`, `size`, `name` | the manifest of the volumes, also for an archive of one volume: `root` is always a manifest here, as the `Alias.root` comment says |
+| `root`, `size`, `name` | the manifest of the volumes, also for an archive of one volume: `root` is always a manifest here, as the comment of `PACKED` says |
 | `entry` | the path of the file inside the archive; absent when the archive holds one file. `/` stands between components. It is compared byte for byte with the archive's path after the format's separator is replaced by `/` |
 | `password` | the password of the archive, if it has one |
 

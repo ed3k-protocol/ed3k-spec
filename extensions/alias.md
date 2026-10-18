@@ -112,7 +112,7 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
 | Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8, `entry` at most 255 B, `password` at most 128 B; else `REJECTED` |
 | Target | the target of the request is the one computed from `scheme` and `id` |
-| Count | one record per publisher, target and root. At most 2 *(initial)* roots per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
+| Count | one record per publisher, target and root. At most 2 *(initial)* roots per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the target; a root counts as a file does in `Protocol.md` §10.8. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
 
 - It checks nothing that depends on the scheme, and stores records of schemes it does not
   know.
@@ -222,7 +222,7 @@ How networks fit under these rules. The last column says where, or that nothing 
 
 | Network or source | Name | Relation | Bytes come from | Specified |
 |---|---|---|---|---|
-| eD2K | `ed2k` | `SAME` | eD2K peers; part hashes check 9.28 MB parts | `Protocol.md` §14 |
+| eD2K | `ed2k` | `SAME` | eD2K peers; part hashes check parts of 9,728,000 bytes | `Protocol.md` §14 |
 | BitTorrent | `btih`, `btmh` | `SET` | BitTorrent peers; piece hashes | [`torrent.md`](torrent.md) |
 | Web servers, cache servers | none needed: the URL travels with the file | — | HTTP | [`http-source.md`](http-source.md) |
 | File hosters | `url`; `b3` for archives | `SAME`, `SET`, `PACKED` | a resolver that turns a link into a byte stream | [`hoster.md`](hoster.md) |

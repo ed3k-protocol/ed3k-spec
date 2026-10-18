@@ -35,6 +35,7 @@ ed3k:set?key=<set key, base32 lower case, no padding>&s=<secret, 32 bytes, base3
 - `secret` is 32 random bytes.
 - `key` and `s` are base32 as `Protocol.md` §13.2 fixes: written lower case without padding,
   read either way.
+- A link is invalid when `s` is repeated or does not decode to 32 bytes.
 
 **The link is the credential.** A client MUST NOT write the secret to a log or show it in an
 error message, and SHOULD mark such a link as private wherever it shows it.

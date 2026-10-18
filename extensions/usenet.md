@@ -40,7 +40,7 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 |---|---|
 | mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
 | Order of parts | by the `number` attribute, 1 to n, where n is the number of different `number` values of the file. Where a number occurs twice, the first entry in the NZB counts |
-| fⱼ | the different file ids of the files of the NZB, in ascending order of their bytes; a file whose file id equals another's counts once |
+| fⱼ | the different file ids of the files of the NZB, in ascending order of their bytes; a file whose file id equals another's counts once: both name the same articles, so they are one file, with one `name` and `size` (§2) |
 
 - **A file with a gap** in its part numbers has no file id, and an NZB with such a file has no
   post id. A part numbered 0 is a gap, and so is a file without parts: the parts are numbered
@@ -86,7 +86,7 @@ message Post {
   the end of the line, as it stands: quotation marks are part of the name. All
   parts of a file carry the same values; a client takes them from the lowest-numbered part it
   has, and makes no manifest and no `ALIAS` record for a post in which a file's parts
-  disagree among the parts it fetched.
+  disagree among the parts it fetched, also when the NZB lists that file twice (§1).
 - A name that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8.
 - **A message ID that is not valid UTF-8** cannot be written into `ids`. A post with such a
   message ID has no article list and no manifest (§3).

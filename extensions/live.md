@@ -92,6 +92,8 @@ The link is enough to watch: it gives `stream` and the key that segment records 
 against. `media` and `codecs` then come from the first peer (§3.1). A client without this
 extension does not know the link. `key`, `id` and the `s` of §10 are base32 as
 [`Protocol.md`](../Protocol.md) §13.2 fixes: written lower case without padding, read either way.
+A link is invalid when `key` does not decode to 32 bytes, `id` to 1 to 16 bytes or `s` to 32
+bytes, or when `key`, `id`, `s` or `dn` is repeated.
 
 ---
 
@@ -137,13 +139,14 @@ The signature is over
 ```
 
 and is made with the channel key. The string is not a prefix of the one that signs the
-channel file (§1.2), nor that one of this.
+channel file (§1.2), nor is that one a prefix of this one.
 
 - A record is about 150 bytes. A `LiveRecord` MUST NOT exceed 1 KiB. A node drops a larger one
   unread and does not forward it; it is not a miss for the neighbour that sent it.
 - The rules for `sigs` are those of `Protocol.md` §10.7.
 - A node accepts a record only when the signature is valid, and drops it otherwise. A neighbour
-  that sent it counts one miss (§6).
+  that sent it counts one miss (§6), which takes one of the 20 places as a request outcome
+  does.
 - **Limits.** A record with a valid signature is still invalid when its `size` is above 4 MiB,
   its `init_size` is above 256 KiB (§2.1), or `root` is absent without `end`. A node drops it
   and does not forward it. It is not a miss for the neighbour that sent it: the channel key
@@ -247,7 +250,7 @@ message LiveGet {
 - After the first answer **both sides send `LiveState`** on the exchange whenever one of these
   happens:
   - It learns a new valid record: it sends the record at once to every neighbour that has not
-    shown it. This is how records travel, and it is the only thing that is pushed, apart from the keys
+    sent it that record. This is how records travel, and it is the only thing that is pushed, apart from the keys
     and offers of a paid channel ([`subscription.md`](subscription.md) §6.3).
   - It completes a segment: `first` and `have` are sent, at most once per second *(initial)*.
   - 10 s *(initial)* have passed without one: an empty `LiveState` as a sign of life.
@@ -257,8 +260,9 @@ message LiveGet {
   the last 10 min *(initial)*.
 - Two nodes keep at most one live exchange per stream. When two are open, both keep the one
   opened by the node with the lower node ID, compared as bytes; of two opened by the same node,
-  the newer. The node that opened the other closes it. This is no refusal, no miss and no loss
-  (§6.2), and the two count as one neighbour.
+  the newer. The node that opened the other closes it. The other node does not answer on it,
+  and resets it when it is still open 10 s *(initial)* later. This is no refusal, no miss and
+  no loss (§6.2), and the two count as one neighbour.
 - **Limits.** `LiveJoin` names at most 2 relays per family, at addresses acceptable in the
   network (`Protocol.md` §8.2 (7)). `LiveState` carries at most 240 records and a `have` of at
   most 240 bits (30 bytes), the largest window. A message above these limits is malformed,
@@ -275,7 +279,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
   its own: it names the segment of this exchange. The node then sends `BlockRequest`s and
   `HashRequest`s on the same exchange without waiting, as in `Protocol.md` §12.2 to §12.4,
   with offsets inside the segment and at most 16 ranges outstanding; the neighbour answers
-  with `Block`s and `HashAnswer`s. There is no queue and no `rank`: a neighbour serves at
+  with `Block`s and `HashAnswer`s. There is no queue position (`FileStatus.rank`,
+  `Protocol.md` §12.5): a neighbour serves at
   once, or answers `Error{BUSY}`, `Error{NOT_FOUND}` or `Error{DENIED}` and closes the
   exchange.
 - `LiveGet` is accepted only from a neighbour, that is while a live exchange with that node is
@@ -305,7 +310,7 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 ### 3.4 Neighbours and silence
 
 - A node aims at 6 neighbours and keeps between 3 and 8 *(initial)*. A broadcaster takes as
-  many as its upload allows.
+  many as its upload allows (§4), also more than 8.
 - Neighbours are subject to the diversity limits of a bucket: at most 1 per host, 2 per site
   and 4 per block ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
 - When no new record has arrived for 60 s *(initial)*, the broadcast counts as interrupted. A
@@ -319,12 +324,14 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 - The broadcaster is the node that holds the channel key, or receives signed records from
   whoever does. Apart from that it is a peer like any other: it answers `LiveJoin` and
   `LiveGet` and publishes itself (§5).
-- It SHOULD hand the first neighbours a full share of its upload, so that each segment leaves
-  it several times before it serves late joiners.
+- It SHOULD take only as many neighbours as its upload can serve at the stream's rate, at
+  least 3 *(initial)*, and serve its longest-standing neighbours first, so that each segment
+  leaves it several times before it serves late joiners. How it measures the rate is local
+  policy.
 - A segment SHOULD be 1 to 4 s long. Shorter segments lower the delay and raise the number of
   records and exchanges.
 - A broadcast ends with an `end` record (§2.2). A broadcaster that was cut off and returns
-  within 10 min MAY continue with the next `seq` of the same `start`, and sets `gap`.
+  within 10 min *(initial)*, before viewers leave (§3.4), MAY continue with the next `seq` of the same `start`, and sets `gap`.
 
 ---
 
@@ -418,6 +425,9 @@ All numbers are *(initial)*.
   of every rank; a `BUSY` for a further request is its own doing and counts nothing.
 - A request counts against the allowance from its `LiveGet` until the node has handed every
   block asked for on its exchange to the transport, or the exchange closed.
+- With a limited upload, blocks of **core** requests are handed to the transport before those
+  of **steady**, and those before **new**. How long a request may wait for upload is local
+  policy; it counts against the allowance while it waits.
 - **Core limits.** At most 1 **core** neighbour per site and 2 per block. A further one stays
   **steady**. One network can then not hold a node's whole inner circle.
 - **Sudden loss.** A node that had at least 3 **core** neighbours and lost more than a third

@@ -62,7 +62,8 @@ A node holds at most one item per topic: the newest it has verified.
   forwarding node makes.
 - A node takes part only in topics of a type it knows, because it could not verify the others.
 - A `PAID` topic is named by its scope, not by the hash above, and its `SUB` records move to
-  a new target every day. Only pass holders join it ([`subscription.md`](subscription.md) §6.3, §8.4).
+  a new target every day. Only pass holders join it ([`subscription.md`](subscription.md) §6.3, §8.4). An item that
+  opened is followed as [`subscription.md`](subscription.md) §8.4 says.
 
 ---
 
@@ -128,8 +129,9 @@ never sent: both sides know it, or they could not have computed `topic`.
 - Several topics shared by two nodes use one connection, with one exchange per topic.
 - Two nodes keep at most one topic exchange per topic. When two are open, both keep the one
   opened by the node with the lower node ID, compared as bytes; of two opened by the same node,
-  the newer. The node that opened the other closes it. This is no refusal, and the two count
-  as one neighbour.
+  the newer. The node that opened the other closes it. The other node does not answer on it,
+  and resets it when it is still open 10 s *(initial)* later. This is no refusal, and the two
+  count as one neighbour.
 - `peers` MUST be peers the sender has itself had as neighbours of this topic within the last
   hour *(initial)*.
 
@@ -203,7 +205,10 @@ document's searcher checks it, and ordered as there, by `Grant.number` before `H
 
 These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node that accepts
 the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
-with the same key, the same `id` and the `seq` of the head.
+with the same key, the same `id` and the `seq` of the head, and, for a joint head, a grant
+with the same `number` as the head's ([`multi-author-set.md`](multi-author-set.md) §1.2,
+§1.3). A manifest that fails that check does not change the item: the head was verified and
+stays the one held and passed on; the node keeps its old version of the set.
 
 - A head with the same grant number, the same `seq`, the same `root` and a later `expires` is
   not newer and is not passed on. The node **replaces the bytes it holds** with it, so that
@@ -212,9 +217,10 @@ with the same key, the same `id` and the `seq` of the head.
   (§2.1) and not stored in Kad. The node keeps its order number, so that an older head is
   still not newer.
 - A subscriber stores the head it holds in Kad as a follower does, once per 24 h on its own
-  schedule; taking a new head from the push does not move that schedule. The author stores
-  each new head (§3). For a joint head it sets `Store.signer` to the key of the grant under which
-  the record signature verified.
+  schedule; taking a new head from the push does not move that schedule. The node that signs
+  a new head stores it when it publishes it (§3). A head it takes from the push or from
+  polling, also one under its own key, follows the 24 h schedule. For a joint head a node sets
+  `Store.signer` to the key of the grant under which the record signature verified.
 
 ### 4.2 `ON_AIR`
 
@@ -246,8 +252,8 @@ signed record of that kind is ever stored, so the notice cannot be replayed as a
 | `expires` | later than now minus 1 h, and at most 15 min *(initial)* after `issued` |
 | Content | `on_air` and nothing else |
 
-All three rows on time, `expires` at most 15 min after `issued` among them, are time checks
-in the sense of §2.2: a notice that fails one is dropped, and it is no fault of the neighbour.
+The three time conditions of the table (`issued` at most 1 h ahead, `expires` later than now
+minus 1 h, `expires` at most 15 min after `issued`) are time checks in the sense of §2.2: a notice that fails one is dropped, and it is no fault of the neighbour.
 
 - The broadcaster sends a notice when a broadcast starts, every 5 min *(initial)* while it
   runs, and one with `end` when it is over. Each notice carries a strictly later `issued` than

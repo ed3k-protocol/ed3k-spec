@@ -50,7 +50,8 @@ A storing node keeps one **entry** per file (root) and target. An entry holds:
     of the least fresh record kept.
   - A `Store` with `signer` never takes the place of another publisher's record of another
     site; it is answered `REJECTED`.
-- the **sites** of the publishers that stored or offered the file, each remembered until the
+- the **sites** of the publishers that stored the file, and on admission those of its
+  candidates (§2.2 of this document), each remembered until the
   record that publisher sent expires. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count
   saturates at 255 *(initial)*. Of the stores, only those answered `STORED` add a site; an
@@ -80,6 +81,8 @@ Rows are tried in order; the first that applies decides.
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
 
+- A `Store` with `signer` that §2.1 of this document refuses is answered `REJECTED`, whatever
+  the row.
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
   file with the fewest sites is forgotten.
@@ -213,12 +216,12 @@ be added without a change to the messages.
 
 | # | Measure | Status |
 |---|---|---|
-| 1 | Define `load`; publishers decide over all answers, not the average; no back-off longer than a record lifetime | in version 1 (§10.8) and here (§3) |
+| 1 | Define `load`; publishers decide over all answers, not the average; no back-off longer than a record lifetime | in version 1 (§10.8) and here (§3 of this document) |
 | 2 | Tell "this keyword is full" from "this node is full" | in version 1: `FULL` and `BUSY` |
 | 3 | Publish a file only under its rarer words; searchers target the rarest word of a query | not done; a file is published under all its words. Later if needed: publisher and searcher policy, using `load` |
 | 4 | Storage budget in bytes, each keyword limited to a share | local policy of a storing node (§2.4 of this document); later if needed |
-| 5 | When full, displace the file with the fewest publisher sites instead of refusing | here (§2) |
-| 6 | One entry per file with a count of publisher sites, instead of every publisher's record | here (§2.1) |
+| 5 | When full, displace the file with the fewest publisher sites instead of refusing | here (§2 of this document) |
+| 6 | One entry per file with a count of publisher sites, instead of every publisher's record | here (§2.1 of this document) |
 | 7 | Pair targets: a target from two keywords, used when one of them is crowded | later if needed: a further target derivation that publishers and searchers agree on by network upgrade; no message changes |
 | 8 | Spill to nodes further from the target | replaced by levels, which use other nodes without changing the closest-set rules |
 

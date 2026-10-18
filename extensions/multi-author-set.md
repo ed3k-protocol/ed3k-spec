@@ -54,7 +54,7 @@ message CoSig {
 
 - `key` is 32 bytes, and `sigs` is valid under it by the rules of `Protocol.md` §10.7, over
   `"ed3k v1 set grant" ‖ body`;
-- `number` is 1 or higher, and `id` is at most 32 bytes (`file-set.md` §5.1);
+- `number` is 1 or higher, and `id` is 1 to 32 bytes (`file-set.md` §5.1);
 - `keys` holds 1 to 8 keys of 32 bytes each, no two equal;
 - `required` is from 1 to min(4, number of keys).
 
@@ -64,7 +64,7 @@ whose grant is not valid is refused, and a head whose grant is not valid is `REJ
 - The owner key is a signer only when it is in `keys`. An owner who lists other keys alone can
   keep its own key off the machine that publishes.
 - **A set that may get co-owners is created with an `id` of at most 16 bytes.** A joint head
-  holds no longer one (§1.3), and the `id` of a set cannot change. `Head.name` of a joint head
+  cannot hold a longer one (§1.3), and the `id` of a set cannot change. `Head.name` of a joint head
   is at most 64 bytes: it MAY be empty, or the manifest's name cut at a code point boundary.
 - A grant has no end date. The owner ends it with a grant of a higher `number`.
 - **The owner stays above the group.** It can replace the grant at any time, with any keys.

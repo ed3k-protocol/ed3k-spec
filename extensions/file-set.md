@@ -147,7 +147,7 @@ node ID is `H("ed3k v1 node id", key)[0..16)` (`Protocol.md` §6.1).
 
 - A manifest is **signed** when `key` is present. It then has exactly one of `sigs` and
   `grant` ([`multi-author-set.md`](multi-author-set.md) §1.2); with both or with neither it
-  MUST be refused. A manifest with `sigs`, `grant` or `cosigs` and no `key` MUST be refused.
+  MUST be refused, and so must one with `cosigs` but no `grant`. A manifest with `sigs`, `grant` or `cosigs` and no `key` MUST be refused.
 - A signed manifest with a signature that does not verify MUST be refused.
 - The signature says who made the list. It says nothing about the files.
 - An unsigned manifest is valid. Most sets need no author.
@@ -289,7 +289,7 @@ A set that changes has an author and an `id`:
 - `FileSet.id` is 1 to 32 bytes chosen by the author when the set is created, random or
   readable. It is the same in every version.
 - A set that may get co-owners later is created with an `id` of at most 16 bytes: a joint
-  head holds no longer one, and the `id` cannot change
+  head cannot hold a longer one, and the `id` cannot change
   ([`multi-author-set.md`](multi-author-set.md) §1.1, §1.3). In a joint head `Head.name`
   (§5.2) MAY be empty, or the manifest's name cut at a code point boundary to at most 64
   bytes.
@@ -361,12 +361,17 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
 
 1. Search `HEAD` at the target. No answer means that the version held is the newest known.
 2. For a head with a higher `seq` than the manifest held, or with the same `seq` and a lower
-   `root`, download the manifest `root`. Where a head or the manifest held has a grant, the
+   `root`, download the manifest `root` as any file, from the sources of `root` (§3). How long
+   a client tries, and when it tries again, is local policy; until it has the manifest it keeps
+   the old version. Where a head or the manifest held has a grant, the
    comparison is in the order of [`multi-author-set.md`](multi-author-set.md) §1.3: by the
    grant's `number` first, then by `seq`, then by the lower `root`.
 3. Accept it only when it is signed by the same key and carries the same `id` and the `seq` of
-   the head. Otherwise ignore the head and keep the old version.
-4. Compare the two lists by path.
+   the head. Otherwise keep the old version. The head itself is not dropped: it was verified,
+   and a node with [`pubsub.md`](pubsub.md) still holds it and passes it on (§4.1 there).
+4. Compare the two lists by path. A path only in the new list is added, one only in the old
+   list is removed, and one whose root changed is changed. A root that the old list holds under
+   another path is moved, not removed and added.
 
 - A client checks a set it follows at most once per hour and SHOULD check once per 6 h
   *(initial)*.
@@ -453,8 +458,9 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
   record holds `member` and nothing else; else `REJECTED`.
 - One record per publisher, file and set. At most 4 *(initial)* sets per publisher key and
   16 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md)
-  §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)*
-  different sets per target; further ones get `FULL`.
+  §2.4); a further one is `REJECTED`, checked before the target. A set counts as a file does
+  in `Protocol.md` §10.8. At most 64 *(initial)* different sets per target; further ones get
+  `FULL`.
 - It keeps at most 3 *(initial)* records per set under a target, of different publishers, by
   the rule of `Protocol.md` §10.8. The site of a kept record is the site
   ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored it,

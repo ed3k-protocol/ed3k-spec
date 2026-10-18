@@ -55,10 +55,12 @@ message ChatAck { }
   most 1,024 *(initial)* of them, the oldest forgotten first. Only the `id`s of messages it
   took are remembered: one that was answered `BUSY` or `DENIED` is not, so the retry with the
   same `id` is shown when it is taken. A sender with 1,024 remembered `id`s younger than
-  10 min is answered `Error{BUSY}`, and the message is not taken.
-- A receiver remembers the `id`s of at most 256 *(initial)* senders. A message of a further
-  sender is answered `Error{BUSY}` and not taken, so that no `id` is forgotten before its
-  10 min. Of the 256, at most 16 *(initial)* are of one host address (IPv4 /32, IPv6 /64); a
+  10 min is answered `Error{BUSY}` with a `retry_after` of the time until the oldest of them
+  is 10 min old, in whole seconds rounded up; the message is not taken.
+- A receiver remembers the `id`s of at most 256 *(initial)* senders. A sender's entry goes
+  when its newest `id` is 10 min old. A message of a further sender is answered `Error{BUSY}`
+  with a `retry_after` of the time until the first entry can go, and not taken, so that no
+  `id` is forgotten before its 10 min. Of the 256, at most 16 *(initial)* are of one host address (IPv4 /32, IPv6 /64); a
   further sender of that host is answered `Error{BUSY}`. A sender counts at the host address
   of the message that made its entry, until its entry is gone.
 

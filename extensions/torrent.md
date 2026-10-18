@@ -276,7 +276,9 @@ magnet:?xt=urn:btih:<infohash, 40 hex>[&xs=<url-encoded ed3k:file link of the ma
   infohashes. Each is checked on its own. Another length, a character outside hex, or two
   values of one length make the link invalid (`Protocol.md` §13.2).
 - **`xs`** in a magnet link carries the `ed3k:file` link. A client that finds it starts as in
-  §4.1: BLAKE3 is the judge. A BitTorrent client without ed3k ignores the parameter.
+  §4.1: BLAKE3 is the judge. An `xs` whose `ed3k:file` link is invalid is ignored; the magnet
+  is then one without an ed3k link (§4.2). A BitTorrent client without ed3k ignores the
+  parameter.
 - A client without this extension ignores `bt`.
 
 ---

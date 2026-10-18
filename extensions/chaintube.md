@@ -315,8 +315,8 @@ the user downloaded it.
   the root. A file that comes from a gateway without block hashes (`ipfs` in a file link) is
   shown when it is complete and verified.
 - A player asks for blocks as in §2.2: in file order, and around a seek position first. A
-  sound or a video is never fetched before the user asks; the leave for pictures does not
-  cover them.
+  sound or a video is never fetched before the user asks; the user's leave to fetch pictures
+  unasked (below) does not cover them.
 - A client refuses a picture of more than 16,384 pixels on a side or 64 million pixels in all
   *(initial)*. An animation plays when the user asks, or under the leave for pictures.
 - Text inside a file, such as a title, a comment or a place, is text that a stranger wrote
@@ -416,7 +416,7 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 | One video | `eth_call` of `getContentById` |
 | The videos of an account | `eth_getLogs` at the content contract, topics `author` and `kind` = 0 |
 | The video of a set | `eth_call` of `getContentById(tube.content_id)` when the id is set, checking `author` and the link; else `eth_getLogs` at the content contract, topics `author` = `tube.author` and `kind` = 0; then the video whose link names the set's `key` and `id` |
-| The entry of an attachment set | `eth_call` of `getContentById` or `getCommentById(tube.content_id)` when the id is set; else `eth_getLogs` at `tube.contract`, topic `author` = `tube.author` (both contracts index it, §4.1); then the entry whose link names the set's `key` and `id` |
+| The entry of an attachment set | `eth_call` of `getContentById(tube.content_id)` or `getCommentById(tube.content_id)` when the id is set; else `eth_getLogs` at `tube.contract`, topic `author` = `tube.author` (both contracts index it, §4.1); then the entry whose link names the set's `key` and `id` |
 | The comments of a video | `eth_getLogs` at the comment contract, topics `contractHash` and `contentId` |
 | The votes on a video or a comment | `eth_getLogs` at the vote contract, the same two topics |
 | New videos of all accounts | `eth_getLogs` at the content contract, topic `kind` = 0, backwards from the newest block |

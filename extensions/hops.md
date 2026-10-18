@@ -4,6 +4,7 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §9.4, §10.1, §10.3 and §10.7. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 14 `ANON`, bit 15 `HOP`. Message types 26 to 34 and 39. Record kinds 11 and 12. One field in `Record`, one in `Store`, two in `KadAnswer`.
 **Required of every `ROUTER`:** storing and returning the record kinds `ANON` and `GATE`, and accepting `signer` in a `Store` (§4). The rest is optional.
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Hop keys* and *Hop session*.
 
 In ed3k every peer sees the address of the peer it talks to, and every storing node sees who
 stores and who searches. This extension lets a node put **0 to 3 other nodes** between itself
@@ -131,7 +132,11 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
   network (`Protocol.md` §8.2 (7)). A private address is a dial target only in a named
   network (`net_id` not empty, `Protocol.md` §4.3). Any other `node` is answered
   `Error{MALFORMED}` and is not dialled.
-- A hop that cannot reach `node` within 10 s *(initial)* answers `Error{NOT_FOUND}`.
+- A hop that cannot reach `node` within 10 s *(initial)* answers `Error{NOT_FOUND}`. A last
+  hop that has no answer to its `HopCreate` 10 s *(initial)* after it sent it closes that
+  exchange and answers `Error{NOT_FOUND}`.
+- The owner closes the path when it has no answer 10 s *(initial)* after a `HopCreate` or a
+  `HopGate`, or 30 s *(initial)* after a `HopExtend`.
 - Everything on the control stream after `HopCreated` is in layers (§2.3).
 - **The control stream is a sequence of requests and answers.** The owner sends one request
   frame (`HopExtend`, `HopGate`) and waits for its answer before it sends the next. An `Error`
@@ -139,9 +144,10 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
   answered is still the last hop. When the new hop answers the `HopCreate` of a `HopExtend`
   with an `Error`, the last hop closes that exchange and passes the `Error` back as the
   answer. An `Error` that answers the first `HopCreate` ends the exchange: there is no path.
-- A `HopCreate` whose `path` is not 8 B or is in use on that connection, or whose `e` is not
-  32 B, a `HopExtend` whose `create.path` is not empty, and a `HopExtend` while the path
-  carries a stream other than the control stream, are answered `Error{MALFORMED}`.
+- A `HopCreate` whose `path` is not 8 B or is in use on that connection, whichever neighbour
+  chose it, or whose `e` is not 32 B, a `HopExtend` whose `create.path` is not empty, and a
+  `HopExtend` while the path carries a stream other than the control stream, are answered
+  `Error{MALFORMED}`.
 - **Keeping a path alive.** Both neighbours of a link of a path send a QUIC PING every 20 s
   *(initial)* while the control stream is open (`Protocol.md` §4.1: `max_idle_timeout` is
   30 s, and whoever wants a connection kept sends the PING). A gate lives as long as its path.
@@ -155,7 +161,7 @@ For each hop the owner makes a fresh X25519 pair `(x, e)`. The hop makes `(y, f)
 node key is used for X25519 through the conversion of `Protocol.md` §6.4.
 
 ```
-ss1   = X25519(x, converted node key of the hop)        the hop computes X25519(its converted node key, e)
+ss1   = X25519(x, converted node key of the hop)        the hop computes X25519(its converted private key, e)
 ss2   = X25519(x, f)                          the hop computes X25519(y, e)
 k     = H("ed3k v1 hop", ss1 ‖ ss2 ‖ e ‖ f ‖ node key of the hop)        32 bytes
 proof = H("ed3k v1 hop proof", k)
@@ -205,14 +211,15 @@ message HopOk {}              // type 39. Status frame: accepted, raw bytes foll
 ```
 
 - After `HopStream` the exchange carries bytes without frames, in layers, until it is closed.
-  It is, with `Block`, a message that is followed by raw bytes.
+  It is, like `Block`, `HopConnect` and `HopJoin` (§3.1), a message that is followed by raw
+  bytes (`Protocol.md` §5.1).
 - **Status frame.** The first thing in the other direction of an exchange that starts with
   `HopStream` is one frame, before any raw byte: `HopOk`, or an `Error`. The neighbour that
   received the `HopStream` sends it, without a layer, as soon as it has accepted or refused
   for itself; it does not wait for the next link. The neighbour that opened the exchange
   reads it and does not pass it on. After `HopOk` come the bytes of the stream, in layers.
-  An opener that has no status frame 10 s *(initial)* after `HopStream` or `HopJoin` resets
-  the exchange.
+  An opener that has no status frame 10 s *(initial)* after `HopStream` or `HopJoin`, or
+  30 s *(initial)* after `HopConnect` (§3.1), resets the exchange.
 - A hop that receives `HopStream` opens an exchange on the other side of the path with the
   `path` value of that link and the same `number`, and copies in both directions. A
   half-close and a reset are passed on. A hop that receives an `Error` as status frame, or a
@@ -226,7 +233,8 @@ message HopOk {}              // type 39. Status frame: accepted, raw bytes foll
   that side minus 1,024 *(initial)*. A `HopStream` with `number = 0`, with a number seen
   before, or with one that is not above that bound is answered `Error{MALFORMED}`.
 - **Parity.** An odd number from the owner side, or an even number from the far side, is
-  answered `Error{MALFORMED}`, or the exchange is reset. The nonce of a layer rests on it.
+  answered `Error{MALFORMED}` as status frame; a node that cannot send one resets the
+  exchange. The nonce of a layer rests on it.
 - **A hop keeps little.** It holds at most 256 KiB *(initial)* per stream and direction. When
   the next link does not take data, it stops reading from the link before. The flow control of
   the exchanges carries this back to the sender. Nothing is acknowledged twice and nothing is
@@ -328,10 +336,13 @@ seal(k, m)      = ChaCha20-Poly1305(k, nonce 0, m, empty AAD)                   
 ```
 
 - A key is the anonymous key of a node that hides, and the node key of one that does not.
+- `sig_B` and `sig_A` are Ed25519 signatures by the key that the same message carries. `nonce 0`
+  is 12 zero bytes; each key seals one message only.
 - A MUST compute the node ID from the key of B and compare it with the node it meant to
   reach. On a mismatch it closes the stream.
 - B learns the key of A only inside the seal. A hop or gate between them sees neither key.
-- A session ends when it had no stream for 10 min *(initial)*.
+- A session ends 10 min *(initial)* after its last stream closed. A session with an open
+  stream does not end.
 
 **Further streams** of a session start with
 
@@ -374,7 +385,8 @@ first stream has the number 0, and its records follow the three messages of §3.
   `HopLookup` (§4).
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
-- The first exchange is `Hello`. A node under its anonymous key sends no `observed`, `ep4`,
+- The first exchange is `Hello`, on the first stream: A sends it and B answers, as in
+  `Protocol.md` §5.5. A node under its anonymous key sends no `observed`, `ep4`,
   `ep6` and no `nat`, an empty `nick`, and as `agent` one fixed string that its implementation
   uses for every hidden node; a `Peer` that names it carries its node ID alone, and its
   `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys. A
@@ -383,7 +395,9 @@ first stream has the number 0, and its records follow the three messages of §3.
 - A node MUST limit new sessions per node ID to the node-ID rate of `Protocol.md` §4.6, and
   per gate or per node that sent the `HopJoin` to its host-address rate. Nothing is banned: a
   session over a limit is refused by resetting its first stream; the opener does not open
-  another session to that node ID for 60 s *(initial)*.
+  another session to that node ID for 60 s *(initial)*. B knows the key of A only after the
+  third message (§3.2), so it checks the node-ID rate then, and resets the first stream at that
+  point when it is over.
 - B can open a stream to A only through a gate of A. An uploader that offers a slot later
   (`Protocol.md` §12.5) looks up the `GATE` record of the downloader.
 
@@ -513,13 +527,17 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
 | Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |
-| Dials caused by `HopExtend`/`HopConnect` that got no answer within 10 s, or are still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
+| Dials caused by `HopExtend`/`HopConnect` whose QUIC handshake did not complete within 10 s, or that are still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
 | Paths and dials per neighbour host address | 16 paths; 32 dials per minute |
 | Failed dials per neighbour host address: a wrong node ID, or a punch the relay refused | 8 per hour |
 | `HopJoin` per gate and host | 10 per minute |
 
-A dial whose QUIC handshake completed does not count in the row per destination host,
-whatever node ID answered. A wrong node ID, and a punch the relay refused, count as failed
+A path counts for the neighbour that sent its `HopCreate`, and for that neighbour's host, from
+that `HopCreate` until the path ends, whatever its state, also while it is being extended.
+
+A dial whose QUIC handshake completed within those 10 s does not count in the row per
+destination host, whatever node ID answered. A hop gives up a dial after 10 s (§2.2); it then
+counts for the hour. A wrong node ID, and a punch the relay refused, count as failed
 dials of the neighbour host that asked; above its limit that neighbour host gets `BUSY`.
 
 Above a limit it answers `Error{BUSY}`. A hop that takes no new paths clears `HOP` in its

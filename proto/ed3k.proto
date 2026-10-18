@@ -74,7 +74,7 @@ message Hello {               // type 1
   bytes  ep6 = 5;
   uint32 nat = 6;             // my class in the family of this connection: 0 unknown, 1 open, 2 cone, 3 symmetric   Protocol.md §9.2
   string nick = 7;            // optional; at most 64 B
-  bytes  dgram_cookie = 8;    // 8 B; sent by a node with KAD_DGRAM: the cookie it accepts from your endpoint; not part of version 1   kad-datagram.md §6, Protocol.md §10.6
+  bytes  dgram_cookie = 8;    // 8 B; sent by a ROUTER node with KAD_DGRAM: the cookie it accepts from your endpoint; not part of version 1   kad-datagram.md §6, Protocol.md §10.6
   bytes  puzzle = 9;          // epoch(4, big-endian) ‖ nonce(8); not part of version 1   key-puzzle.md §3, Protocol.md §6.3
   uint32 dict = 10;           // highest zstd dictionary ID held; 0 or absent = holds no dictionary   Protocol.md §5.3
   reserved 11;                // `bindings` of docs/transport-bindings.md; not part of version 1
@@ -165,7 +165,7 @@ message Store {
   Signed   note = 3;          // NOTE                                          Protocol.md §10.7
   repeated HttpSource http = 4;   // SOURCE: HTTP sources of the file; 3 per publisher and file   http-source.md §2
   Signed   head = 5;          // HEAD, HIDDEN or PART                          file-set.md §5.2
-  bytes    signer = 6;        // 32 B key under which the records of this Store are checked and counted when it is not the key of the connection; allowed for every signed kind; ignored for SOURCE and the kinds stored like it   Protocol.md §10.7
+  bytes    signer = 6;        // 32 B key under which the records of this Store are checked and counted when it is not the key of the connection; allowed for every signed kind; ignored for SOURCE, LIVE, SUB and FRIEND   Protocol.md §10.7
   repeated Signed members = 7;    // MEMBER                                    file-set.md §6
   bytes    also = 8;          // SOURCE: n × 16 B further targets that get the same record; at most 256   Protocol.md §10.4
   bytes    sealed = 9;        // FRIEND: exactly 384 B, padded before sealing; any other length than 384 B: REJECTED   friend.md §4
@@ -721,7 +721,7 @@ message LanAnswer {           // type 25
 // ---------------------------------------------------------------------------------------
 
 message HopCreate {           // type 26. First frame of an exchange between two neighbours
-  bytes path = 1;             // 8 B, random, chosen by the sender; names the path on this connection only   hops.md §2.2
+  bytes path = 1;             // 8 B, random, chosen by the sender; names the path on this connection only, in both directions   hops.md §2.2
   bytes e = 2;                // 32 B, X25519 public value made by the owner for this hop alone
 }
 

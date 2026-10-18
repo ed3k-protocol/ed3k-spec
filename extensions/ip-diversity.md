@@ -1,7 +1,7 @@
 # Extension: IP diversity limits (`ip-diversity`)
 
 **Status:** draft 0.2 (2026-10-13). Not implemented. **Required in version 1.**
-**Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2 and §10.4. Section numbers (§) refer to this document unless a document is named.
+**Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2, §10.3 and §10.4. Section numbers (§) refer to this document unless a document is named.
 **Capability:** none. Each node applies the limits to what it accepts; nothing on the wire changes.
 
 The routing ID of `Protocol.md` §6.3 ties a node's position to its address, but an address block still buys
@@ -65,8 +65,9 @@ replaces another, the contact being replaced is taken out of the counts first.
   was last checked against, so that what was taken out does not come back.
 - A working contact is never taken out to make room for a new one. It is taken out only when
   the table itself is over a limit.
-- **Identity churn.** A host group whose contact was removed from the table is not admitted
-  under another node ID for 1 h after the removal. The same node ID is admitted again at once.
+- **Identity churn.** A host group whose contact was removed from the table, for whatever
+  reason (failed attempts, a `Hello` without `ROUTER` and `nat = 1`, `Protocol.md` §10.2, or a
+  stricter limit), is not admitted under another node ID for 1 h after the removal. The same node ID is admitted again at once.
   A node remembers each removed host group, with its node ID, for 1 h. While a contact is in
   the table, the host limit already keeps a second node ID of its host group out. This slows
   an address from walking through the 8 positions that the choice of key gives it
@@ -173,11 +174,23 @@ that **failed or are still pending**, per hour:
 
 - An attempt that completes its handshake with the expected node ID does not count. A group of
   honest sources behind one address or in one network is therefore dialled without limit.
+  A relay counts as dialled until the handshake with it completes with its node ID; a relay
+  that is already connected when the dial starts does not count. A dial through a relay
+  completes only when the relay forwards: a `Punch` answered `Error{DENIED}`,
+  `Error{NOT_FOUND}`, or `Error{UNSUPPORTED}` from a node that is no relay counts as one
+  failed attempt at the relay's address (`Protocol.md` §10.3), also on a connection that was
+  open before. `Error{BUSY}` does not count. An attempt made for several files counts under
+  each of them.
+- An attempt given up before its handshake completes, for example because the download was
+  closed, counts as failed.
 - The limit counts every address dialled on behalf of the file, each under its own groups: the
   endpoints of a source in both families, every relay taken from a source record or from a
   source exchange, and every gate taken from a `GATE` record ([`hops.md`](hops.md) §4.3), also
   when a last hop dials it.
-- Sources that exceed a limit are kept and tried in a later hour.
+- An address that would exceed a limit is not dialled; it is kept and tried in a later hour.
+  The other addresses of that source MAY be dialled within their own limits.
+- A live stream ([`live.md`](live.md) §5.2) and a topic ([`pubsub.md`](pubsub.md) §5) each
+  count as a file here. The limit over all files counts them together with files.
 - The limit is per file, so one answer cannot use up a node's attempts for other downloads.
 - **Over all files** the host limit is 8 per hour. A source beyond it is kept and tried in a
   later hour, as above.
@@ -299,7 +312,8 @@ Costs with the limits in force, K = 10, R = 4 for a search and R = 8 for a store
   count would shut out honest nodes that share a provider (§6). One block alone holds at most
   half of a set, and the other half answers.
 - The limits remove the cheapest cases: a home /56 or /48, a single /32, a rented /24.
-- What remains is addressed by the key puzzle (`Protocol.md` §6.3) and by disjoint paths (§5), both reserved.
+- What remains is addressed by the key puzzle (`Protocol.md` §6.3), which is reserved, and by
+  disjoint paths (§5), which are not specified.
 
 ## 8. Open points
 

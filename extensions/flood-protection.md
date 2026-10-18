@@ -24,7 +24,7 @@ A node that implements none of this still interoperates. Every version 1 node ac
 | Step | Work | Who can cause it |
 |---|---|---|
 | Unmask 5 bytes, check `magic` (§4.5 steps 1 and 2) | one BLAKE3 block | anyone who knows the node ID |
-| Reassemble fragments (§4.4) | memory for at most 4 messages per source address, 3 s | anyone who knows the node ID: the pieces pass the `magic` check first |
+| Reassemble fragments (§4.4) | memory for at most 4 messages per source address and port, 3 s | anyone who knows the node ID: the pieces pass the `magic` check first |
 | Answer with Retry | one keyed hash, one small datagram | anyone who knows the node ID |
 | Start a handshake | key exchange, a signature and a verification; state for the connection | anyone who knows the node ID, unless Retry is demanded |
 | Complete a handshake | counted by §4.6 | a node at a real address |
@@ -159,4 +159,4 @@ cookie, which a forged source cannot have.
 - Whether a return token should also be accepted from another address in the same site, for
   nodes whose address changes within their network.
 - The interaction with the fragment limits of §4.4 under load: 4 incomplete messages per source
-  address may be too many when sources are forged.
+  address and port may be too many when sources are forged.

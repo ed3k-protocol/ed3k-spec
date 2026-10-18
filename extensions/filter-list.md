@@ -92,8 +92,11 @@ enum Verdict {
   change is not downloaded again, so an author of a large list MAY split it into several files
   and change only some.
 - A client follows at most 32 *(initial)* lists and reads at most 64 *(initial)* list files per
-  set, the first ones as above. It keeps at most 64 MiB *(initial)* of list files in all;
-  lists beyond are not read, and the client says so.
+  set, the first ones as above. The list files it reads are at most 64 MiB *(initial)* in
+  all, counted by their `size` in the manifest, lists opened by hand included. Lists count in
+  the order the user followed them; one that would go beyond is not read. A new version that
+  would go beyond is not read either: the client keeps the old version. In both cases the
+  client says so.
 - A list file that was opened by hand, without a set, MAY be used. It has no author and no
   updates, and the client says so.
 - A user's own verdicts are a list of their own, kept by the client. A client MAY let the user
