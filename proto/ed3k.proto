@@ -461,7 +461,7 @@ message Joint {
 message Mount {
   bytes  key = 1;             // 32 B owner key of the set that fills this directory   multi-author-set.md §2
   bytes  id = 2;              // its id
-  uint64 max_size = 3;        // sum of file sizes it may hold; 0 = the limits of file-set.md §2.1 only
+  uint64 max_size = 3;        // sum of file sizes it may hold; 0 = no limit (file-set.md §2.1 has none on sizes)
   uint32 max_files = 4;       // number of files it may hold; 0 = likewise
 }
 
@@ -793,6 +793,7 @@ message CreditOffer {
   optional uint64 price = 6;  // µ per MiB charged from the next tranche on; with rank = 0 only; absent = unchanged / not told
   Receipt last = 7;           // the receipt of the newest `day` I hold from `payer`, if any
   uint64 due = 8;             // cumulative `spent` the uploader needs before it serves the next tranche, in µ; with rank = 0 only   credit.md §3.2
+  bytes  challenge = 9;       // 16 B, random, new per queue entry
 }
 
 message Receipt {             // type 35, downloader → uploader, on the file stream
@@ -800,6 +801,7 @@ message Receipt {             // type 35, downloader → uploader, on the file s
   uint64 kib = 2;
   uint64 spent = 3;
   bytes  sig = 4;             // 65 B
+  bytes  proof = 5;           // 65 B, EIP-712 signature over Bid(address payer,address payee,bytes16 challenge)   credit.md §5.2
 }
 
 message CreditRelay {         // type 36, request
@@ -826,7 +828,7 @@ message SignedReceipt {
 }
 
 message CreditRelayAnswer {   // type 37, answer
-  bytes  tx = 1;              // 32 B, hash of the settle transaction that was sent; absent if none was   credit.md §4.3
+  bytes  tx = 1;              // 32 B, hash of the settle transaction that was sent; absent if none was; a holdFor is not named   credit.md §4.3
 }
 
 // ---------------------------------------------------------------------------------------
@@ -916,6 +918,7 @@ message KeyRequest {          // type 40
   bool       want_offer = 5;
   uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
   uint64     offer_issued = 7;  // `issued` of the offer I hold; 0 = none
+  bytes      private_proof = 8; // 16 B, H("ed3k v1 paid private key", k ‖ requester's node ID ‖ answerer's node ID)[0..16); private channel only
 }
 
 enum KeyRefusal {
@@ -935,6 +938,7 @@ message KeyAnswer {           // type 41
   repeated SignedChain chains = 6;  // the season of `key`, of `released` and of each tip
   SignedPass  pass = 7;       // to a request without `pass`: my own pass, when I hold a key of the scope
   PassProof   pass_proof = 8; // with `pass`                                   subscription.md §5.2
+  bytes       private_proof = 9;  // 16 B, H("ed3k v1 paid private answer", k ‖ requester's node ID ‖ answerer's node ID)[0..16); to a valid `private_proof`   subscription.md §6.1
 }
 
 // ---------------------------------------------------------------------------------------

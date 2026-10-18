@@ -97,7 +97,7 @@ groups of [`ip-diversity.md`](ip-diversity.md) §1.
   bring back the fault this rule removes: whoever forges addresses of a /16 could use it up, and
   the whole /16 would get no answer.
 - **Nothing here bans.** The source address of these packets is not proven; a ban would let an
-  attacker cut off a victim by forging its address. Bans come only from §4.6.
+  attacker cut off a victim by forging its address. Bans come only from §4.6 (node IDs) and §12.3 (bad blocks), after a completed handshake.
 - A node SHOULD also limit handshakes in progress in total, and drop the oldest unvalidated
   ones first.
 - Validated handshake starts are further limited per site and block while guarded: 120 and 480

@@ -123,6 +123,9 @@ A **source** is an HTTPS URL together with the key that signs the lists found th
 ed3k:nodes?url=<url-encoded HTTPS URL>&key=<signer key, base32 lower case, no padding>
 ```
 
+The link is invalid when `url` or `key` is missing or repeated, `key` does not decode to 32
+bytes, or `url` is not an absolute HTTPS URL.
+
 A client MUST ask the user before it adds a source from a link, and shows the host name of the
 URL when it asks.
 
@@ -137,7 +140,9 @@ signed with its node key, so that one user can help another who is cut off from 
 
 - From each list a client takes at most 50 *(initial)* nodes, chosen at random. One entry per
   IP address is used, whatever its port and node ID; further entries of an IP address are
-  dropped before the sample is taken.
+  dropped before the sample is taken. The sample holds at most 2 *(initial)* nodes of one site
+  and 8 of one block ([`ip-diversity.md`](ip-diversity.md) §1); further entries of that site
+  or block are left out.
 - **A node from a list is a candidate, not a contact.** The client dials it. The handshake
   proves the node ID (T1) and with it the routing ID (§6.3). Only then is it inserted, under
   the rules of §10.2 and [`ip-diversity.md`](ip-diversity.md). A list gives a node no better

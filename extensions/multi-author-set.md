@@ -116,7 +116,7 @@ outrank the heads of that grant.
 | Grant | a valid grant (§1.1); else `REJECTED` | the same, and `grant.key` is the key it searched for |
 | Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request, and `Head.id` equals `Grant.id`; else `REJECTED` | the same |
 | Record signature | by a key of the grant | the same |
-| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are at least `required` and at most min(`required`, 4) of them; else `REJECTED` | the same; a head that fails is dropped |
+| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are exactly `required` of them; else `REJECTED` | the same; a head that fails is dropped |
 | Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires`; a valid record that does not replace it is answered `OLDER` | the highest in this order wins |
 | `expires` | as for any head | as for any head |
 

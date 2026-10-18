@@ -56,6 +56,8 @@ k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the 
   for the two users to check; ed3k has no means for it.
 - `key`, `s` and `r` are base32 as `Protocol.md` §13.2 fixes: written lower case without
   padding, read either way.
+- A link is invalid when `key` is missing, repeated or not 32 bytes, when `s` is not 32 bytes,
+  or when `r` is not 8 bytes.
 
 ---
 
@@ -184,9 +186,10 @@ padding is encrypted and a record and a request have one length on the wire:
 - It is bound to the connection: one record per publishing node under a target, and a new one
   replaces the old.
 - It holds at most 32 *(initial)* records under one target and answers `FULL` after that, and
-  at most 8 per host and 16 per site ([`ip-diversity.md`](ip-diversity.md) §1), answered
-  `REJECTED` beyond (`Protocol.md` §10.8); a holder of the link then needs several sites to
-  lock the real node out of its place. `FULL` is checked before the limits per host and site.
+  at most 8 per host and 16 per site ([`ip-diversity.md`](ip-diversity.md) §1, §2.4), answered
+  `REJECTED` beyond; a holder of the link then needs several sites to lock the real node out
+  of its place. The address limits are checked first: a record over them is `REJECTED` before
+  the target is looked at ([`ip-diversity.md`](ip-diversity.md) §2.4).
 - The lifetime is 5 h *(initial)*.
 - It checks the size and nothing else: a `sealed` of any length other than 384 bytes is
   `REJECTED`. It cannot

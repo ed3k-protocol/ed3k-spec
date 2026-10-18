@@ -39,7 +39,8 @@ contract CreditLedger {
     uint64 public constant PAIR_CAP_KIB = 10 << 20; // 10 GiB per issuer, holder and 7 days (initial)
     uint64 public constant MAX_RECEIPT_KIB = 50 << 20; // 50 GiB in a day (initial)
     uint32 public constant WINDOW_DAYS = 7; // (initial)
-    uint256 public constant HOLD_TIME = 6 hours; // (initial): a bid's hold, credit.md §6.5
+    uint256 public constant HOLD_TIME = 6 hours; // (initial): a bid's hold, credit.md §6.5; below STEP, so one decay step at most
+    uint256 public constant HOLD_PCT = 90; // (initial): holds fit this share of the balance after decay
     uint256 public constant OVERDRAW_DAYS = 1; // (initial): a receipt older than this takes without the flag
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
     uint256 public constant UPLOADER_SHARE_PCT = 10; // of spent credits; the rest is burned
@@ -73,7 +74,7 @@ contract CreditLedger {
     struct Account {
         uint128 earned; // µ, from receipts
         uint128 received; // µ, from transfers and uploader shares
-        uint32 lastActive; // day of the newest receipt that counted as activity
+        uint32 lastActive; // day of the newest settlement that counted as activity
         uint64 decayedUntil; // decay is applied up to this time
         uint64 registeredAt; // first appearance
         uint64 inflow; // KiB credited for, from mature issuers
@@ -182,14 +183,14 @@ contract CreditLedger {
     // ──────────────────────────────── views ──────────────────────────────
 
     function balanceOf(address account) external view returns (uint256) {
-        (uint256 e, uint256 r,) = _decayed(_accounts[account]);
+        (uint256 e, uint256 r,) = _decayed(_accounts[account], _heldTotal[account] != 0);
         return e + r;
     }
 
     /// The account with decay applied as of now.
     function accountOf(address account) external view returns (AccountView memory v) {
         Account storage a = _accounts[account];
-        (v.earned, v.received,) = _decayed(a);
+        (v.earned, v.received,) = _decayed(a, _heldTotal[account] != 0);
         v.lastActive = a.lastActive;
         v.registeredAt = a.registeredAt;
         v.inflow = a.inflow;
@@ -318,7 +319,7 @@ contract CreditLedger {
         // 2. mint what was delivered, 3. activity
         uint256 minted;
         if (r.kib > st.kib && !issuer.overdrawn && isMature(r.issuer)) {
-            minted = _mint(holder, r, st);
+            minted = _mint(holder, r, st, today);
         }
 
         if (minted != 0 || taken != 0) emit Settle(r.issuer, r.holder, r.day, minted, taken);
@@ -357,9 +358,7 @@ contract CreditLedger {
 
         uint256 share = taken * UPLOADER_SHARE_PCT / 100;
         if (share != 0) {
-            // decay is written up to the day of the receipt, not up to now: the activity of
-            // step 3 then keeps the days from `day` on free of decay (credit.md §6.2)
-            _touchAt(holder, holderAddr, dayStart > holder.decayedUntil ? dayStart : holder.decayedUntil);
+            _touch(holder, holderAddr);
             holder.received += uint128(share);
             emit Transfer(issuerAddr, holderAddr, share);
         }
@@ -370,14 +369,25 @@ contract CreditLedger {
         }
     }
 
-    /// What `holder` may take: the balance less what the issuer holds for other payees.
+    /// What `holder` may take: its own hold, as far as the balance less the other holds covers
+    /// it, and beyond its hold only what is left above the other holds with their decay margin.
     /// A hold that ran out counts until it is swept.
     function _freeFor(Account storage issuer, address issuerAddr, address holderAddr) private view returns (uint256) {
         uint256 total = _heldTotal[issuerAddr];
         uint256 own = _holds[issuerAddr][holderAddr].amount;
         uint256 others = total > own ? total - own : 0;
         uint256 balance = uint256(issuer.earned) + issuer.received;
-        return balance > others ? balance - others : 0;
+        uint256 avail = balance > others ? balance - others : 0;
+        uint256 fromHold = own < avail ? own : avail;
+        uint256 kept = own + _reserve(others);
+        uint256 beyond = balance > kept ? balance - kept : 0;
+        uint256 free = fromHold + beyond;
+        return free < avail ? free : avail;
+    }
+
+    /// Balance that keeps `held` covered through one step of decay: held / HOLD_PCT, rounded up.
+    function _reserve(uint256 held) private pure returns (uint256) {
+        return (held * 100 + HOLD_PCT - 1) / HOLD_PCT;
     }
 
     /// A payment uses up the hold it was placed for. No event: `Settle` carries what was taken.
@@ -405,12 +415,11 @@ contract CreditLedger {
         if (amount != 0) {
             Account storage a = _accounts[payer];
             if (a.overdrawn) revert IsOverdrawn();
-            // The balance is checked only when the hold grows; extending a running hold is free
-            // of it, and so is a release, which must not fail (it would freeze transfers).
-            if (!live || amount > old) {
-                _touch(a, payer);
-                if (uint256(a.earned) + a.received < total) revert InsufficientBalance();
-            }
+            // Every call that holds something is checked, renewals too: the sum of the holds
+            // fits HOLD_PCT of the balance after decay, so one step of decay within HOLD_TIME
+            // leaves every hold covered. A release (amount 0) is not checked and never fails.
+            _touch(a, payer);
+            if ((uint256(a.earned) + a.received) * HOLD_PCT < total * 100) revert InsufficientBalance();
         }
         _heldTotal[payer] = total;
         h.amount = uint128(amount);
@@ -441,7 +450,7 @@ contract CreditLedger {
     }
 
     /// The caller has checked that the issuer is mature.
-    function _mint(Account storage holder, Receipt calldata r, Settled storage st)
+    function _mint(Account storage holder, Receipt calldata r, Settled storage st, uint32 today)
         private
         returns (uint256 minted)
     {
@@ -461,14 +470,10 @@ contract CreditLedger {
         issuedKib[r.issuer][week] = used + grant;
         pairKib[r.issuer][r.holder][week] = pairUsed + grant;
 
-        // Decay up to the day of the receipt is written first. Then the activity
-        // counts, so that the days after it, up to the grace, do not decay.
-        if (minted >= UNIT && r.day > holder.lastActive) {
-            uint256 dayStart = uint256(r.day) * 1 days;
-            _touchAt(holder, r.holder, dayStart < block.timestamp ? dayStart : block.timestamp);
-            holder.lastActive = r.day;
-        }
+        // Decay up to now is written first. Then the activity counts from today, the day
+        // of settlement, so the grace runs from it (credit.md §6.2).
         _touch(holder, r.holder);
+        if (minted >= UNIT) holder.lastActive = today;
 
         holder.earned += uint128(minted);
         totalSupply += minted;
@@ -508,8 +513,8 @@ contract CreditLedger {
         Account storage src = _accounts[from];
         if (src.overdrawn) revert IsOverdrawn();
         _touch(src, from);
-        // a transfer never dips into what the account holds for its bids (credit.md §6.5)
-        if (uint256(src.earned) + src.received < value + _heldTotal[from]) revert InsufficientBalance();
+        // a transfer never dips into what the account holds for its bids, decay margin included (credit.md §6.5)
+        if (uint256(src.earned) + src.received < value + _reserve(_heldTotal[from])) revert InsufficientBalance();
         if (_take(src, value) != value) revert InsufficientBalance();
 
         uint256 burned = value * TRANSFER_BURN_PCT / 100;
@@ -535,13 +540,9 @@ contract CreditLedger {
         return fromReceived + fromEarned;
     }
 
-    /// Writes decay back.
+    /// Writes decay back, up to now.
     function _touch(Account storage a, address who) private {
-        _touchAt(a, who, block.timestamp);
-    }
-
-    function _touchAt(Account storage a, address who, uint256 at) private {
-        (uint256 e, uint256 r, uint64 until) = _decayedAt(a, at);
+        (uint256 e, uint256 r, uint64 until) = _decayed(a, _heldTotal[who] != 0);
         uint256 lost = uint256(a.earned) + a.received - e - r;
         a.decayedUntil = until;
         if (lost != 0) {
@@ -554,11 +555,9 @@ contract CreditLedger {
 
     /// Balances after decay, and the time up to which decay is then applied.
     /// A partial day is kept for later, so no day is lost or counted twice.
-    function _decayed(Account storage a) private view returns (uint256 e, uint256 r, uint64 until) {
-        return _decayedAt(a, block.timestamp);
-    }
-
-    function _decayedAt(Account storage a, uint256 at) private view returns (uint256 e, uint256 r, uint64 until) {
+    /// While the account holds something, `received` below UNIT is not cut to 0: holds stay covered.
+    function _decayed(Account storage a, bool held) private view returns (uint256 e, uint256 r, uint64 until) {
+        uint256 at = block.timestamp;
         e = a.earned;
         r = a.received;
         until = a.decayedUntil;
@@ -573,7 +572,7 @@ contract CreditLedger {
             if (e >= FLOOR) e = e * 9 / 10;
             if (r != 0) {
                 r = r * 9 / 10;
-                if (r < UNIT) r = 0;
+                if (r < UNIT && !held) r = 0;
             }
             --steps;
         }

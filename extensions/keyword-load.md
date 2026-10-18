@@ -1,7 +1,7 @@
 # Extension: keyword levels and ranking (`keyword-load`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. The wire fields and the level target are part of wire version 1; the rules of this document are reserved for a network upgrade.
-**Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.8. Section numbers (§) refer to that document.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.8. Section numbers (§) refer to that document unless this one is named.
 **Capability:** bit 8, `LEVELS`.
 
 Keyword frequency is very uneven. A few words occur in a large share of all file names, and a
@@ -39,9 +39,12 @@ Nothing on the wire changes when the rules below are switched on.
 
 A storing node keeps one **entry** per file (root) and target. An entry holds:
 
-- up to 3 *(initial)* signed records of different publishers, the freshest ones. A valid
-  record of a further publisher replaces the least fresh record kept, the one stored longest
-  ago (§10.8)
+- up to 3 *(initial)* signed records of different publishers, kept by the rule of §10.8. The
+  site of a kept record is the site of the address of the `Store` that last stored it, a
+  renewal included. While fewer than 3 are kept, a valid record is added; else it displaces
+  the least fresh record of its own site, else the least fresh overall. A `Store` with
+  `signer` never displaces a record of another site; it is answered `REJECTED` when it cannot
+  take a place
 - the **sites** of the publishers that stored or offered the file, each remembered until the
   record that publisher sent expires. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count

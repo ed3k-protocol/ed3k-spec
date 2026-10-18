@@ -41,7 +41,7 @@ message BrowseAnswer {
   file system.
 - Whom a node answers is local policy: everyone, friends only, or nobody. A refused request is
   answered with `Error{DENIED}`.
-- A node checks in this order: `UNSUPPORTED`, then `MALFORMED` (`dir`), then `DENIED`.
+- A node checks in this order: `UNSUPPORTED`, then `MALFORMED` (`dir`), then `DENIED`, then `NOT_FOUND`.
 - The answer is one frame and is compressed like any other (§5.3). The frame limit of 1 MiB
   (§5.2) applies.
 

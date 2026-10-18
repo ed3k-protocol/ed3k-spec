@@ -69,7 +69,8 @@ The node key of `Protocol.md` §6.1 is Ed25519. The EVM verifies secp256k1 signa
 - It signs receipts (§3) and the node's transactions on the ledger (§7).
 - **There is no signature that ties it to the node ID.** A node states its credit address on a
   file stream. The connection is authenticated (`Protocol.md` §6.2), so the statement comes
-  from that node, and the first receipt proves that the downloader holds the key. A node that
+  from that node, and the first receipt with a `proof` (§5.2) proves that the downloader holds
+  the key. A node that
   names an address it does not hold gains nothing: as uploader it gives its credits away, as
   downloader its receipts fail.
 - The ledger never sees a node ID (§9).
@@ -115,9 +116,9 @@ computes this on the cumulative value, so rounding does not add up.
 
 A downloader with `CREDIT` signs for an uploader that named a `payee` (§4.1):
 
-- as soon as it learns `payee`, if it bids: a receipt with its counters as they stand, both 0
-  for a pair without a receipt on that day. It mints and pays nothing; it proves that the
-  downloader holds the key of `payer` (§5.2),
+- as soon as it learns `payee` and `challenge`, if it bids: a receipt with its counters as
+  they stand and `proof`, both counters 0 for a pair without a receipt on that day. It mints
+  and pays nothing; it proves that the downloader holds the key of `payer` (§5.2),
 - after every **tranche** it has verified,
 - when its turn ends (`Protocol.md` §12.5), for the rest, and
 - at its own midnight, if it holds a slot at that uploader: a **closing receipt** for the old
@@ -203,6 +204,7 @@ message CreditOffer {
   optional uint64 price = 6;  // µ per MiB charged from the next tranche on; with rank = 0 only; absent = unchanged
   Receipt last = 7;           // the receipt of the newest `day` I hold from `payer`, if any
   uint64 due = 8;             // cumulative `spent` the uploader needs before it serves the next tranche, in µ; with rank = 0 only (§3.2)
+  bytes  challenge = 9;       // 16 B, random, new per queue entry
 }
 ```
 
@@ -210,6 +212,9 @@ message CreditOffer {
   receipts. `payer` alone, without a bid, says so.
 - An uploader answers with `credit` only if the `FileRequest` carried one. `payee` alone,
   without `floor`, says: I take receipts and sell no priority.
+- An uploader with a `floor` sends `challenge` with `payee`. It draws it at random when the
+  queue entry is made and sends the same value on every stream of the entry. A new entry
+  gets a new one.
 - **The bid is given blind,** in the first `FileRequest` of the queue entry. The price
   charged is set by the next bid, not by the own one (§5.2), so a downloader names the most
   it would pay and need not see `clearing` first. `clearing` is information for the user.
@@ -222,16 +227,17 @@ message CreditOffer {
 - A `FileRequest` for another file inside a turn (`Protocol.md` §12.5) keeps the bid. A
   priority turn goes on at the same `price`, and `due` goes on counting.
 - A `payer` other than the one of the queue entry **voids the bid** (§5.2): the entry keeps
-  its place in the normal queue and has no bid until a `max_price` and a receipt for the new
-  `payer` arrive. This does not count among the two void bids of §5.2.
-- `last` is the receipt of the newest `day` the uploader holds from `payer`. It lets a
-  downloader that lost its counters go on. The downloader MUST verify that the signature is
-  its own, and uses the values only if `day` is its own day. It continues from the higher of
-  its own and these.
+  its place in the normal queue and has no bid until a `max_price` and a receipt with `proof`
+  for the new `payer` arrive. This does not count among the two void bids of §5.2.
+- `last` is the receipt of the newest `day` the uploader holds from `payer`, without `proof`.
+  It lets a downloader that lost its counters go on. The downloader MUST verify that the
+  signature is its own, and uses the values only if `day` is its own day. It continues from
+  the higher of its own and these. Whoever names `payer` gets `last`, so a receipt alone
+  proves nothing about the sender (§5.2).
 - An uploader with a `floor` SHOULD NOT close the stream of an entry that bids
   (`Protocol.md` §12.5, `recheck` above 0) before the receipt of §3.1 arrived or 30 s
-  *(initial)* passed. A downloader that knows `payee` from an earlier stream MAY send that
-  receipt right after its `FileRequest`.
+  *(initial)* passed. A downloader that knows `payee` and `challenge` from an earlier stream
+  of the same queue entry MAY send that receipt right after its `FileRequest`.
 
 Both ledger parameters, chain ID and contract address, are fixed for a network (§7.1) and are
 not sent.
@@ -244,6 +250,7 @@ message Receipt {             // type 35, downloader → uploader, on the file s
   uint64 kib = 2;
   uint64 spent = 3;
   bytes  sig = 4;             // 65 B
+  bytes  proof = 5;           // 65 B
 }
 ```
 
@@ -267,9 +274,19 @@ A receipt that fails is dropped. A receipt is not answered. **Whether `spent` co
 next tranche: a last receipt that pays less than was due still counts for its `kib` and for
 what it pays.
 
+**`proof`** is an EIP-712 signature by the issuer's credit key over
+`Bid(address payer,address payee,bytes16 challenge)`, with `challenge` from the `CreditOffer`
+of this queue entry, and the domain and the 65 bytes of a receipt (§3). It is what makes an
+entry eligible (§5.2) and is needed once per queue entry, in the receipt of §3.1; later
+receipts MAY leave it out. A `proof` that does not verify does not void the receipt: the
+receipt counts as one without `proof`. `proof` is not part of the signed receipt and not
+part of what `settle` verifies (§6.2); it is left out there, and in `SignedReceipt` (§4.3).
+
 **A receipt dated tomorrow pays nothing yet.** Its `spent` counts as payment, towards `due`
 and the next tranche, only once its `day` is not above the uploader's today: the ledger cannot
-settle a day that has not begun. Its `kib` counts at once, as above.
+settle a day that has not begun. Its `kib` counts at once, as above. Such a payment is not
+late (§5.2) when it covers `due`: the uploader holds the next tranche, and the 30 s of a late
+payment start at its own midnight.
 
 ### 4.3 `CreditRelay`
 
@@ -301,7 +318,7 @@ message SignedHold {          // the arguments of holdFor (§6.5)
 }
 
 message CreditRelayAnswer {   // type 37, answer
-  bytes  tx = 1;              // 32 B, hash of the settle transaction that was sent; absent if none was
+  bytes  tx = 1;              // 32 B, hash of the `settle` transaction that was sent; absent if none was. A `holdFor` is not named; the asker reads `holdOf`
 }
 ```
 
@@ -310,8 +327,10 @@ message CreditRelayAnswer {   // type 37, answer
   is answered `Error{DENIED}` (`MALFORMED` is for a body that does not parse, or an address
   or `sig` of the wrong length, `Protocol.md` §5.6). So is one that the ledger would refuse:
   a receipt whose `issuer` or `holder` is the zero address, whose `issuer` is its `holder`,
-  or whose `kib` is above 52,428,800 (50 GiB); a hold whose `payer` is the zero address or
-  whose `deadline` has passed.
+  whose `kib` is above 52,428,800 (50 GiB), or whose `day` is after the relay's today or more
+  than 7 days back; a hold whose `payer` is the zero address or whose `deadline` has passed,
+  and a hold that `eth_estimateGas` shows would revert. A request in which any receipt or hold
+  fails is answered `Error{DENIED}` as a whole, and the relay sends none of it.
 - The relay calls `settle` (§6.2) from its own account. The receipts say who is credited; the
   relay cannot change that. It is paid by the gas reward of §6.6.
 - A relay sends the call when the credits it expects the receipts to mint or take, computed
@@ -353,10 +372,13 @@ An uploader with a `floor` gives some of its upload slots to bidders.
 When a priority slot is free, the uploader takes the waiting entry with the highest
 `max_price` that is at least `floor` and whose payer is **eligible**:
 
-- a valid receipt (§4.2) for (`payer`, `payee`) arrived on this queue entry. It need not add
-  to `kib` or `spent` (§3.1). `payer` is not signed, so without this anybody could bid under
-  the address of another node,
-- no other queue entry that is still queued or served sent a valid receipt for this `payer`
+- a valid receipt (§4.2) for (`payer`, `payee`) arrived on this queue entry with `proof`: an
+  EIP-712 signature by the credit key over `Bid(address payer,address payee,bytes16 challenge)`,
+  with `challenge` from the `CreditOffer` of this entry. It need not add to `kib` or `spent`
+  (§3.1). `payer` is not signed, and a receipt can be replayed, so without this anybody could
+  bid under the address of another node. A receipt without a valid `proof` counts for its
+  `kib` and `spent` and makes no entry eligible,
+- no other queue entry that is still queued or served sent a valid `proof` for this `payer`
   before: one node per credit address (§2),
 - `holdOf(payer, payee)` on the ledger (§6.5) returns an `amount` of at least
   16 × `max_price` µ, a whole turn of 16 MiB at the bid, and an `until` that lies at least
@@ -369,7 +391,7 @@ for 6 h *(initial)*, and in that time it can neither move it away nor lower the 
 
 - A bidder places one hold per uploader it bids at, each of one turn at its bid, and renews it
   every 3 h *(initial; half the time of a hold)* while it bids. The sum of its holds is what
-  it can lose, and the ledger refuses holds beyond the balance.
+  it can lose, and the ledger refuses holds beyond 90 % of the balance, at every renewal.
 - A payment that is settled uses the hold up (§6.5). For a further turn the bidder raises it
   again, at the latest with its next renewal.
 - A bidder that stops bidding lets the hold run out and then releases it. The uploader MAY
@@ -405,7 +427,8 @@ tick  = 10,000 µ per MiB (initial)
 - Void bids are counted **per node ID, never per `payer`**. A `payer` that is not one's own
   is never eligible, so naming it gains nothing and costs its owner nothing.
 - If a later payment is 30 s late, counted from the `FileStatus` that carried its `due`, the
-  uploader takes the slot away and the entry stays in the normal queue with its bid.
+  uploader takes the slot away and the entry stays in the normal queue with its bid. A
+  receipt dated tomorrow that covers `due` is not late (§4.2).
 - `clearing` in a `FileStatus` is the price a new bid has to reach now to be first among the
   waiting bids: `floor` if no eligible bid waits, else the highest waiting eligible bid +
   `tick`.
@@ -452,7 +475,8 @@ remaining = bytes left of that turn / its rate over the last 10 s (initial)
   credits spent per day.
 - It SHOULD NOT bid at an uploader whose `floor` is above its limit.
 - Its exposure is one tranche per uploader it holds a priority slot at. What it locks is one
-  turn at its bid per uploader it bids at, for 6 h from the last renewal (§5.2).
+  turn at its bid per uploader it bids at, for 6 h from the last renewal (§5.2); the sum of
+  these holds fits 90 % of its balance (§6.5).
 - A downloader that signed more `spent` in total than it has is **overdrawn** once the
   receipts are settled (§6.4). A client MUST keep the sum of its open payments at or below
   80 % *(initial)* of its balance as last read, so that two days of decay (§6.5) cannot
@@ -471,7 +495,7 @@ differ, that is a fault to be reported, and this text is meant.
 struct Account {
     uint128 earned;         // µ, from receipts
     uint128 received;       // µ, from transfers and from the uploader's share of payments (§6.2)
-    uint32  lastActive;     // day of the newest receipt that counted as activity
+    uint32  lastActive;     // day of the newest settlement that counted as activity
     uint64  decayedUntil;   // decay is applied up to this time
     uint64  registeredAt;   // first appearance
     uint64  inflow;         // KiB received credit for, from mature issuers
@@ -509,8 +533,8 @@ Then, in this order:
    `overdrawn` only if the receipt is at most 1 day *(initial)* old, today − `day` ≤ 1 by
    the clock of the chain; an older receipt takes what is there without the flag, and the
    rest is not owed any more. A payment does not dip into what the
-   issuer holds for other payees (§6.5): it takes at most the balance less those holds, and
-   what is missing then is short like any other. What is taken is also taken out of the issuer's hold for this
+   issuer holds for other payees (§6.5): it takes its own hold as far as the balance less
+   those holds covers it, and beyond its hold only what is left above them ÷ 0.9; what is missing then is short like any other. What is taken is also taken out of the issuer's hold for this
    holder (§6.5). **10 % of what is taken goes to the uploader** and arrives in the holder's
    `received`; the rest is burned
    ([`docs/credit-ledger.md`](../docs/credit-ledger.md) §9).
@@ -518,10 +542,9 @@ Then, in this order:
    the holder's `earned`, up to what is left of the issuer's weekly limit and of the limit of
    the pair (§6.3). What exceeds
    the limit is lost.
-3. **Activity.** If at least 1 credit was minted and `day` is newer than the holder's
-   `lastActive`, the holder's decay is first written up to the start of `day`, and then
-   `lastActive` becomes `day`. So the days from `day` on, up to the grace, do not decay, and
-   the time before does.
+3. **Activity.** If at least 1 credit was minted, the holder's decay is written up to now and
+   `lastActive` becomes today by the clock of the chain. The grace runs from the day of
+   settlement.
 4. **Gas reward** (§6.6).
 
 - If the issuer is **not mature**, step 1 is done and step 2 is not. The settled `kib` stays
@@ -589,8 +612,8 @@ at the next change.
 | Grace | 3 days after `lastActive`, no decay |
 | Then | × 0.9 per full 24 h, on the current balance |
 | `earned` | stops at the first step that takes it below 10 credits |
-| `received` | goes on; below 1 credit it becomes 0 |
-| Activity | a settled receipt that minted at least 1 credit, by its `day`. Nothing else |
+| `received` | goes on; below 1 credit it becomes 0, except while the account holds something |
+| Activity | a settlement that minted at least 1 credit, on the day it is settled. Nothing else |
 
 An account that stops uploading keeps about 31 % after two weeks and ends just below 10
 credits. `poke(address)` writes the decay of an account back and can be called by anyone.
@@ -627,9 +650,13 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   before `until`. After `until` the payer may lower it, which is checked as a hold placed
   anew (below), and `amount` = 0 releases it.
 - The payee gives a hold up with `release(payer)`, at any time.
-- When a hold grows, the sum of the payer's holds MUST fit its balance after decay, else the
-  call fails. A call that does not raise a running hold is not checked, so a release never
-  fails. A hold that is placed again after it ran out counts as grown from 0.
+- When a hold is placed, raised or renewed, the sum of the payer's holds MUST fit 90 %
+  *(initial)* of its balance after decay, else the call fails. A hold lasts 6 h, so at most
+  one step of decay falls within it, and every hold stays covered until its `until`. A call
+  with `amount` = 0 is not checked, so a release never fails.
+- The margin stays with the holds. A payment beyond the payee's own hold, and a transfer,
+  take only what is left above the other holds ÷ 0.9; and while the account holds something,
+  `received` below 1 credit is not cut to 0.
 - `holdFor` is `hold` for a payer that sends no transaction. Anyone may send it. It carries
   an EIP-712 signature by the payer's credit key over
   `Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)`, with the
@@ -763,7 +790,7 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 | Uploader charges more to earn its 10 % | the downloader pays up to its maximum | never above `max_price`; the gain is a tenth of the difference |
 | A bidder's turn is ended by a higher bid | it loses what it paid ahead, if it gets no other turn that day | one tranche |
 | Farming credits to sell them | credits get a price (§10) | decay, the 10 % on transfer, the limits |
-| A node bids under the `payer` of another | none | not eligible without a receipt signed by that key (§5.2); void bids count per node ID |
+| A node bids under the `payer` of another | none | not eligible without a `proof` by that key over the `challenge` of its own queue entry (§5.2); a replayed receipt makes nothing eligible; void bids count per node ID |
 | Uploader settles a payment late | the issuer's balance has decayed | a receipt older than 1 day sets no flag (§6.2); the uploader gets what is there |
 | Bidder moves its credits away after the turn | none while the hold runs | the hold cannot be lowered for 6 h; the uploader settles before `until` (§5.2) |
 | A relay drops a request | delay | the asker asks another |
@@ -869,11 +896,12 @@ schedule, **not measured**, and with the 21,000 of the transaction:
 
 | Call | Gas, estimated |
 |---|---|
-| `settle`, per receipt that takes | about 2,100 more than above; about 10,000 more when it uses a hold up |
+| `settle`, per receipt that takes | about 2,100 more than above, and 2,100 more again for the first receipt of a holder in a transaction (its holds are read for decay); about 10,000 more when it uses a hold up |
 | `hold`, first for a payee | about 80,000 |
-| `hold`, renewal | about 35,000 |
+| `hold`, renewal | about 38,000, checked against the balance like a new hold; about 50,000 when it writes back a step of decay (balance, supply and a `Transfer` event) |
 | `holdFor` | as `hold`, plus about 30,000 the first time for a payer and about 12,000 later |
 | `release`, `sweep` | about 35,000 |
+| `transfer` | about 51,000; about 68,000 to an address that has no account yet; about 6,000 more for each side that writes back a step of decay. `transferFrom` about 5,000 more for the allowance, none with an unlimited one |
 
 No call for a hold earns a reward (§6.6). A bidder pays for its holds with coin it earned by
 settling receipts as a holder; a node that never uploaded has none and has its holds sent by

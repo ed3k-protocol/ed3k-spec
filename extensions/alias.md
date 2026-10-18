@@ -117,12 +117,19 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 - It checks nothing that depends on the scheme, and stores records of schemes it does not
   know.
 - It cannot check the claim.
-- **Records per root.** It keeps at most 3 *(initial)* records per root under a target: the
-  freshest ones, of different publishers, as for a keyword record (`Protocol.md` §10.8). A
-  valid record of a further publisher replaces the least fresh record kept: the one the node stored longest ago (`Protocol.md`
-  §10.8; `expires` does not count). The answer is `STORED`. This is the
+- **Records per root.** It keeps at most 3 *(initial)* records per root under a target, of
+  different publishers, by the rule of `Protocol.md` §10.8. The site of a kept record is the
+  site ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored
+  it, a renewal included. While fewer than 3 are kept, a valid record is added; else it
+  displaces the least fresh record of its own site, else the least fresh overall. A `Store`
+  with `signer` never displaces a record of another site and is answered `REJECTED` when it
+  cannot take a place. Otherwise the answer is `STORED`. This is the
   limit of a storing node. The 4 records per root and scheme above are the limit of one
   publisher, over the names it publishes.
+- **Sites per root.** The node remembers, per root under a target, the sites of the publishers
+  that stored a valid record for it, each until that record would have expired, also after the
+  record was displaced. One site counts once; the count saturates at 255 *(initial)*. `sites`
+  and the order below use this count.
 - A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
   publisher sites first, one record per root. Among equal counts the order is the node's own,
   which a publisher cannot choose (`Protocol.md` §10.3). A site is the group of
@@ -147,7 +154,7 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 **What an attacker can do**
 
 - **Fill a target** with 64 false roots, from at least 8 sites. The order by publisher sites
-  puts the root that several honest nodes name first, and each false record costs a signature under a node ID
+  puts the root that honest nodes of several sites name first, displaced records included, and each false record costs a signature under a node ID
   that clients then ignore.
 - **Make a client download a file it did not ask for.** §4 bounds what that costs for each
   relation. Nothing false is kept or passed on under the name.

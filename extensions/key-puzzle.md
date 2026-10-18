@@ -50,7 +50,8 @@ is 0 and the top 5 bits of `out[1]` are 0.
 - The site is the one of the **observed** address (`Protocol.md` §9.2), the same address the routing ID is
   checked against.
 - A dual-stack router needs one solution per family.
-- Private, loopback, link-local and unique-local addresses are exempt, as in `Protocol.md` §6.3.
+- Private addresses (`Protocol.md` §8.2 (8)) are exempt in a named network, as in
+  `Protocol.md` §6.3; on the public network they never become contacts.
 
 ### 2.1 Epochs
 
@@ -96,8 +97,8 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
   be inserted as a dialled-in contact (`Protocol.md` §10.2), and stays out until then. A node
   verifies at most 1 *(initial)* dialled-in contact per host group
   ([`ip-diversity.md`](ip-diversity.md) §1) per hour. When such a check fails, the result is
-  kept for the host group until the end of the epoch, and no further dialled-in contact of that
-  host group is verified before then.
+  kept for that node ID and site until the end of the epoch; the host group waits 1 h
+  *(initial)* before the next dialled-in contact of it is verified.
 - **Own lookups first.** Contacts that the node found by its own lookups are verified before
   any contact that dialled in. A dialled-in contact is checked only while none of the others
   waits.

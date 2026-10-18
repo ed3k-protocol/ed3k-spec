@@ -38,14 +38,15 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. An empty mᵢ is allowed. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
+| mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
 | Order of parts | by the `number` attribute, 1 to n, where n is the number of different `number` values of the file. Where a number occurs twice, the first entry in the NZB counts |
 | fⱼ | the file ids of all files of the NZB, in ascending order of their bytes |
 
 - **A file with a gap** in its part numbers has no file id, and an NZB with such a file has no
   post id. A part numbered 0 is a gap, and so is a file without parts: the parts are numbered
   1 to n, each number present. A file with a `number` outside 1..n, or one that is not a
-  decimal number, has no file id either. Such an NZB is not joined with ed3k; the files of it
+  decimal number, has no file id either. A file with an empty mᵢ has no file id, as a file
+  with a gap. Such an NZB is not joined with ed3k; the files of it
   that are whole still are, one by one.
 - Subject, poster, date, groups and the sizes an NZB tells are not part of a name. They differ
   from indexer to indexer.

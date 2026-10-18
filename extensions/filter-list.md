@@ -68,7 +68,7 @@ enum Verdict {
   ignored group is not kept: a client that reads a list and writes it again leaves it out.
 - A list file is at most 4 MiB *(initial)*, the 8 bytes included, which is about 260,000
   entries.
-- An `AUTHOR` is a key: the publisher of keyword and note records
+- An `AUTHOR` is the node ID of a key: the publisher of keyword and note records
   ([`Protocol.md`](../Protocol.md) §10.7), the author of a set, the key of a live channel.
 - **A list is complete.** An entry that the next version leaves out is no longer judged.
 

@@ -113,6 +113,9 @@ seal_ans( nf(1) ‖ [cookie(8)] ‖ tag ‖ body )
 | `tag` | varint `(type << 1) \| z` exactly as in §5.1. Allowed types: 3 `KadRequest` in a `REQUEST`; 4 `KadAnswer` or 2 `Error` in an `ANSWER` |
 | `body` | the protobuf message, to the end of the plaintext. There is no length field. zstd as in §5.3 when `z = 1` |
 
+A sealed content whose `nf` has another bit set, or whose `tag` is not allowed for its datagram
+type, is dropped after opening, without an answer.
+
 ---
 
 ## 3. Cryptography
@@ -178,6 +181,9 @@ When a `REQUEST` carried a cookie from the previous secret, the responder SHOULD
 | Requester accepts an `ANSWER` | The seal opens under `k_ans` with the `txid` of a pending request: the answer was made by the holder of the responder's key, after seeing a request that was sent to that address. The responder is **verified** |
 
 A verified contact from this binding has the same standing as one verified by a QUIC handshake.
+A contact first verified by a `REQUEST` it sent is a dialled-in contact (`Protocol.md` §10.2),
+as one that opened a connection is, and is inserted with the source address and port of the
+datagram.
 
 ### 3.5 Properties and limits
 
@@ -264,9 +270,9 @@ always fits.
 
 | Risk | Rule |
 |---|---|
-| Reflection | A `CHALLENGE` is never longer than the datagram that caused it, and nothing else is sent to an address without a valid cookie. A responder SHOULD send at most 4 *(initial)* `CHALLENGE`s per second to one address |
+| Reflection | A `CHALLENGE` is never longer than the datagram that caused it, and nothing else is sent to an address without a valid cookie. A responder SHOULD send at most 4 *(initial)* `CHALLENGE`s per second to one host (IPv4 address, IPv6 /64) |
 | Amplification | An `ANSWER` goes only to a cookie-validated address |
-| CPU | Cookie check (one keyed hash) precedes everything. Derived keys are cached per peer key; a responder limits new key derivations per source address to 8 per second *(initial)* |
+| CPU | Cookie check (one keyed hash) precedes everything. Derived keys are cached per peer key; a responder limits new key derivations per host (IPv4 address, IPv6 /64) to 8 per second *(initial)* |
 | Request floods and replay | A responder processes at most 16 / 64 / 256 *(initial)* `REQUEST`s per second per host / site / block ([`ip-diversity.md`](ip-diversity.md) §1), counted on `REQUEST`s with a valid cookie. A `REQUEST` above a limit is dropped without an answer |
 | Flooding of records | A `KadRequest` with `store` is not accepted over datagrams and is answered `Error{UNSUPPORTED}` (§4 of this document). The per-address, per-kind policy of §10.3 applies unchanged to searches |
 | Requester load | At most 16 *(initial)* exchanges outstanding in total, and 2 per responder |

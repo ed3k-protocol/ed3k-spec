@@ -149,8 +149,8 @@ source address of `Protocol.md` §10.3.
   ([`file-set.md`](file-set.md) §6); an `ALIAS` target at most 2 roots of one publisher key
   ([`alias.md`](alias.md) §3); a `PART` target one record per author key
   ([`multi-author-set.md`](multi-author-set.md) §3.4).
-- `KEYWORD` and `NOTE`: records are accepted from any publisher within the general flood limits,
-  but when an entry's publishers are counted (popularity, ranking, or a rating average), one
+- `KEYWORD` and `NOTE`: beyond the limits per key, host and site of `Protocol.md` §10.8, records
+  are accepted within the general flood limits; when an entry's publishers are counted (popularity, ranking, or a rating average), one
   site counts once. A network that publishes many entries gains nothing per entry by doing so.
 
 ### 2.5 Dialling sources
@@ -171,8 +171,9 @@ that **failed or are still pending**, per hour:
 - An attempt that completes its handshake with the expected node ID does not count. A group of
   honest sources behind one address or in one network is therefore dialled without limit.
 - The limit counts every address dialled on behalf of the file, each under its own groups: the
-  endpoints of a source in both families, and every relay taken from a source record or from a
-  source exchange.
+  endpoints of a source in both families, every relay taken from a source record or from a
+  source exchange, and every gate taken from a `GATE` record ([`hops.md`](hops.md) §4.3), also
+  when a last hop dials it.
 - Sources that exceed a limit are kept and tried in a later hour.
 - The limit is per file, so one answer cannot use up a node's attempts for other downloads.
 - **Over all files** the host limit is 8 per hour. A source beyond it is kept and tried in a
@@ -180,7 +181,7 @@ that **failed or are still pending**, per hour:
 
 A victim address then receives at most 2 attempts per hour from each searcher and file, and 8
 from each searcher over all files, whatever the number of false records and whether they name
-it as an endpoint or as a relay.
+it as an endpoint, as a relay or as a gate.
 
 ## 3. What a requester may still do
 
@@ -247,8 +248,8 @@ its own.
 - **Ban instead of refuse.** Rejected. A ban by address also hits the other users of a
   carrier-grade NAT address or of a /64, and a forged-source trigger would make it a tool for
   denial of service. Refusal has the same effect on the routing table with no victim.
-  Connection floods are a different matter and do carry a ban, counted on completed
-  handshakes only (`Protocol.md` §4.6).
+  Connection floods are a different matter: `Protocol.md` §4.6 bans the node ID, never the
+  address, counted on completed handshakes only.
 - **One IPv6 tier (/64).** Rejected, see §4.1.
 - **/56 instead of /48 as the IPv6 site.** A /48 customer would count as 256 sites. /48 is the
   largest prefix a single customer normally holds.

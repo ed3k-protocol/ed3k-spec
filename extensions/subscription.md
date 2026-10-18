@@ -17,9 +17,9 @@ paid for.
   that checks the pass. Nobody has to be online for the publisher between two epochs.
 - Epoch keys form **reverse hash chains**, one per **season** of about a month. The key of one
   epoch opens every earlier epoch of its season, and nothing after it. A new subscriber gets
-  the last key of every earlier season from other pass holders, and so the back catalogue.
+  the tip of every earlier season from other pass holders, and so the back catalogue.
 - **A leaked key opens one season at most**, up to the epoch it belongs to. The publisher can
-  start a new season at the next epoch (§4.5), and keeps the keys that produce a season off
+  start a new season at the next epoch (§4.5), and keeps the seed that produces a season off
   the nodes that are online (§4.4).
 - A publisher can **release** old epochs on a schedule: early access that becomes free later.
 - Neighbours of a paid stream and of a paid set's topic are pass holders. A publisher can give
@@ -178,10 +178,11 @@ down; there is no epoch before `t0`.
 
 ### 4.1 The chain
 
-The publisher draws a random 32-byte key for the last epoch of a chain, `K(base + length − 1)`,
-and computes every earlier key from it:
+The publisher draws a random 32-byte **seed** for a chain, derives the key of the last epoch,
+`K(base + length − 1)`, from it, and computes every earlier key from that:
 
 ```
+K(base + length − 1) = H("ed3k v1 paid seed", scope ‖ base(8) ‖ seed)
 K(e − 1) = H("ed3k v1 paid chain", scope ‖ K(e))              for base < e ≤ base + length − 1
 anchor   = H("ed3k v1 paid anchor", scope ‖ K(base))
 ```
@@ -195,10 +196,10 @@ message EpochKey {
 
 - **Whoever has `K(e)` computes the key of every earlier epoch of the chain**, and nobody can
   compute a later one.
-- **Every step is bound to the scope**, and so is every key derived from `K(e)` (§7.1, §8.1,
-  §8.3). A publisher MUST all the same draw a fresh seed per scope and season: the seed is the
-  key of the last epoch, so a seed used in two scopes would give the other scope's chain away
-  with that key.
+- **Every step is bound to the scope**, the last key included, and so is every key derived
+  from `K(e)` (§7.1, §8.1, §8.3). The last key is also bound to `base`. A seed used for two
+  seasons (another `base`) or in two scopes gives unrelated chains. The seed itself is never
+  sent. A publisher SHOULD still draw a fresh seed per season.
 - **Verifying a key.** A reader applies the chain step `e − base` times to `K(e)`, then the
   anchor step, and compares with `anchor`. A reader keeps the newest key it verified and hashes
   only from there the next time. Even a chain of 2^20 epochs costs well under a second to check.
@@ -208,8 +209,7 @@ message EpochKey {
 - **A key that fails** is dropped. The reader closes the exchange it came on, and does not take
   that node as a source of keys or as a neighbour of the scope for 24 h *(initial)*, as
   [`pubsub.md`](pubsub.md) §2.2 does for an item that fails.
-- The last key of a chain, its **seed**, produces every key of the chain. Where the publisher
-  keeps it is said in §4.4.
+- The seed produces every key of the chain. Where the publisher keeps it is said in §4.4.
 - The first check of a season of 720 epochs costs 720 hashes.
 
 ### 4.2 Seasons
@@ -396,8 +396,8 @@ sig = Ed25519 signature by holder over
 - **For a key request** the epoch check is left out: a viewer pass that covers an earlier epoch
   of the scope passes, and §6.2 bounds what it gets. Joining the mesh needs a pass that covers
   the current epoch (§6.3).
-- **In a private channel** the secret proof of [`live.md`](live.md) §10.3 is checked before
-  any of this (§7). A node that fails it sees no pass and shows none.
+- **In a private channel** the secret proof of [`live.md`](live.md) §10.3, or of §6.1 for a
+  key request, is checked before any of this (§7). A node that fails it sees no pass and shows none.
 - A receiver that does not hold the offer of the scope cannot check an issuer. It accepts a
   pass signed by the publisher, and asks the sender for the offer (§6.1) for one signed by an
   issuer.
@@ -463,6 +463,7 @@ message KeyRequest {          // type 40
   bool       want_offer = 5;  // send the offer I hold
   uint64     tips_have = 6;   // base of the newest earlier season whose tip I hold, plus 1; 0 = none
   uint64     offer_issued = 7;  // `issued` of the offer I hold; 0 = none
+  bytes      private_proof = 8; // 16 B; scope of a private channel only (below)
 }
 
 enum KeyRefusal {
@@ -470,7 +471,7 @@ enum KeyRefusal {
   KEY_NO_PASS = 1;            // no pass, a relay pass, or one that fails a check or covers nothing new
   KEY_NOT_HELD = 2;           // I hold no key at or above `have` that your pass covers
   KEY_UNKNOWN = 3;            // I know no offer for this scope
-  KEY_BUSY = 4;               // over the limit for this pass (§6.2)
+  KEY_BUSY = 4;               // over the limit for this holder key (§6.2)
 }
 
 message KeyAnswer {           // type 41
@@ -482,6 +483,7 @@ message KeyAnswer {           // type 41
   repeated SignedChain chains = 6;  // the season of `key`, of `released` and of each tip
   SignedPass  pass = 7;       // to a request without `pass`: my own pass, when I hold a key of the scope
   PassProof   pass_proof = 8; // §5.2; with `pass`
+  bytes       private_proof = 9;  // 16 B; to a valid `private_proof` only (below)
 }
 ```
 
@@ -498,6 +500,21 @@ valid viewer pass of the scope on the same connection, in a `KeyAnswer`, a `Live
    second `KeyRequest` with its own pass on the same connection; else it asks another node.
 
 A requester that wants only the offer or released keys stops after step 1.
+
+**A private channel.** For the scope of a private channel both sides prove the secret, as
+[`live.md`](live.md) §10.3 does, with `k` of §10.1 there:
+
+```
+KeyRequest.private_proof = H("ed3k v1 paid private key",    k ‖ requester's node ID ‖ answerer's node ID)[0..16)
+KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ requester's node ID ‖ answerer's node ID)[0..16)
+```
+
+- Both node IDs are those of the authenticated connection ([`Protocol.md`](../Protocol.md)
+  §6.2).
+- For the scope of a private channel a node answers a `KeyRequest` without a valid
+  `private_proof` with `KEY_UNKNOWN` and nothing else: no pass, offer, released key or tip.
+- Every other answer for that scope carries `private_proof`. A requester takes nothing from an
+  answer without a valid one.
 
 ### 6.2 Who answers
 
@@ -516,7 +533,7 @@ A requester that wants only the offer or released keys stops after step 1.
   §10 says it keeps.
 - **Tips.** To a viewer pass, a node adds the tips it holds of every season that ended before
   the season of `key` and has a `base` of at least `tips_have`. An older tip that a requester
-  lacks comes in a further request with a lower `tips_have`.
+  lacks comes in a further request with a lower `tips_have` and `have` = 0.
 - `chains` holds the `SignedChain` of each season that a key in the answer belongs to. A
   requester verifies each key against the anchor of its season, and drops the answer when a
   chain or a key fails.
@@ -804,7 +821,8 @@ gets a pass back, so that any client can buy from any seller.
 - With a pass signed by an issuer, `pass_url` MUST also send the offer, as a serialised
   `SignedOffer` in the header `Ed3k-Offer` (base64): without it the buyer cannot check the
   issuer (§5.2). With a pass signed by the publisher it MAY. For a private channel or a hidden
-  set this header, or step 1 of a key request to a pass holder (§6.1, §6.2), is how a buyer
+  set this header, or step 1 of a key request to a pass holder (§6.1, §6.2), with
+  `private_proof` for a private channel, is how a buyer
   gets its first offer.
 
 ### 9.2 Renewal
@@ -818,7 +836,7 @@ gets a pass back, so that any client can buy from any seller.
 ### 9.3 By hand
 
 ```
-ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32-byte seed, base32>]
+ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32 B Ed25519 private key (RFC 8032), base32>]
 ```
 
 - **Without `k`**, the client must hold the private key of `holder`. This is the form a seller

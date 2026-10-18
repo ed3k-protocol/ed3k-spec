@@ -450,10 +450,17 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
   16 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md)
   §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)*
   different sets per target; further ones get `FULL`.
-- It keeps at most 3 *(initial)* records per set under a target: the freshest ones, of
-  different publishers, as for a keyword record (`Protocol.md` §10.8). A valid record of a
-  further publisher replaces the least fresh record kept: the one the node stored longest ago (`Protocol.md`
-  §10.8; `expires` does not count). The answer is `STORED`.
+- It keeps at most 3 *(initial)* records per set under a target, of different publishers, by
+  the rule of `Protocol.md` §10.8. The site of a kept record is the site
+  ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored it,
+  a renewal included. While fewer than 3 are kept, a valid record is added; else it displaces
+  the least fresh record of its own site, else the least fresh overall. A `Store` with
+  `signer` never displaces a record of another site and is answered `REJECTED` when it cannot
+  take a place. Otherwise the answer is `STORED`.
+- The node remembers, per set under a target, the sites of the publishers that stored a valid
+  record for it, each until that record would have expired, also after the record was
+  displaced. One site counts once; the count saturates at 255 *(initial)*. `sites` and the
+  order below use this count.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
 - A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
@@ -483,7 +490,7 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 **What an attacker can do**
 
 - **Fill the target** with 64 false sets, so that real ones get `FULL`. The order by publisher
-  sites puts sets with several honest publishers first, and each false record costs the
+  sites puts sets with honest publishers of several sites first, displaced records included, and each false record costs the
   attacker a signature under a node ID that clients then ignore.
 - **Make clients fetch manifests** that do not list the file. A fetch is at most 4 MiB and is
   made on the user's request only.

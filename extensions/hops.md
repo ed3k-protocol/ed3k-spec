@@ -119,8 +119,8 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
    path on this link, and its stream number is 0 (§2.4).
 2. To add a hop, the owner sends `HopExtend` on the control stream. The last hop connects to
    `node` as to any node, opens an exchange, sends `HopCreate` with a `path` of its own, and
-   passes the `HopCreated` back to the owner as a frame on the control stream, inside the
-   layers of the hops before it. From then on it forwards. A path MUST NOT be extended while
+   passes the `HopCreated` back to the owner as a frame on the control stream, in its own layer
+   and those of the hops before it (the new hop has no layer yet). From then on it forwards. A path MUST NOT be extended while
    it carries a stream other than the control stream: a hop added later has no layer on those
    streams. The owner closes them first, or builds a new path.
 3. The owner checks `proof` (§2.3). A wrong proof means that the new hop is not the node the
@@ -266,15 +266,16 @@ message HopGate {             // type 29. Request and answer on the control stre
 **Outwards.** The owner opens a stream and sends `HopConnect`. The last hop connects to
 `node` (an address as §2.2 asks; else `Error{MALFORMED}`), opens an exchange, sends `HopJoin`
 with the same `gate`, and copies in both directions. The dials that `HopExtend` and
-`HopConnect` cause are limited per path and per neighbour (§5). A node that hides behind 0
-hops sends `HopJoin` itself.
+`HopConnect` cause are limited per path, per neighbour, per neighbour host and per
+destination host (§5). A node that hides behind 0 hops sends `HopJoin` itself.
 
 - **A node that is not open.** The owner copies `relays4` and `relays6` from the `Peer`
   record of `node`, at most 2 *(initial)* each (`Protocol.md` §10.3); more, or a length that
   is not a multiple of 22 or 34 B, is `Error{MALFORMED}`. When `node` has relays in a
   family, the last hop reaches it there as any node reaches a leaf: it sends `Punch` through
   one of them and dials (`Protocol.md` §9.4, §9.5). A punch that fails is a dial that fails
-  (table below). A punch counts towards the dial limits of §5. Each relay is an address as
+  (table below). One `HopConnect` counts as one dial for §5, whether `node` is dialled directly
+  or through a punch; each further punch attempt counts as one more. Each relay is an address as
   §2.2 asks of `node`; else `Error{MALFORMED}`.
 
 **Inwards.** An owner that wants to be reached sends `HopGate` on the control stream of a
@@ -373,9 +374,13 @@ first stream has the number 0, and its records follow the three messages of §3.
 - The first exchange is `Hello`. A node under its anonymous key sends no `observed`, `ep4`,
   `ep6` and no `nat`, an empty `nick`, and as `agent` one fixed string that its implementation
   uses for every hidden node; a `Peer` that names it carries its node ID alone, and its
-  `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys.
+  `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys. A
+  receiver that sets `ANON` treats a `Peer` with a node ID alone as an anonymous source and
+  looks up its `GATE` record under the limits of §4.3; any other receiver drops it.
 - A node MUST limit the sessions of one node ID as it limits connections (`Protocol.md`
   §4.6). What it counts per address, it counts per gate or per node that sent the `HopJoin`.
+  A session over a limit is refused by resetting its first stream; the opener does not open
+  another session to that node ID for 60 s *(initial)*.
 - B can open a stream to A only through a gate of A. An uploader that offers a slot later
   (`Protocol.md` §12.5) looks up the `GATE` record of the downloader.
 
@@ -505,6 +510,8 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
 | Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |
+| Failed or pending dials caused by `HopExtend`/`HopConnect`, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
+| Paths and dials per neighbour host address | 16 paths; 32 dials per minute |
 | `HopJoin` per gate and host | 10 per minute |
 
 Above a limit it answers `Error{BUSY}`. A hop that takes no new paths clears `HOP` in its

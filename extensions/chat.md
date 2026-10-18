@@ -57,7 +57,8 @@ message ChatAck { }
   same `id` is shown when it is taken.
 - A receiver remembers the `id`s of at most 256 *(initial)* senders. A message of a further
   sender is answered `Error{BUSY}` and not taken, so that no `id` is forgotten before its
-  10 min.
+  10 min. Of the 256, at most 16 *(initial)* are of one host address (IPv4 /32, IPv6 /64); a
+  further sender of that host is answered `Error{BUSY}`.
 
 ## 3. Open points
 
