@@ -40,7 +40,9 @@ message BrowseAnswer {
 - Directory names are those the answering node chooses to show. They need not be paths of its
   file system.
 - Whom a node answers is local policy: everyone, friends only, or nobody. A refused request is
-  answered with `Error{DENIED}`.
+  answered with `Error{DENIED}`. A node that answers nobody SHOULD clear `BROWSE`; one that
+  answers friends only MAY set it only in the `Hello` of a connection to a friend. A change
+  reaches a connected peer as §2 says.
 - A node checks in this order: `UNSUPPORTED`, then `MALFORMED` (`dir`), then `DENIED`, then `NOT_FOUND`.
 - The answer is one frame and is compressed like any other (§5.3). The frame limit of 1 MiB
   (§5.2) applies.

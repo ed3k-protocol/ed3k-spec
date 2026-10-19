@@ -91,7 +91,7 @@ message Error {               // type 2
     reserved 6;               // was NOT_RESPONSIBLE; never used, removed
   }
   Code   code = 1;
-  uint32 retry_after = 2;     // seconds, a hint; 0 = no hint, the default of the section concerned applies   Protocol.md §5.6
+  uint32 retry_after = 2;     // seconds, a hint; 0 = no hint: the wait of the section concerned, else 60 s   Protocol.md §5.6
 }
 
 // ---------------------------------------------------------------------------------------

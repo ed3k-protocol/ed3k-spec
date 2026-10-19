@@ -41,6 +41,8 @@ message ChatAck { }
   again, with the same `id`.
 - A node checks in this order: `UNSUPPORTED`, `MALFORMED` (the size of `text`), its policy
   (`DENIED` or a silent `ChatAck`), a repeated (sender, `id`), then the rate limit (`BUSY`).
+- Every `Error{BUSY}` of this document carries a `retry_after` of at least 1 s, in whole seconds
+  rounded up.
 
 **Delivery**
 
@@ -50,18 +52,21 @@ message ChatAck { }
   took it. `ChatAck` answers both, and it does so on any binding.
 - `ChatAck` means the receiving node has the message. It does not mean a person has read it.
 - A sender that gets no answer because the connection was lost MAY send the message again with
-  the same `id`. The receiver answers `ChatAck` to a repeated (sender, `id`) and shows the
+  the same `id`, at most 3 *(initial)* times and only within 10 min of the first send that got
+  no answer: after that the receiver may have forgotten the `id`. A send answered `BUSY` does
+  not count; it was not taken. The receiver answers `ChatAck` to a repeated (sender, `id`) and shows the
   message once. It remembers the `id`s of a sender for at least 10 min *(initial)* and at
   most 1,024 *(initial)* of them, the oldest forgotten first. Only the `id`s of messages it
   took are remembered: one that was answered `BUSY` or `DENIED` is not, so the retry with the
   same `id` is shown when it is taken. A sender with 1,024 remembered `id`s younger than
   10 min is answered `Error{BUSY}` with a `retry_after` of the time until the oldest of them
-  is 10 min old, in whole seconds rounded up; the message is not taken.
+  is 10 min old; the message is not taken.
 - A receiver remembers the `id`s of at most 256 *(initial)* senders. A sender's entry goes
   when its newest `id` is 10 min old. A message of a further sender is answered `Error{BUSY}`
   with a `retry_after` of the time until the first entry can go, and not taken, so that no
   `id` is forgotten before its 10 min. Of the 256, at most 16 *(initial)* are of one host address (IPv4 /32, IPv6 /64); a
-  further sender of that host is answered `Error{BUSY}`. A sender counts at the host address
+  further sender of that host is answered `Error{BUSY}` with a `retry_after` of the time until
+  the first entry of that host can go. A sender counts at the host address
   of the message that made its entry, until its entry is gone.
 
 ## 3. Open points

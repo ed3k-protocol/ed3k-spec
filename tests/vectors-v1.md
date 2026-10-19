@@ -913,7 +913,7 @@ and serves as a check here; the protocol does not use it.
 | 1310720 | 5 | node(2, 0) ‖ node(2, 1) ‖ node(1, 0) to node(1, 2) ‖ block 0 to 4 cv; the values of the tree section | 320 | `103f4e723c6f36531b9d0be6e48c8c9187dfd7a6f98917a9ca878b43bc52859b` | `e30f4b6b49800f6f5fab779640a5c4ea0c720503fcdddca73f3b607f8c17e26a` |
 | 1073741824 | 4096 | levels 11 down to 0 | 262080 | `d7dd364a0856680d3bcc08ce10b9b1a4da2bc6b9cc86baf253f1a7f05a981025` | `59f5234a413cf114a466050379cf836e395169605ebba9f8698acf1b8a91dd47` |
 
-## Credit signatures (credit.md §3 and §4.2)
+## Credit signatures (credit.md §3, §4.2, §4.3 and §6.5)
 
 The ledger domain is a test domain, not the public network: chain ID 31337 and the address of
 the first contract that the first default account of a local test chain creates (nonce 0).
@@ -962,6 +962,25 @@ Receipt      = { day = 20739, kib = 4096, sig, proof }
                2f502a3d7418552582b38b30427d08140220d195d9df6762031b2a41d21c085f283e12a11432bd5f50338417d6ac6296
                d4404f7be911978261d18f4d39deda80fad066dc3b15703848f4c0fd9c0e3cd4ad6317aa2397917ed6425b7f1c
                (141 bytes)
+```
+
+**Hold** (§6.5), the signature of `holdFor` and the `SignedHold` of a `CreditRelay` (§4.3), for
+16 credits (`amount` = 16000000 µ), `nonce` = 1791849600123 (a time in ms) and
+`deadline` = 1791850200, 10 min later:
+
+```
+type hash    = keccak256("Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)")
+             = 5d7a8dc02aabd0e73e7b3d076a5123e99852a3ec94a4c646381a4df761c824ea
+struct hash  = keccak256(type hash ‖ payer ‖ payee ‖ amount ‖ nonce ‖ deadline)
+             = 1d02699c1f47bb05cb3c3c8259f108a3d3754e3d911c783cebe3a05d91542bef
+digest       = c7049a77c9f28df00326b79925e53ea36a2cb88ba9b0981c1a47597a96f39f69
+sig          = 757fced1a49373539fe6c050b2f449c93bba8889d4fba658857885a9e9cc8eeb
+               12363644cc1e9df8e603b0bead450ee85c838b924430ce514ccefbe0822a5e731b
+SignedHold   = { payer, payee, amount, nonce, deadline, sig }
+             = 0a147e5f4552091a69125d5dfcb7b8c2659029395bdf1214b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b21880c8d0
+               0720fba8bc94933428d8edb5d6063241757fced1a49373539fe6c050b2f449c93bba8889d4fba658857885a9e9cc8eeb
+               12363644cc1e9df8e603b0bead450ee85c838b924430ce514ccefbe0822a5e731b
+               (129 bytes)
 ```
 
 ## Paid subscriptions (subscription.md §2 to §8)

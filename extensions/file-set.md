@@ -322,7 +322,7 @@ message Head {
 
 // in Store (Protocol.md §10.3):
 Signed head = 5;              // HEAD; also HIDDEN (hidden-set.md §3) and PART (multi-author-set.md §3.4)
-// Store.signer = 6 (Protocol.md §10.3) carries the author's key when the node that stores is not the author
+// Store.signer = 6 (Protocol.md §10.3) carries the signing key when it is not the key of the connection
 
 // in KadAnswer (Protocol.md §10.3):
 repeated Signed sets = 14;    // answer to a search of kind HEAD, MEMBER, HIDDEN or PART
@@ -351,6 +351,10 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
   storing nodes that leave, and the author need not be online until the head's `expires`
   (7 days at most), when only the author can sign a new one. `signer` is how a `Store`
   carries a record that the connection's key did not sign (`Protocol.md` §10.7).
+- The author stores a new head when it publishes it. That store counts as its store of the
+  24 h: the next one follows 24 h later. `Store.signer` is the key the record signature
+  verifies under, the author's key or, in a joint head, a key of the grant; it MAY be left out
+  when that is the key of the connection.
 - **An old head can be shown again** until its `expires`, to a storing node that never saw the
   newer one. A searcher asks R nodes (`Protocol.md` §10.4) and takes the highest `seq`. An author who wants
   old versions to go quickly sets a short `expires` and stores more often.

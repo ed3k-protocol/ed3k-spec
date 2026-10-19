@@ -146,7 +146,9 @@ source address of `Protocol.md` §10.3.
   own because of it (`Protocol.md` §10.4).
 - **Address limits come first.** A storing node checks the limits of this table, and those per
   publisher key, before the limits of the target: a record over one is `REJECTED`, whether or
-  not the target has room.
+  not the target has room. A record that renews one held for the same publisher counts as a
+  new one at a host or site that holds no record of that publisher there. Over a limit it is
+  `REJECTED`, and the held record stays as it was until it expires.
 - Limits per publisher key, not per address, are in the documents of the kinds: a `KEYWORD`
   target takes at most 1,000 *(initial)* files of one publisher key and 2,000 of one publisher
   site (`Protocol.md` §10.8); a `MEMBER` target at most 4 sets of one publisher key
@@ -179,7 +181,7 @@ that **failed or are still pending**, per hour:
   completes only when the relay forwards: a `Punch` answered `Error{DENIED}`,
   `Error{NOT_FOUND}`, or `Error{UNSUPPORTED}` from a node that is no relay counts as one
   failed attempt at the relay's address (`Protocol.md` §10.3), also on a connection that was
-  open before. `Error{BUSY}` does not count. An attempt made for several files counts under
+  open before. `Error{BUSY}` and every other answer of the relay do not count. An attempt made for several files counts under
   each of them.
 - An attempt given up before its handshake completes, for example because the download was
   closed, counts as failed.

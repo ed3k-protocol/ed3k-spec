@@ -218,9 +218,10 @@ stays the one held and passed on; the node keeps its old version of the set.
   still not newer.
 - A subscriber stores the head it holds in Kad as a follower does, once per 24 h on its own
   schedule; taking a new head from the push does not move that schedule. The node that signs
-  a new head stores it when it publishes it (§3). A head it takes from the push or from
-  polling, also one under its own key, follows the 24 h schedule. For a joint head a node sets
-  `Store.signer` to the key of the grant under which the record signature verified.
+  a new head stores it when it publishes it (§3), and that store starts its 24 h anew
+  ([`file-set.md`](file-set.md) §5.2). A head it takes from the push or from polling, also one
+  under its own key, follows the 24 h schedule. `Store.signer` is set as file-set.md §5.2
+  says, for a joint head too.
 
 ### 4.2 `ON_AIR`
 

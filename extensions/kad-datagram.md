@@ -265,7 +265,8 @@ about 1110.
 - A responder builds the `KadAnswer` in this order and stops when the next item would not fit:
   contacts (closest first, both families interleaved by distance), then records in the paging
   order of §10.3. Records are left out from the end of that order only, and `offset` of the
-  next request counts the records carried. If records were left out it sets `more`. `sites`
+  next request counts the records carried. `http` and `links` go in only for carried sources,
+  and are left out before any record. If records were left out it sets `more`. `sites`
   holds one entry per record carried, and `keys` every key that a carried record references.
   zstd is applied before measuring.
 - A requester that sees `more` either asks again with `Query.offset`, or opens a QUIC connection

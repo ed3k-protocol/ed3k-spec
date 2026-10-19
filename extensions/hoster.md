@@ -59,7 +59,8 @@ hoster. All its fields keep their meaning:
 - A node sends `links` only to a peer that set `LINKS`. A storing node keeps and returns
   `Store.links` whether or not it sets the bit; it checks the limits and nothing else. A
   `Store` whose `links` holds more than 3 links, or a `url` or `hashes` above 256 bytes, is
-  answered `REJECTED`, and its source record is not kept.
+  answered `REJECTED`, and its source record is not kept. A storing node returns them with
+  their source record, as `http` ([`http-source.md`](http-source.md) §2.2).
 - The rules of [`http-source.md`](http-source.md) §2.1 to §2.3 apply to links as they do to
   HTTP sources: when an uploader may send them, that a downloader reports the outcome, that a
   publisher attaches only what it vouches for, and that a link may be passed on.

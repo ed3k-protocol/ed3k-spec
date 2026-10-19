@@ -91,10 +91,11 @@ enum Verdict {
 - A new version is found as for any set (`file-set.md` §5.3). A member whose root did not
   change is not downloaded again, so an author of a large list MAY split it into several files
   and change only some.
-- A client follows at most 32 *(initial)* lists and reads at most 64 *(initial)* list files per
-  set, the first ones as above. The list files it reads are at most 64 MiB *(initial)* in
-  all, counted by their `size` in the manifest, lists opened by hand included. Lists count in
-  the order the user followed them; one that would go beyond is not read. A new version that
+- A client follows at most 32 *(initial)* sets of lists and reads at most 64 *(initial)* list
+  files per set, the first ones as above. The list files it reads are at most 64 MiB
+  *(initial)* in all, counted by their `size` in the manifest, and a list opened by hand by
+  its file length. Lists count in the order the user followed or opened them; one that would
+  go beyond is not read. A list opened by hand is not one of the 32. A new version that
   would go beyond is not read either: the client keeps the old version. In both cases the
   client says so.
 - A list file that was opened by hand, without a set, MAY be used. It has no author and no

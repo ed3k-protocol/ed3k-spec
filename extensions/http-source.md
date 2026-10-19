@@ -113,7 +113,8 @@ message HttpResult {
   that `Store`. They live and expire with its source record.
 - It attaches only sources it vouches for: sealed chunks it published itself, or plain sources
   from which it has verified at least one block.
-- A storing node returns them in `KadAnswer.http` to a source search. It checks the limits of
+- A storing node returns them in `KadAnswer.http` with their source record, when that record
+  is in the answer (`Protocol.md` §10.3, **Paging**). It checks the limits of
   this document and nothing else; it does not fetch. A `Store` whose `http` holds more than 3
   sources, or a `url` or `hashes` above 256 bytes, is answered `REJECTED`, and its source
   record is not kept.

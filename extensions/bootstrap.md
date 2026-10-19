@@ -152,11 +152,15 @@ signed with its node key, so that one user can help another who is cut off from 
 - At most half of the candidates of a first contact come from one list, as long as a second
   list was received. Here and below, a list counts as received only if it gave at least one
   candidate. A node named by two lists is a candidate of each; it is dialled once.
+  Towards the half of the 4 it counts for one of them, the one with fewer nodes counted so
+  far.
 - When 4 *(initial)* nodes have completed a handshake, the client looks up its own routing ID
   (§6.3, §10.3), once per public address. When more than one list was received, at most half
   of the 4 come from one list: further nodes of that list do not count towards the 4, and the
   client waits for nodes from elsewhere, for at most 30 s *(initial)* from the first
-  handshake; after that every node counts. One list then cannot supply every seed of the first
+  handshake; after that every node counts. When every candidate has been dialled and fewer
+  than 4 count, the client looks up with those that completed a handshake. With none, this
+  first contact has failed (§1 of this document). One list then cannot supply every seed of the first
   lookup. From then on
   its table is filled by lookups, and the lists are not used again.
 - A node from a list that does not answer is dropped without a second attempt.

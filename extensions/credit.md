@@ -347,9 +347,12 @@ message CreditRelayAnswer {   // type 37, answer
   1 credit for a pair and day that has not earned the reward yet, the threshold of the reward
   (§6.6). It computes this with the views of §7.3: `settled()` of the pair and day,
   `accountOf()` of the issuer, and `issuedKib()` and `pairKib()` of the receipt's week. An
-  issuer that is not mature, or is `overdrawn`, counts as minting and taking nothing. What is
-  minted stays within what is left of both weekly limits (§6.3). What is taken is at most the
-  issuer's balance. Holds for other payees cannot be read, so this is an upper bound.
+  issuer that is not mature, or is `overdrawn`, counts as minting nothing; what it pays is
+  still taken (§6.2). What is minted stays within what is left of both weekly limits (§6.3).
+  What is taken is at most the issuer's balance, `earned` + `received` of `accountOf()`. A
+  receipt at most 1 day old whose growth of `spent` is above that balance sets `overdrawn`
+  before its mint (§6.2), so it mints nothing either. Holds for other payees cannot be read,
+  so this is an upper bound.
   `settle` returns nothing, so there is nothing to simulate.
 - **Nothing worth sending:** receipts that verify and stay below that threshold, and no hold
   the relay sends, are answered `Error{BUSY}` with a `retry_after` above 0. The relay keeps

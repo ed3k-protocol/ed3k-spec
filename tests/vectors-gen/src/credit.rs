@@ -1,4 +1,4 @@
-// Credit signatures (credit.md §3, §4.2): EIP-712 domain, Bid proof and Receipt signature with
+// Credit signatures (credit.md §3, §4.2, §6.5): EIP-712 domain, Bid proof, Receipt and Hold signatures with
 // secp256k1 key 1, keccak256, RFC 6979 low-s ECDSA. Prints the section of ../vectors-v1.md as markdown.
 use super::*;
 use ext::w;
@@ -46,14 +46,23 @@ pub fn run() {
     // the first receipt of a queue entry (§3.1), with proof; spent = 0 is left out
     let msg = cat(&[&fv(1, day), &fv(2, kib), &fv(3, spent), &fb(4, &sig), &fb(5, &proof)]);
 
+    let hold_type = keccak(b"Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)");
+    let (amount, nonce, deadline) = (16_000_000u64, 1_791_849_600_123u64, 1_791_850_200u64);
+    let hold_sh = keccak(&cat(&[&hold_type, &word(&payer), &word(&payee), &uint(amount), &uint(nonce), &uint(deadline)]));
+    let hold_d = digest(&hold_sh); let hold_sig = sign(&sk, &hold_d);
+    // SignedHold of a CreditRelay (§4.3)
+    let hold_msg = cat(&[&fb(1, &payer), &fb(2, &payee), &fv(3, amount), &fv(4, nonce), &fv(5, deadline), &fb(6, &hold_sig)]);
+
     // values two independent implementations agree on
     assert_eq!(hx(&sep), "c5a889472a3440d210993204c686a1fce378293f73da5de5a63d45654d2d3d17");
     assert_eq!(hx(&bid_d), "0d5e17820d5a72e8614687603b98523285e39f17603bc7d4760cdabbf7d97eda");
     assert_eq!(hx(&proof), "d21c085f283e12a11432bd5f50338417d6ac6296d4404f7be911978261d18f4d39deda80fad066dc3b15703848f4c0fd9c0e3cd4ad6317aa2397917ed6425b7f1c");
+    assert_eq!(hx(&hold_d), "c7049a77c9f28df00326b79925e53ea36a2cb88ba9b0981c1a47597a96f39f69");
+    assert_eq!(hx(&hold_sig), "757fced1a49373539fe6c050b2f449c93bba8889d4fba658857885a9e9cc8eeb12363644cc1e9df8e603b0bead450ee85c838b924430ce514ccefbe0822a5e731b");
     assert_eq!(hx(&sig), "ea5a302dda933e0388e87b65d465e8a292349ecb7b2bdcf2733e3a131a9770d913ebf1ba788a5c2f502a3d7418552582b38b30427d08140220d195d9df6762031b");
 
     println!("
-## Credit signatures (credit.md §3 and §4.2)
+## Credit signatures (credit.md §3, §4.2, §4.3 and §6.5)
 
 The ledger domain is a test domain, not the public network: chain ID 31337 and the address of
 the first contract that the first default account of a local test chain creates (nonce 0).
@@ -104,4 +113,23 @@ Receipt      = {{ day = 20739, kib = 4096, sig, proof }}
         hx(&contract), hx(&dom_type), hx(&sep), hx(&payer),
         hx(&challenge), hx(&bid_type), hx(&bid_sh), hx(&bid_d), hx(&proof[..32]), hx(&proof[32..]),
         hx(&rcpt_type), hx(&rcpt_sh), hx(&rcpt_d), hx(&sig[..32]), hx(&sig[32..]), w(&hx(&msg), 15), msg.len());
+
+    println!("
+**Hold** (§6.5), the signature of `holdFor` and the `SignedHold` of a `CreditRelay` (§4.3), for
+16 credits (`amount` = {amount} µ), `nonce` = {nonce} (a time in ms) and
+`deadline` = {deadline}, 10 min later:
+
+```
+type hash    = keccak256(\"Hold(address payer,address payee,uint256 amount,uint256 nonce,uint256 deadline)\")
+             = {}
+struct hash  = keccak256(type hash ‖ payer ‖ payee ‖ amount ‖ nonce ‖ deadline)
+             = {}
+digest       = {}
+sig          = {}
+               {}
+SignedHold   = {{ payer, payee, amount, nonce, deadline, sig }}
+             = {}
+               ({} bytes)
+```",
+        hx(&hold_type), hx(&hold_sh), hx(&hold_d), hx(&hold_sig[..32]), hx(&hold_sig[32..]), w(&hx(&hold_msg), 15), hold_msg.len());
 }
