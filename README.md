@@ -7,6 +7,8 @@ is fully compatible with the eD2K network.
 
 See [Protocol.md](./Protocol.md) for implementation details.
 
+**DRAFT VERSION: This spec is alpha and will change - please do NOT publish your implementations yet without prior contact and review via GitHub issues**
+
 ## License
 
 The specification is placed in the public domain.
