@@ -7,10 +7,11 @@ A client that speaks both eD2K and ed3k is recognised by eD2K peers through the 
 (§14.1) and the derived user hash (§14.2). Both work without any new tag. This note proposes
 tags that state ed3k support outright, for the places where a hint is not enough. Section 5
 looks at the other direction: whether the callbacks of eD2K can bring two firewalled ed3k
-nodes together.
+nodes together. Section 6 says how a server that runs an index node can list ed3k nodes as
+eD2K sources.
 
-**Result:** tag ID `0xE3` for the hello, the server login, the server ident and extended source
-exchange; the string name `"e3"` in Kad; the token `b3=` in links. All are unused in the seven
+**Result:** tag ID `0xE3` for the hello, the server login, the server ident, the server
+description and extended source exchange; the string name `"e3"` in Kad; the token `b3=` in links. All are unused in the seven
 eMule source trees that were checked. The tags stay outside the specification, because a
 dual-protocol client is complete without them. The rendezvous of an eD2K server can serve as
 the signal for an ed3k hole punch; the Kad buddy callback cannot (section 5).
@@ -33,8 +34,9 @@ A tag from the list below means "ed3k version `n`, port rule of §14.1".
 | Client hello (`OP_HELLO`, `OP_HELLOANSWER`) | tag `CT_ED3K` = `0xE3`, HASH type, value = the full 16-byte node ID | see §4 for a client that penalises unknown hello tags |
 | Kad source publish | string-named tag `"e3"`, UINT8 = wire version | stored and returned verbatim by legacy nodes, like `"ip6"` |
 | Extended source exchange record | tag `CT_ED3K` = `0xE3`, UINT8 = wire version | only to peers that skip unknown tags |
-| Server login (`OP_LOGINREQUEST`) | tag `CT_ED3K` = `0xE3`, HASH type, value = the node ID | lets an ed3k-aware server mark sources and advertise an index node |
+| Server login (`OP_LOGINREQUEST`) | tag `CT_ED3K` = `0xE3`, HASH type, value = the node ID | lets an ed3k-aware server mark sources, pair them with the node's ed3k connection (section 6) and advertise an index node |
 | Server ident (`OP_SERVERIDENT`) | tag `ST_ED3K` = `0xE3`, string, value = the server's `ed3k:node?…` link (§13.2) | how a client learns of a server's index node (§11) |
+| Server description (UDP `OP_SERVER_DESC_RES`, the extended form with challenge) | tag `ST_ED3K` = `0xE3`, string, the same link | reaches a client for every server in its list without a login, and other servers that read the reply |
 | eD2K link | token `b3=<root, base32 lower case, no padding>`, the parameter name of `ed3k:file` links (§13.2) | MUST be placed before the `sources` block, where legacy parsers stop reading |
 
 **Binding the identities.** The hello tag ties the eD2K identity to the ed3k one after an eD2K
@@ -51,7 +53,7 @@ lists of tags that some clients treat as a mark of a leecher mod.
 |---|---|
 | `0xA1`, the number first proposed | **taken.** One mod sends `0xA1` in the hello as a HASH tag with its 16-byte Kad ID. The type and length are the same as `CT_ED3K`, so a node ID would be read as a Kad ID, and the other way round |
 | `0xA0`–`0xAF` | not usable: a family of mod tags, partly assigned and partly reserved by their owner |
-| `0xE3` | free in all seven trees, as a client tag, an eMule info tag and a server tag. Not on any leecher-tag list |
+| `0xE3` | free in all seven trees, as a client tag, an eMule info tag and a server tag. Not on any leecher-tag list. Also free in the server-tag and login-tag space of the server implementations checked (2026-10-21) |
 | `"e3"` as a Kad tag name | unused; the string names in use are `"ip"`, `"port"`, `"ip6"`, `"bi6"` and the five HTTP Cache names |
 | `b3=` as a link token | unused; the tokens in use are `p=`, `h=`, `s=` and `s6=` |
 
@@ -126,7 +128,7 @@ Two things stand in the way of building any of them as they are. The protocol by
 not in the list of first bytes an ed3k salt avoids (§4.3); a dual-protocol client that adopts
 that rendezvous has to add it there, which is a sender-side rule and needs no wire change.
 And the opcodes `0xA6`/`0xA7`, `0x9F` and `0x60`–`0x62` collide with stock eD2K opcodes, so
-their packets need layouts of their own before anything is built (section 6).
+their packets need layouts of their own before anything is built (section 7).
 
 All three fill the needs of 5.1 when two conditions hold:
 
@@ -156,9 +158,34 @@ All three fill the needs of 5.1 when two conditions hold:
 | | IPv6 only with the rendezvous by user hash |
 
 An index node (§11) is a relay and needs none of this. An eD2K server that runs one says so in
-its ident (section 2).
+its ident and its description (section 2).
 
-## 6. Open points
+## 6. A server that runs an index node
+
+A server that runs an index node (§11) MAY list, in `OP_FOUNDSOURCES` for an eD2K hash, a node
+that stored a `SOURCE` record on its index node, when all of these hold:
+
+- the node's `Hello` has `ED2K` (§2);
+- the node is `open` in IPv4 (§9.2);
+- a `KEYWORD` record signed by the same key as the connection gives `FileInfo.ed2k` for that
+  root, or an `ALIAS` record of scheme `ed2k` by that key does
+  ([`extensions/alias.md`](../extensions/alias.md));
+- the server's own TCP test of the observed address at that port succeeds.
+
+By the port rule (§14.1) the eD2K TCP port is the ed3k UDP port. But `open` in ed3k is a UDP
+result, hence the TCP test. The pair of eD2K hash and root is a claim (§7.4); the server
+checks no bytes.
+
+With the login tag `CT_ED3K` (section 2) the server pairs the user hash with the node ID. It
+can then send the source in `OP_FOUNDSOURCES_OBFU` with the user hash, so that a
+dual-protocol peer goes to ed3k (§14.2). Without the login tag it does not use a user hash.
+
+A node that does not want to be listed on eD2K leaves `ED2K` unset in its `Hello`.
+
+The other direction is not possible: eD2K records carry no BLAKE3 root, so a server cannot
+store an eD2K source as an ed3k `SOURCE` record.
+
+## 7. Open points
 
 - The check covers the source trees at hand. `0xE3` and `"e3"` should be confirmed with the
   authors of other clients and of server software before first use.

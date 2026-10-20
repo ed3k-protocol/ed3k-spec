@@ -164,7 +164,7 @@ channel file (§1.2), nor is that one a prefix of this one.
   segment. Every node then holds the same bytes under a `seq`, and `have` bits mean the same
   everywhere.
 - `end` closes the broadcast. Nodes forward it, keep it for 30 min *(initial)*, and leave the
-  stream: they stop storing `LIVE` records at once, and for those 30 min answer a `LiveJoin`
+  stream: they stop renewing their own `LIVE` records at once, and for those 30 min answer a `LiveJoin`
   with the `end` record and `refusal = LIVE_LEFT`, so that a late viewer learns that the
   broadcast is over. In a private channel only a `LiveJoin` with a valid proof is answered so
   (§10.3). There is no other way to end a broadcast than this record or silence (§3.4). An `end`
@@ -346,8 +346,12 @@ under the target `stream`.
   the connection, not signed, and returned in `KadAnswer.sources` ([`Protocol.md`](../Protocol.md) §10.3).
 - **Lifetime 10 min** *(initial)*; stored again every 5 min while the node is in the stream. A
   node that leaves lets it run out.
-- The limits per target are those of `SOURCE` records
-  ([`ip-diversity.md`](ip-diversity.md) §2.4).
+- The limits per target are those of `SOURCE` records: at most 8 *(initial)* per host and 32
+  per site ([`ip-diversity.md`](ip-diversity.md) §2.4), and at most 10,000 *(initial)* records
+  under one target; a record of a further node is `FULL`, and a held one is renewed
+  ([`Protocol.md`](../Protocol.md) §10.8).
+- An index node does not keep it past its lifetime ([`Protocol.md`](../Protocol.md) §11): a
+  viewer that left drops out of the list as on any other node.
 - Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
   `LIVE`. It needs to know nothing about streams for that.
 

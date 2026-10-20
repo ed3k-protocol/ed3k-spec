@@ -219,7 +219,8 @@ stays the one held and passed on; the node keeps its old version of the set.
 - A subscriber stores the head it holds in Kad as a follower does, once per 24 h on its own
   schedule; taking a new head from the push does not move that schedule. The node that signs
   a new head stores it when it publishes it (§3), and that store starts its 24 h anew
-  ([`file-set.md`](file-set.md) §5.2). A head it takes from the push or from polling, also one
+  ([`file-set.md`](file-set.md) §5.2). A head signed only to extend `expires` (the same `seq`
+  and `root`) is a new head for this rule: it starts the 24 h anew. A head it takes from the push or from polling, also one
   under its own key, follows the 24 h schedule. `Store.signer` is set as file-set.md §5.2
   says, for a joint head too.
 
@@ -284,8 +285,12 @@ A subscriber publishes a record of kind `SUB` (7) under the target `topic`.
   the connection, not signed, and returned in `KadAnswer.sources`
   ([`Protocol.md`](../Protocol.md) §10.3).
 - **Lifetime 60 min** *(initial)*; stored again every 30 min while the node is subscribed.
-- The limits per target are those of `SOURCE` records
-  ([`ip-diversity.md`](ip-diversity.md) §2.4).
+- The limits per target are those of `SOURCE` records: at most 8 *(initial)* per host and 32
+  per site ([`ip-diversity.md`](ip-diversity.md) §2.4), and at most 10,000 *(initial)* records
+  under one target; a record of a further node is `FULL`, and a held one is renewed
+  ([`Protocol.md`](../Protocol.md) §10.8).
+- An index node does not keep it past its lifetime ([`Protocol.md`](../Protocol.md) §11): a
+  node that left the topic drops out of the list as on any other node.
 - Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
   `PUBSUB`. It needs to know nothing about topics for that.
 

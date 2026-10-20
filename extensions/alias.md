@@ -137,10 +137,13 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
   expired, also after the record was displaced. A `Store` with `signer` adds no site, and only
   stores answered `STORED` count. One site counts once; the count saturates at 255
   *(initial)*. `sites` and the order below use this count.
-- A search returns up to 16 *(initial)* records in `aliases`, the roots named by the most
-  publisher sites first, one record per root. Among equal counts the order is the node's own,
-  which a publisher cannot choose (`Protocol.md` §10.3). A site is the group of
-  [`ip-diversity.md`](ip-diversity.md) §1.
+- A search returns up to 16 *(initial)* records in `aliases`, one record per root: the roots
+  named by the most publisher sites first, and among equal counts by
+  `H("ed3k v1 page", secret ‖ root)` compared as bytes, where `root` is the 32 bytes of
+  `Alias.root` and `secret` that of `Protocol.md` §10.3. Of the records kept for a root, the
+  answer carries the one with the lowest `H("ed3k v1 page", secret ‖ root ‖ publisher key)`,
+  so that no publisher chooses which record is shown, also not by renewing often. A site is
+  the group of [`ip-diversity.md`](ip-diversity.md) §1.
 - `KadAnswer.sites` (`Protocol.md` §10.3) has one entry per entry of `aliases`: the publisher
   sites the node counted for that root, 0 = not counted.
 - A search is paged with `offset` and `more` as in `Protocol.md` §10.3, along the order

@@ -55,7 +55,8 @@ and share and download under its anonymous key. That is the recommended way to r
 traffic of others covers its own.
 
 - A file MUST NOT be offered under both keys. Two source records for the same rare files
-  connect the keys.
+  connect the keys. Records that name a file shared under the anonymous key (keywords, notes,
+  aliases) are published only under that key, through a path.
 - What is done under the anonymous key MUST go through a path: no direct connection, no HTTP
   source ([`http-source.md`](http-source.md)), no eD2K (`Protocol.md` §14), no answer in the
   local network ([`lan-discovery.md`](lan-discovery.md)).
@@ -83,7 +84,9 @@ neighbours. The hop furthest from the owner is the **last hop**.
 - The owner keeps a list of nodes that set `HOP`, with their keys. It fills it from the nodes
   it dials itself in Kad lookups for random targets, whose `Hello` shows `HOP` and `ROUTER`,
   and SHOULD hold at least 20 *(initial)* before it builds a path. A node that connected to it
-  is not taken from that connection.
+  is not taken from that connection. Random targets are drawn uniformly over the whole ID
+  space; bucket refreshes, which sample near the own routing ID, and first-contact lookups do
+  not count.
 - The hops of one path, the owner, and the node a stream goes to MUST be in different **sites**
   and SHOULD be in different **blocks** ([`ip-diversity.md`](ip-diversity.md) §1).
 - A last hop MAY refuse a `HopConnect` or `HopExtend` whose `node` is in its own site, with
@@ -96,6 +99,12 @@ neighbours. The hop furthest from the owner is the **last hop**.
 - A node keeps up to 4 *(initial)* paths outwards and up to 4 gates (§3.1). It measures the
   rate of each path and replaces the slowest when it is far below the others. How far is local
   policy.
+- An owner MUST NOT send `HopLookup` (§4.1) on a path that has a gate, and SHOULD NOT open a
+  `HopConnect` there: those streams would tie the gate to what the owner does outwards.
+- A node with 0 hops inwards has no gate: a gate at the node itself would show its address
+  under the anonymous key. Without a gate, B cannot open a stream to a hidden A (§3.3): an
+  uploader cannot offer it a slot (`Protocol.md` §12.5), and A comes back by itself when
+  `recheck` says.
 
 ### 2.2 Building
 
@@ -148,7 +157,8 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
   answered is still the last hop. When the new hop answers the `HopCreate` of a `HopExtend`
   with an `Error`, the last hop closes that exchange and passes the `Error` back as the
   answer. An `Error` that answers the first `HopCreate` ends the exchange: there is no path.
-  Another frame type from the owner is answered `Error{UNSUPPORTED}`; a frame that does not
+  Another frame type from the owner is answered `Error{UNSUPPORTED}`, except an `Error`, which
+  gets no answer (`Protocol.md` §5.6); a frame that does not
   parse closes the path (§2.3).
 - A `HopCreate` whose `path` is not 8 B or is in use on that connection, whichever neighbour
   chose it, or whose `e` is not 32 B, a `HopExtend` whose `create.path` is not empty, a
@@ -286,7 +296,9 @@ message HopGate {             // type 29. Request and answer on the control stre
 `node` (an address as §2.2 asks; else `Error{MALFORMED}`), opens an exchange, sends `HopJoin`
 with the same `gate`, and copies in both directions. The dials that `HopExtend` and
 `HopConnect` cause are limited per path, per neighbour, per neighbour host and per
-destination host (§5). A node that hides behind 0 hops sends `HopJoin` itself.
+destination host (§5). A `HopConnect` to a `node` that the last hop already has a connection
+with in that family is no dial, as a relay it is already connected to is none (below). A node
+that hides behind 0 hops sends `HopJoin` itself.
 
 - **A node that is not open.** The owner copies `relays4` and `relays6` from the `Peer`
   record of `node`, at most 2 *(initial)* each (`Protocol.md` §10.3); more, or a length that
@@ -354,6 +366,8 @@ seal(k, m)      = ChaCha20-Poly1305(k, nonce 0, m, empty AAD)                   
 - A MUST compute the node ID from the key of B and compare it with the node it meant to
   reach. On a mismatch it closes the stream.
 - B learns the key of A only inside the seal. A hop or gate between them sees neither key.
+- A side that has not had the next message of the handshake 10 s *(initial)* after it sent its
+  own resets the stream.
 - A session ends 10 min *(initial)* after its last stream closed. A session with an open
   stream does not end.
 
@@ -372,9 +386,9 @@ path.
   session, whose number is not above the highest it has seen from that side minus 1,024
   *(initial)*, or whose number has the parity of the receiver's own side. A gate or a last
   hop that sends a stream a second time is refused so.
-- A stream with an unknown `sid`, or whose first byte is neither 0x01 nor 0x02, is reset. An
-  opener whose further stream is reset before a record came back on it drops the session and
-  opens a new one with the three messages above. A reset carries no reason (`Protocol.md`
+- A stream with an unknown `sid`, or whose first byte is neither 0x01 nor 0x02, is reset.
+  Either side, as opener of a further stream, drops the session when that stream is reset
+  before a record came back on it, and opens a new one with the three messages above. A reset carries no reason (`Protocol.md`
   §5.2), so the opener does the same whether the `sid` was unknown, the number was seen or
   the path broke.
 
@@ -391,28 +405,44 @@ first stream has the number 0, and its records follow the three messages of §3.
 
 - A record whose plaintext is empty (`len` = 16) is the end of a direction, and is
   authenticated like any record. A direction that ends without it was cut; the receiver treats
-  the exchange as reset.
+  the exchange as reset. Anything after the empty record ends the stream, and the exchange
+  counts as reset.
 - A record with `len` below 16 or above 16,400, or that fails its check, ends the stream.
 - A session has no observed address, so a `Store` with `source` over it is answered `REJECTED`
   (`Protocol.md` §10.3); a node that hides publishes `ANON` and `GATE` records through a
   `HopLookup` (§4).
+- A session has no address family either. A `KadRequest` over it is answered as on a
+  connection in a family in which the node has adopted no endpoint (`Protocol.md` §10.3): no
+  contacts and not `responsible`, so only an index node answers with records. Limits that
+  count a host address count the host of the node that sent the `HopJoin`, per gate; limits
+  count per node ID as well. A node that hides uses `HopLookup` for Kad (§4.1).
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
 - The first exchange is `Hello`, on the first stream: A sends it and B answers, as in
   `Protocol.md` §5.5. A node under its anonymous key sends no `observed`, `ep4`,
-  `ep6` and no `nat`, an empty `nick`, and as `agent` one fixed string that its implementation
-  uses for every hidden node; a `Peer` that names it carries its node ID alone, and its
-  `FileRequest`s carry no `relays4` or `relays6`. Anything else would tie the two keys. A
-  receiver that sets `ANON` treats a `Peer` with a node ID alone as an anonymous source and
-  looks up its `GATE` record under the limits of §4.3; any other receiver drops it.
+  `ep6` and no `nat`, an empty `nick`, and as `agent`, `caps` and `dict` the values that its
+  implementation sends for every hidden node; `caps` never holds `ROUTER`, `RELAY` or `HOP`
+  (§1). A `Peer` that names it carries its node ID alone, and its `FileRequest`s carry no
+  `relays4` or `relays6`. Anything else would tie the two keys. A receiver that sets `ANON`
+  treats a `Peer` with a node ID alone as an anonymous source and looks up its `GATE` record
+  under the limits of §4.3; any other receiver drops it.
+- **Source exchange.** A bare node ID names only a node met under an anonymous key, one that
+  sent a `Hello` of the form above. A node reached at an address is passed on with that
+  address. A peer met over a session that is neither is left out of source exchange.
 - A node MUST limit new sessions per node ID to the node-ID rate of `Protocol.md` §4.6, and
   per gate or per node that sent the `HopJoin` to its host-address rate. Nothing is banned: a
   session over a limit is refused by resetting its first stream; the opener does not open
   another session to that node ID for 60 s *(initial)*. B knows the key of A only after the
   third message (§3.2), so it checks the node-ID rate then, and resets the first stream at that
-  point when it is over.
-- B can open a stream to A only through a gate of A. An uploader that offers a slot later
-  (`Protocol.md` §12.5) looks up the `GATE` record of the downloader.
+  point when it is over. A first stream that is reset before the first record from B came back
+  on it counts as such a refusal. A wrong key (A's node-ID check fails, §3.2) is no refusal; it
+  counts as a failed attempt (§4.3). A gate's `Error{BUSY}` is no refusal either (§4.3).
+- For an A that hides, B can open a stream to A only through a gate of A. An uploader that
+  offers a slot later (`Protocol.md` §12.5) looks up the `GATE` record of the downloader. To an
+  A that does not hide, B opens through a path of its own with `HopConnect`, `gate` absent, to
+  an endpoint and relays from A's `Peer` record, else from the `Hello` A sent in the session.
+  Those are then claims (`Protocol.md` §8.2 (5)), dialled within the limits of §5 and
+  [`ip-diversity.md`](ip-diversity.md) §2.5.
 
 ---
 
@@ -429,12 +459,20 @@ message HopLookup {           // type 30. First frame on a stream, read by the l
 }
 
 message HopLookupAnswer {     // type 31
-  repeated KadAnswer answers = 1;   // those of the closest set (Protocol.md §10.4), closest first
+  repeated KadAnswer answers = 1;   // one per closest-set member that said responsible (Protocol.md §10.4), closest first; the page of request.offset
 }
 ```
 
-- The last hop runs the lookup of `Protocol.md` §10.4 with the request as it is, under its own
-  key, and returns the answers of the closest set.
+- The last hop runs the lookup of `Protocol.md` §10.4 with the request, under its own key and
+  with its own address families; the owner's `want` does not steer the walk. It asks no index
+  node. It answers when the lookup ends (`Protocol.md` §10.4), at the latest 60 s *(initial)*
+  after the `HopLookup`, with what it has, possibly no answers. It never answers
+  `Error{NOT_FOUND}` for a lookup that found nothing.
+- `answers` holds one `KadAnswer` per member of the closest set that said `responsible`,
+  closest first: the page that the request's `offset` asks for. The owner asks for further
+  pages by sending the request again with the next `offset`; each node pages in its own order
+  (`Protocol.md` §10.3). Answers are left out from the far end so that the frame fits 1 MiB.
+- The owner waits 70 s *(initial)* for the `HopLookupAnswer`, then resets the stream.
 - It answers `Error{DENIED}` to a `HopLookup` whose `store` carries `source`, `also`, `http`,
   `links` or `sealed`: those records are bound to the connection (`Protocol.md` §10.3) and
   would name the last hop as a source. It refuses in the same way a `store` with a signed
@@ -470,7 +508,7 @@ Gates gates = 10;
 
 message Gates {
   uint64 issued = 1;          // Unix time; the later record replaces the earlier
-  repeated Gate gates = 2;    // at most 4
+  repeated Gate gates = 2;    // 1 to 4
 }
 
 message Gate {
@@ -479,7 +517,7 @@ message Gate {
 }
 
 // in Store:
-Signed anon = 10;             // ANON or GATE; `signer` is always present
+Signed anon = 10;             // ANON or GATE; MUST carry `signer`, else REJECTED
 
 // in KadAnswer:
 bytes  anon = 16;             // SOURCE search: n × 16 B node IDs of anonymous sources
@@ -502,12 +540,16 @@ Signed gate = 17;             // GATE search
 | `signer` | `Store.anon` carries `signer`, and the signature is valid under it | `gate` is valid under `keys[key]`, and that key gives the node ID that was looked up |
 | Target | `GATE`: follows from `signer` | the same |
 | Content | `ANON`: `expires` and nothing else. `GATE`: `expires` and `gates`, nothing else | the same for `gate` |
-| `gates` | at most 4 entries | the same |
+| `gates` | 1 to 4 entries; else `REJECTED` | the same |
 | `Gate.node` | 22 or 34 B, and an address that §2.2 accepts as `node` | the same |
 | `Gate.gate` | 8 B | the same |
 
 A record that fails a check is answered `REJECTED` by the storing node and dropped by the
-searcher.
+searcher. A `Store` of `ANON` or `GATE` without `signer` is `REJECTED`, per record.
+
+A search of kind `GATE` returns the one record of the target in `gate`. A search of kind `ANON`
+is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon`, after
+`sources` (`Protocol.md` §10.3). Of a `Query`, both use `offset` only.
 
 - **Two steps on purpose.** Gates change whenever a path breaks. A node with 10,000 files
   then stores one `GATE` record again, and its 10,000 `ANON` records stay as they are.
@@ -519,6 +561,11 @@ searcher.
   [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
   One session attempt is one gate dialled. An attempt counts until the searcher, as A, has checked
   the key of B (§3.2); one still pending counts as failed.
+- A gate's `Error{BUSY}` on a `HopJoin` is no failed attempt. That gate waits `retry_after`,
+  or 60 s without one (`Protocol.md` §5.6); other gates of the node MAY be tried meanwhile. The
+  60 s wait per node ID of §3.3 is for a reset of the first stream, the node's own refusal.
+- A node stores its `GATE` record before its first `ANON` record. It stores no `GATE` record
+  while it has no gate: `gates` is never empty.
 - An owner stores its `GATE` record again after 45 min *(initial)*, and at once when a gate
   was lost.
 - The batch of `Protocol.md` §10.4 does not carry `ANON` records: each is signed for its
@@ -540,7 +587,7 @@ A hop spends its own upload on the data of strangers. It decides how much.
 | Exchanges on the connection to one neighbour | 64 opened by the peer (`Protocol.md` §4.1), and 65 more for each path between them, in both directions: its 64 streams and the control stream. The hop raises it when it sends `HopCreated`, the neighbour that sent `HopCreate` when it reads it. When the path ends each lowers it again by granting no new exchange until the peer's open ones are below the limit |
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
-| Dials (`HopExtend`, `HopConnect`) per path / per neighbour | 4 / 16 per minute |
+| Dials (`HopExtend`, `HopConnect`) per path / per neighbour; a `node` already connected is none (§3.1) | 4 / 16 per minute |
 | Dials caused by `HopExtend`/`HopConnect` whose QUIC handshake did not complete within 10 s, or that are still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
 | Paths and dials per neighbour host address | 16 paths; 32 dials per minute |
 | Failed dials per neighbour host address: a wrong node ID, or a punch the relay refused | 8 per hour |
@@ -561,7 +608,8 @@ Above a limit it answers `Error{BUSY}`. A hop that takes no new paths clears `HO
 paths that this neighbour asked it for with `HopCreate`, and the bytes this neighbour forwarded
 on paths the hop asked *it* for.
 
-- Every neighbour gets a **base rate**, 16 KiB/s *(initial)*, shared over its paths.
+- Every neighbour gets a **base rate**, 16 KiB/s *(initial)*, shared over its paths. A hop
+  whose share cannot give every neighbour its base rate takes no new paths.
 - What the hop gives to paths beyond the base rates, it SHOULD divide in proportion to what
   each neighbour has forwarded for it in the last 7 days *(initial)*.
 - Rate that nobody has earned MAY go to anyone.
@@ -656,8 +704,10 @@ nothing was run. The broader comparison is in
   puzzle would give a key a price.
 - `ANON` records for very many files: one lookup and one signature per file. The batch form of
   a signature (`Protocol.md` §10.7) would allow a batch as for `SOURCE`.
-- `ANON` stays optional, also for a `ROUTER`: a node that hides can only use sources that set
-  it. Making it a duty would put the session of §3 into the core. To be looked at again when
+- The capability `ANON` (bit 14, accepting sessions through a path, §1) stays optional, also
+  for a `ROUTER`; storing and returning the record kinds `ANON` and `GATE` does not (above,
+  `Protocol.md` §10.3). A node that hides can only use sources that set the capability. Making
+  it a duty would put the session of §3 into the core. To be looked at again when
   it is known how many nodes set it.
 - Give and take reaches one link far and starts at nothing between two nodes that never met.
 - Live streams, publish and subscribe, and friends under an anonymous key are not looked at.

@@ -115,8 +115,8 @@ outrank the heads of that grant.
 |---|---|---|
 | Grant | a valid grant (§1.1); else `REJECTED` | the same, and `grant.key` is the key it searched for |
 | Target | `H("ed3k v1 set head", grant.key ‖ Grant.id)[0..16)` is the target of the request, and `Head.id` equals `Grant.id`; else `REJECTED` | the same |
-| Record signature | by a key of the grant | the same |
-| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are exactly `required` of them; else `REJECTED` | the same; a head that fails is dropped |
+| Record signature | `Store.signer`, or the connection's key when `signer` is absent, is one of `Grant.keys`, and the record signature is valid under it; else `REJECTED` | the record signature is valid under one of `Grant.keys` |
+| `cosigs` | every `CoSig` is valid (§1.2) over the bytes above: `signer` in range, no signer twice, signatures that verify; and there are exactly `required` of them; else `REJECTED`. Exactly, not at least: the record has to stay inside 1 KiB, and a storing node then makes a fixed number of checks. A publisher that holds more valid cosigs sends `required` of them; a manifest is a file and takes `required` or more (§1.2) | the same; a head that fails is dropped |
 | Order | by `Grant.number`, then by `Head.seq`, then by `Head.root`, where the lower root is the higher in order ([`file-set.md`](file-set.md) §5.2). A head without `joint` has number 0. A record is replaced only by one that is higher in this order, or equal with a later `expires`; a valid record that does not replace it is answered `OLDER` | the highest in this order wins |
 | `expires` | as for any head | as for any head |
 
@@ -310,7 +310,7 @@ target = H("ed3k v1 parts", set_key ‖ id ‖ issuer key)[0..16)        issuer 
 The record is a `Signed` of kind `PART`, signed by the author. It is the head of the part. It
 travels in `Store.head`, with `Store.signer` when the author's key is not the connection's,
 and in `KadAnswer.sets`. A search is paged with
-`offset` and `more` like a keyword search; an answer holds at most 16 *(initial)* records, in
+`offset` and `more`; of a `Query` it uses `offset` only. An answer holds at most 16 *(initial)* records, in
 an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in `Protocol.md`
 §10.3.
 
@@ -320,9 +320,9 @@ an order of the node's own by `H("ed3k v1 page", secret ‖ author key)`, as in 
 | Target | the one above, from the fields of the record | the one it searched |
 | Content | `part` and nothing else; else `REJECTED` | the same |
 | Size | `set_key` 32 B, `id` 1 to 32 B, `root` 32 B, `cert.issuer` 32 B, `cert.name` at most 64 B; else `REJECTED` | the same |
-| Certificate | when present: valid under `cert.issuer` for the signing key, and not expired | the same, and the issuer is one of the rules |
+| Certificate | when present: valid under `cert.issuer` for the signing key, and not expired; and when `cert.expires` is not 0, `Record.expires` is not later than `cert.expires`; else `REJECTED` | the same, and the issuer is one of the rules |
 | `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| Count | one record per author under a target; a higher `seq` replaces it, and so do the same `seq` with a lower `root`, and the same `seq` and `root` with a later `expires`; a valid record that does not replace is answered `OLDER`; at most 8 per host and 32 per site ([`ip-diversity.md`](ip-diversity.md) §2.4), `REJECTED` beyond; at most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
+| Count | one record per author under a target; a higher `seq` replaces it, and so do the same `seq` with a lower `root`, and the same `seq` and `root` with a later `expires`; a valid record that does not replace is answered `OLDER`; at most 8 per host and 32 per site ([`ip-diversity.md`](ip-diversity.md) §2.4), `REJECTED` beyond. The host and site of a kept record are those of the address of the `Store` that last stored it, a renewal included, also a `Store` with `signer`: a follower's re-store counts at the follower's address; over the limit there it is `REJECTED`, and the held record keeps its host and site. At most 1,024 *(initial)* records per target, then `FULL` | the highest `seq` per author; among equal ones the lower `root` |
 
 - **With an issuer, the storing node keeps the door.** The target contains the issuer's key,
   and the node checks the certificate against it. A key without a certificate of that issuer

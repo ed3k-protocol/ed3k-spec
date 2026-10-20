@@ -112,11 +112,15 @@ message FriendRequest {
 }
 ```
 
-`e` is an X25519 key made for this one record. Only the asked node can open it.
+`e` is an X25519 key made for this one seal. Only the asked node can open it.
 
 **The asking node** adds the key of the link first, and then stores the request under the
 target of the current day. It stores it again every 4 h *(initial)*, until it finds the other
-node's record for it (§1 of this document) or 7 days *(initial)* have passed.
+node's record for it (§1 of this document) or 7 days *(initial)* have passed. Each store seals
+the request anew, with a new `e` and nonce, under the target of the day of that store; `issued`
+and the signature stay those of the first store. After the 7 days without an answer the key
+stays added. The node stops looking for the other's record, except when its user wants to
+reach it, and tells its user that the request went unanswered.
 
 **The asked node** searches its request place when it starts and then once per 30 min
 *(initial)*: the targets of the day before, the current day and the day after, so that an
@@ -126,7 +130,11 @@ asking node whose clock is ahead is found.
   `key` is not 32 bytes, whose signature does not verify under `key`, whose `text` is above
   96 bytes, or whose `issued` is more than 7 days old or more than 1 h *(initial)* ahead of
   its clock.
-- It shows the rest to the user, each key once. A request is never accepted without the user.
+- A request from a key the node has already added is not shown: the two are friends already.
+  The node MAY tell its user.
+- It shows the rest to the user, each key once: a key the user declined is not shown again
+  while its request lasts. How long a declined key is remembered is local. A request is never
+  accepted without the user.
 - When the user accepts, the node adds the key. Both are then friends by §1 of this document.
 - When the user declines, nothing is sent.
 
@@ -183,6 +191,9 @@ padding is encrypted and a record and a request have one length on the wire:
 - A node that has more relays or endpoints than fit leaves some out. A record is never
   stored unpadded.
 - The associated data of the AEAD is empty in both forms.
+- `nonce` is 12 random bytes, new for every seal. `k_rec` stays the same for a pair or a link
+  for ever, so a nonce MUST NOT be used twice under it. The key of a request is new with
+  every `e` (§3 of this document).
 
 **The storing node** treats every `FRIEND` record like a source record (§10.3):
 
@@ -193,12 +204,20 @@ padding is encrypted and a record and a request have one length on the wire:
   the target is looked at. Then it holds at most 32 *(initial)* records under one target and
   answers `FULL` after that. A holder of the link thus needs several sites to lock the real
   node out of its place.
-- The lifetime is 5 h *(initial)*.
+- The lifetime is 5 h *(initial)*. An index node does not keep it past its lifetime
+  ([`Protocol.md`](../Protocol.md) §11), so that a dropped friend or a taken-back link stops
+  finding the node.
 - Of the content it checks the size and nothing else: a `sealed` of any length other than 384 bytes is
   `REJECTED`. It cannot
   read the record. All three forms have one length, so it cannot tell them apart by their
   size. It can tell a request from a record with some effort: a request begins with an
   X25519 public value, a record with random bytes. It returns the records of a target without saying who stored them.
+- A search of kind `FRIEND` returns the records of the target in `friends`, at most 32
+  *(initial)*, in the order sources are paged ([`Protocol.md`](../Protocol.md) §10.3,
+  **Paging**): by `H("ed3k v1 page", secret ‖ node ID)` of the publishing node. Of a `Query`
+  only `offset` is read. Over QUIC the 32 always fit and `more` is not set; a binding that
+  cuts the answer ([`kad-datagram.md`](kad-datagram.md) §4.1) sets `more`, and `offset` pages
+  on.
 
 **The node that wants to be found**
 
@@ -227,7 +246,10 @@ padding is encrypted and a record and a request have one length on the wire:
    address, and dialling does.
 
 - A node looks when its user wants to reach the other, and otherwise at most once per 30 min
-  *(initial)*.
+  *(initial)* per friend or link.
+- For a look-up its user asks for, a node SHOULD search under the pair key (§1 of this
+  document) first, and use an open link of the other only when that finds nothing. Only the
+  two friends can write at the pair place; any holder of an open link can write at its place.
 - A node opens at most 256 *(initial)* sealed values of one search, records and requests
   alike; further ones are ignored.
 - Once connected, the two nodes are ordinary peers. What a friend is allowed, in chat, in

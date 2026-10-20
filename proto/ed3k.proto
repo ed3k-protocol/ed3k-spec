@@ -767,7 +767,7 @@ message HopJoin {             // type 34. First frame of an exchange from outsid
 
 message Gates {
   uint64 issued = 1;          // Unix time; the later record replaces the earlier   hops.md §4.3
-  repeated Gate gates = 2;    // at most 4
+  repeated Gate gates = 2;    // 1 to 4
 }
 
 message Gate {

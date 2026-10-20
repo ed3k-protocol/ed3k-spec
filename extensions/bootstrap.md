@@ -27,7 +27,9 @@ A client tries these in order and stops when its lookups work:
 2. **Nodes in the local network** ([`lan-discovery.md`](lan-discovery.md)). A LAN peer is not
    put into the routing table, but it answers a `KadRequest` with contacts.
 3. **`ed3k:node` links** the user opened (§13.2).
-4. **eD2K peers that also speak ed3k** (§14), for a client of both networks.
+4. **eD2K peers that also speak ed3k** (§14), for a client of both networks, and **index
+   nodes advertised by eD2K servers** in their ident or description
+   ([`docs/ed2k-tags.md`](../docs/ed2k-tags.md) section 2).
 5. **Node lists** (§2 to §4 of this document).
 
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the

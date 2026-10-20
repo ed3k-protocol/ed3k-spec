@@ -118,7 +118,8 @@ off. A bit that was turned on is seen on the next connection.
 
 A node sets `ROUTER` while it is `open` in at least one family (§9.2), also when the operator
 declared it open there, and clears it on new connections when it no longer is. `ROUTER` alone
-does not say in which family; `Hello.nat` does (§10.2).
+does not say in which family; `Hello.nat` does (§10.2). An index node MAY leave `ROUTER` unset
+while it is open (§11).
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -196,6 +197,7 @@ and a path to close it are described in [`docs/transport-bindings.md`](docs/tran
   connection kept sends a QUIC PING every 20 s *(initial)*: for a file stream that is open or
   waits in a queue (§12.5), for a relay reservation (§9.4), and where an extension says so. A
   side with no such reason sends none and lets the timeout run, or closes with `CLOSED`.
+  Towards an index node both values are wider (§11).
 - A node allows its peer at most 64 *(initial)* open exchanges that the peer opened on a
   connection (`initial_max_streams_bidi`, raised as exchanges close). The limit is per
   direction; file streams and the exchanges of extensions count in it. The two ends of a
@@ -349,9 +351,10 @@ holds one packet (above); a datagram with several packets is a `HANDSHAKE` and i
   punch. With these bytes counted, a server whose flight of 1,200 bytes is lost twice may have
   no budget for a third, when its padding and fragment overhead exceed the client's; it sends
   again when the client's next Initial arrives.
-- The QUIC maximum datagram size MUST be set 13 bytes below the path limit. An unsplit Initial
-  without padding is then 1213 bytes, which fits the IPv6 minimum MTU (1232 bytes of UDP
-  payload); with padding it fits up to `pad_len = 19`.
+- The QUIC maximum datagram size MUST be set 13 bytes below the path limit. A QUIC stack
+  starts at 1,200 bytes, so that its Initials are 1,200 bytes, and raises the size only by
+  path MTU discovery. An unsplit Initial without padding is then 1213 bytes, which fits the
+  IPv6 minimum MTU (1232 bytes of UDP payload); with padding it fits up to `pad_len = 19`.
 - The binding needs a path that carries 1,213 bytes of UDP payload. A handshake sent in
   fragments never puts a datagram of that size on the path, so the test that QUIC makes with
   its padded Initial (RFC 9000 §14.1) is missing. Each side checks the path once per
@@ -364,7 +367,9 @@ holds one packet (above); a datagram with several packets is a `HANDSHAKE` and i
   nothing. This is the case when its QUIC maximum, or the peer's `max_udp_payload_size`, is
   1,200 bytes, so that no probe is larger than its datagrams. Its full datagrams of file data
   are then the probes. The check passes as above, and QUIC's loss detection and the idle
-  timeout end a path that drops them. After a migration the check is not repeated:
+  timeout end a path that drops them. The check exists for file data: a side that sends no
+  file data on the connection MAY skip it, and starts it before it sends its first `Block`
+  there. An index node sends none. After a migration the check is not repeated:
   QUIC's path validation expands its datagrams to 1,200 bytes (RFC 9000 §8.2.1), 1,213 on the
   wire.
 
@@ -989,6 +994,7 @@ from the address it advertises.
 
 **NAT traversal is REQUIRED.** Every node MUST implement address observation (§9.2), act as punch
 initiator and punch target (§9.5), and, when it is a `ROUTER`, offer the relay service (§9.4).
+An index node SHOULD offer it also without `ROUTER` (§11).
 A node behind a stateful IPv6 firewall is in the same position as a node behind an IPv4 NAT and
 uses the same procedure.
 
@@ -1152,7 +1158,8 @@ A relay holds the connection open and forwards `Punch` messages to the leaf. A l
 relays in every `Peer` record it publishes (`relays4`, `relays6`).
 
 **A reservation** lasts as long as the connection it was made on and is not carried to another
-one. The leaf sends the PING of §4.1; any packet counts as traffic. `ttl` is informational:
+one. The leaf sends the PING of §4.1, at an index node at the interval of §11; any packet
+counts as traffic. `ttl` is informational:
 the time the relay keeps the slot without traffic, at most the idle timeout (§4.1). The slot
 ends with the connection. The leaf does not repeat its request. `Relay{reserve = false}` gives
 the slot back and is answered `Relay{ttl = 0}`.
@@ -1193,6 +1200,9 @@ lookups.
 more. It holds at most 2 *(initial)* reservations per host address and 4 *(initial)* per site
 ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1), so that cheap keys from one
 network cannot take every slot; a further one from that network is answered `Error{BUSY}`.
+A node with the `INDEX` capability MAY use wider limits per host and per site, as for
+connections (§4.6): behind a carrier-grade NAT many of its clients share one address, and it
+SHOULD serve far more than 8 leaves. The forward limits below are per leaf and stay as they are.
 When all are taken it answers `Error{BUSY}` and clears `RELAY` in its `Hello` until one
 is free. A peer that is already connected does not see the cleared bit; for it `Error{BUSY}`
 is the signal (§2).
@@ -1251,7 +1261,9 @@ initiator I                        relay R                          target T
    7 s *(initial)*, or answers with anything but `Error{BUSY}` or a `Punch` for T, I asks the
    next relay of T in the same try. Such an answer is any other `Error`, `NOT_FOUND`,
    `UNSUPPORTED`, `DENIED`, `MALFORMED` and unknown codes included, or a `Punch` whose
-   `peer_id` is not T's or that breaks a rule of this section. An `Error{BUSY}` ends the try: it
+   `peer_id` is not T's or that breaks a rule of this section. An endpoint at an address that is
+   not acceptable (§8.2 (7), and (8) in a named network) breaks no rule: it is only left out,
+   and the answer declines when no endpoint is left. An `Error{BUSY}` ends the try: it
    can come from R or from T (step 4).
 2. R forwards it to T on a new exchange, with `peer_id` replaced by I's ID, the endpoint of
    the family the `Punch` arrived on replaced by I's observed endpoint as R sees it (as §9.3
@@ -1283,7 +1295,7 @@ initiator I                        relay R                          target T
 5. A try has failed when no handshake with T has completed 8 s *(initial)* after the relay's
    answer, or when it ended at `Error{BUSY}`, or when no relay of T is left to ask. I tries up to 3 times *(initial)*, and for the next
    try prefers a relay that the last try did not ask. After that T is marked unreachable for
-   30 min *(initial)*.
+   30 min *(initial)*, and at once after an answer of T that declines (**Class and family**).
 
 **Who may ask.** A forwarded `Punch` (`seen` not 0) whose `seen` is not 1 or 2 is
 `Error{MALFORMED}`, wherever it arrives. T acts on any other forwarded `Punch` only when it
@@ -1302,7 +1314,8 @@ of the relay (§9.4) bound an honest relay only.
 `nat` in `Punch` is the sender's class in the family of its own hop, the connection on which it
 sent the `Punch` to the relay; the relay forwards it unchanged, and the receiver learns that
 family from `seen` (steps 2 and 4). T declines a family by leaving its endpoint out of its
-answer; an answer without an endpoint declines the punch.
+answer; an answer without an endpoint declines the punch. A declining answer ends the try,
+and I does not punch T again for 30 min *(initial)* (step 5).
 
 Pairs that cannot work, `symmetric` on both sides in a family both need, are not punched. I
 does not know T's class before T answers, and `nat` holds for the family of one connection
@@ -1396,7 +1409,11 @@ target (§10.7). `Query` (§10.3) matches against words.
 - An implementation MUST use the tables of Unicode 16.0.0 or later; the examples above are
   checked against that version. The general category of a code point that Unicode 16.0.0
   assigns is taken from that version, also by an implementation with later tables, and the
-  ranges of step 3 are the table above and nothing else. The Unicode stability policy keeps normalisation and case
+  ranges of step 3 are the table above and nothing else. Unicode 17.0.0 changes no category
+  that this split tells apart (L, M, N, Cf, other) for a code point that 16.0.0 assigns, and
+  no normalisation or case folding: an implementation with 17.0.0 tables complies as it is.
+  The code points that 17.0.0 adds after U+323AF (CJK Extension J) are outside the table of
+  step 3 on purpose, so that all versions split them alike. The Unicode stability policy keeps normalisation and case
   folding of an assigned character fixed across Unicode versions. A code point that an
   implementation does not know is treated as a separator, so a storing node with older tables
   than a publisher can refuse a record whose keyword uses a character assigned later; keeping
@@ -1538,7 +1555,9 @@ Rules:
   the target than itself. It returns none when it knows none closer. "Itself" is its routing ID
   for the public endpoint it has adopted (§9.2) in the family of the connection, for `nodes4`
   and `nodes6` alike. A node that has adopted none in that family returns no contacts and does
-  not set `responsible`.
+  not set `responsible`, unless it is an index node: an index node is responsible for every
+  target whether or not it has adopted an endpoint (§11), and only its contacts need the
+  routing ID.
 - Every node answers a `KadRequest` with the contacts it knows, a leaf too. Only a node that is
   `open` in the family of the connection (§9.2), or an index node (§11), is responsible.
 - **The requester checks the answer.** It computes the routing ID of each returned contact from
@@ -1587,7 +1606,9 @@ Rules:
   sequence, and records are left out from its end only. `http` and `links` are not records of
   the sequence. They belong to the source record they were stored with, and an answer carries
   those of the `sources` it holds, in the order of `sources`, up to their limits per answer.
-  Of a `Query`, a search of kind `SOURCE` uses `offset` only. The node
+  Of a `Query`, a search of kind `KEYWORD` uses every field; a search of any other kind of
+  version 1 uses `offset` only and ignores the other fields, unless the document of the kind
+  says otherwise. The node
   keeps no state between pages; what changes in between can be missed or seen twice, and the
   searcher merges by publisher and file. An extension that pages its own records says in what
   order and how many an answer holds.
@@ -1595,6 +1616,9 @@ Rules:
   whether or not it sets the extension's capability: a kind that comes into use later then
   needs no network upgrade. The content and the storing-node checks of each kind are in the
   document that defines it, and a `ROUTER` implements those checks for every kind (§13.1).
+  A `ROUTER` that answers a kind of version 1 as not responsible does not conform, although a
+  lookup goes on past it; the rule for a kind the node does not know (below) is for kinds
+  added after version 1. An index node without `ROUTER` stores the kinds it chooses (§11).
 - **`HEAD` and `MEMBER`** are the record kinds of file sets. Every `ROUTER` MUST store and return
   them, whether or not it sets `SETS`. Their content and checks are in
   [`extensions/file-set.md`](extensions/file-set.md) §5 and §6.
@@ -1624,10 +1648,13 @@ Rules:
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
   which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the node IDs
   of the `ANON` records of the target, in `anon`, paged after `sources` (**Paging** above). A `Store` of a signed kind MAY carry `signer` (§10.7); the record is
-  then checked under that key in place of the key of the connection.
+  then checked under that key in place of the key of the connection. For `ANON` and `GATE`
+  `signer` is required ([`extensions/hops.md`](extensions/hops.md) §4.3).
   Every `ROUTER` MUST do all of this, whether or not it sets `ANON`
   ([`extensions/hops.md`](extensions/hops.md) §4).
-- A node that does not know the `kind` of a request answers as a node that is not responsible.
+- A node that does not know the `kind` of a request answers as a node that is not responsible:
+  a kind added after version 1, or, at an index node without `ROUTER`, a kind it does not
+  store (§11).
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data. A
   requester MUST ignore `sources`, `files`, `notes`, `results` and every record field of an
@@ -1893,8 +1920,12 @@ record cannot be replayed under another keyword or file. One kind signs a value 
 - **Ed25519** is verified as RFC 8032 §5.1.7 says, with every choice fixed, so that all nodes
   agree on what is valid: a signature is 64 bytes; `S` MUST be below the group order; the
   encodings of the key `A` and of `R` MUST be canonical; `A` and `R` MUST NOT be of small
-  order; and the equation is checked without the cofactor, `[S]B = R + [k]A`. This is what
-  `verify_strict` of ed25519-dalek does.
+  order; and the equation is checked without the cofactor, `[S]B = R + [k]A`. This is
+  `verify_strict` of ed25519-dalek with a check added that the encoding of `A` is canonical.
+  Libraries that verify more loosely need these checks in front of them: Go's
+  `crypto/ed25519.Verify`, for one, accepts `R` and `A` of small order and an `A` that is not
+  canonical. The forms that are rejected are test vectors
+  ([`tests/vectors-v1.md`](tests/vectors-v1.md)).
 - A record is **valid** when every signature of an algorithm the verifier knows verifies, and
   every *required* algorithm is present. In version 1 the required set is Ed25519 alone. The
   set changes by network upgrade (§16).
@@ -1924,7 +1955,8 @@ A `Store.signer` that is not 32 bytes makes a request of a kind that uses it `Er
 (§0); for `SOURCE`, `LIVE`, `SUB` and `FRIEND` it is ignored whatever its length.
 **Newer.** Every signed kind keeps one record per publisher and file, target or root (of all
 publishers together a keyword file, a `MEMBER` set and an `ALIAS` root keep at most 3, §10.8
-and their documents), and a
+and their documents), except `HEAD`, `HIDDEN` and `GATE`, which keep one record per target
+whichever key signed it, and a
 record replaces the one held only when it is newer: `HEAD`, `HIDDEN`, `PART` and `GATE` have
 an order of their own, stated in their documents; for every other signed kind the record with
 the later `expires` is the newer one. A valid record that is not newer than the one held is
@@ -1973,7 +2005,8 @@ same few nodes. Version 1 bounds that as follows.
   publisher site ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1); a further
   one from there is `REJECTED`.
 - A file target holds at most 10,000 *(initial)* `SOURCE` records; a record of a further node
-  is `FULL`, and a held one is renewed.
+  is `FULL`, and a held one is renewed. A target of `LIVE` or `SUB` holds as many records of
+  its kind, by the same rule.
 - Of the files under one keyword target, at most 1,000 *(initial)* come from one publisher
   key and 2,000 *(initial)* from one publisher site
   ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1). A record for a further
@@ -2041,21 +2074,62 @@ protocol of its own:
 | Offer files | `KadRequest{kind=KEYWORD, store}` and `{kind=SOURCE, store}` |
 | Search | `KadRequest{kind=KEYWORD, search}` |
 | Get sources | `KadRequest{kind=SOURCE, search}` |
-| Callback request | `Punch` (an index node is a relay) |
+| Callback request | `Punch` (an index node that offers the relay service is a relay, §9.4; it SHOULD offer it) |
 | Server list | none; index nodes are found as said below and recognised by `Hello.caps` |
 
-Differences from a Kad node: an index node is `responsible` for **every** target, never needs the
-iterative walk, MAY keep a source record beyond its lifetime for as long as the publishing
-connection stays open, and MAY apply its own admission policy with `Error{DENIED}` or
-`{BUSY}`. A source record kept for the connection goes when the connection closes or at the
-end of its lifetime, whichever is later. Signed records (§10.7) expire on an index node as
-anywhere else; the publisher renews them. The limits of §10.8 and of
-[`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.4 bind an index node as any
-storing node, unless its own policy is stricter.
+Differences from a Kad node: an index node is `responsible` for **every** target, also before it
+has adopted an endpoint (§9.2, §10.3), never needs the iterative walk, MAY keep a `SOURCE`
+record beyond its lifetime for as long as the publishing connection stays open, and MAY apply
+its own admission policy with `Error{DENIED}` or `{BUSY}`. A `SOURCE` record kept for the
+connection goes when the connection closes or at the end of its lifetime, whichever is later;
+once past its lifetime it gives its place to the record of a further node before the target
+answers `FULL` (§10.8). The kinds stored like `SOURCE` (`LIVE`, `SUB`, `FRIEND`) are not kept
+so: they end with their lifetime as anywhere else, since their short lifetime is what tells
+that a node has left a stream or a topic, or no longer wants to be found. Signed records
+(§10.7) expire on an index node as anywhere else; the publisher renews them. The limits of
+§10.8, of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.4 and the limits per
+target in the document of each kind bind an index node as any storing node, unless its own
+policy is stricter.
+
+**Limits over all targets.** Those limits are per target, and an index node holds every target;
+keys, names and roots cost nothing, so a limit per target does not bound what one publisher
+can make it hold. An index node MUST therefore also bound the records it holds per publisher
+host address and per publisher site ([`extensions/ip-diversity.md`](extensions/ip-diversity.md)
+§1), over all targets and kinds together. The bound is local policy. A record beyond it is
+`REJECTED`, not `BUSY`: the node has room.
+
+**Kad duty.** An index node is normally open, often by the operator's word (§9.2), and a node
+sets `ROUTER` while it is open (§2), but an index node MAY leave `ROUTER` unset. It is then no Kad router:
+
+- It is not put in routing tables (§10.2), keeps none of its own and answers without
+  contacts. It need not dial at all: on a connection it accepted every datagram is masked
+  with its own `obf_id` (§4.3), and as A of a `ReachTest` it answers `ok = false` (§9.3).
+- It stores the record kinds it chooses and answers a request of any other kind as a node
+  that is not responsible (§10.3). A client therefore falls back to Kad for those kinds.
+- It SHOULD still offer the relay service (§9.4), which is the callback of an eD2K server.
+
+An index node that sets `ROUTER` has every duty of one, also storing every record kind.
+
+**Keepalive.** An index node holds many idle connections, and keeps none for its own sake. It
+sends `max_idle_timeout` = 300 s *(initial)* and no PING of its own. A client that dials a node
+it knows as an index node (below) sends 300 s as well, since QUIC takes the smaller value of
+the two sides. A client that wants such a connection kept sends a PING every 60 s *(initial)*
+while it holds a relay reservation there or is not `open` in the family of the connection, so
+that its NAT keeps the mapping, and every 240 s *(initial)* otherwise, each interval varied at
+random by up to 10 % *(initial)*. A mapping that lapses between two PINGs is mended by the
+next one, through the migration of the client side (§4.1); a `Punch` lost in the gap is tried
+again (§9.5).
+
+**Load** *(informative)*. Signed records cost an index node one strict Ed25519 verification each
+(§10.7). A client that shares 10,000 files under about 5 keywords each sends some 50,000 a
+day, a few seconds of one core; 50,000 such clients take about 1.5 cores. Batch verification
+does not help: it checks the equation with the cofactor, which §10.7 does not. A node MAY
+answer a `Signed` that is byte for byte the one it holds `OLDER` without verifying it again.
 
 A client finds index nodes from a configured list, from a link (§13.2) or from an eD2K server
 that advertises one ([`docs/ed2k-tags.md`](docs/ed2k-tags.md)). Index nodes are optional for the
-network and optional for a client.
+network and optional for a client. An eD2K server that runs an index node MAY list some of its
+ed3k sources on eD2K as well ([`docs/ed2k-tags.md`](docs/ed2k-tags.md) §6).
 
 An index node stores and answers records. A service that keeps a catalogue of its own, such as
 a video site, is not an index node by that; it runs a node next to it, which may be one
@@ -2761,6 +2835,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Idle timeout (`max_idle_timeout`) | 30 s |
 | Exchanges a peer may have open on a connection, more per path between the two (both directions); a request must arrive whole within | 64, 65; 30 s |
 | Keep-alive (PING) by the side that wants a connection kept | 20 s |
+| Towards an index node: `max_idle_timeout` (both sides); client PING with a relay reservation there or not `open` / otherwise, jitter | 300 s; 60 s / 240 s, ±10 % |
 | `Hello` of the peer awaited on stream 0 | 30 s |
 | Fragment reassembly: messages per source, timeout, one message at most, all messages at most (bytes / messages), attempts in fragments per packet type before an unsplit one; `msg_id` not used again towards one address within | 4, 3 s, 1,500 B, 4 MiB / 65,536, 2; 3 s |
 | Full-size path probes lost before the connection is closed | 3 |
@@ -2776,7 +2851,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Reach test: tests without `PROBE` before `open` is dropped | 2 |
 | Relays per node that is not open in a family, at least | 2 |
 | Reservations a router holds, at least / recommended | 1 / 8 |
-| Reservations a relay holds per host / site, at most | 2 / 4 |
+| Reservations a relay holds per host / site, at most (an index node MAY use wider) | 2 / 4 |
 | Relay that answered `BUSY`: not asked again for | 30 min |
 | Relay: `ttl` (informational) at most, wait for the target's `Punch` answer | the idle timeout, 5 s |
 | Punches a target starts per minute: in all, towards one host address; `PROBE`s per punch (shared evenly over I's endpoints), per destination host address and minute | 30, 3; 50, 100 |
@@ -2796,12 +2871,13 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Diversity, closest set | as the lookup ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.3) |
 | Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
 | Diversity: a host group whose contact was removed is not admitted under another node ID for; removed host groups remembered for | 1 h; 1 h |
-| Diversity: `SOURCE` records per file, `ANON` records per target, `KEYWORD` and `NOTE` publishers counted per entry, per host / site | 8 / 32, 4 / 8, 1 / 1 |
+| Diversity: `SOURCE` records per file and `LIVE` and `SUB` records per target, `ANON` records per target, `KEYWORD` and `NOTE` publishers counted per entry, per host / site | 8 / 32, 4 / 8, 1 / 1 |
+| Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held | 1,024 / 4,096, 64 / 256 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families, relays and gates), per host / site / block; per host and hour over all files | 2 / 4 / 8; 8 |
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias, live, subscriber, gate, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
 | Search answer: keyword records, notes, sources and anonymous sources together at most; paging secret replaced every | 100, 100, 100; 24 h |
 | Keyword target: records kept per file, files per publisher key / per publisher site; notes per file target, in all / per publisher host / per publisher site | 3, 1,000 / 2,000; 64 / 4 / 8 |
-| Source record and `FileRequest`: relays per family at most (used); records per file target at most; note text at most | 2; 10,000; 512 B |
+| Source record and `FileRequest`: relays per family at most (used); records per file target (and per `LIVE` or `SUB` target) at most; note text at most | 2; 10,000; 512 B |
 | Keyword: files per target (level size), levels in use, highest level accepted **(wire)** | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |
@@ -2835,6 +2911,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: dials caused by `HopExtend`/`HopConnect` (relay dials and punches included) whose handshake did not complete within 10 s, or still pending, per destination host (IPv4 /32, IPv6 /64) and hour; per neighbour host address: paths, dials per minute, failed dials (wrong node ID, refused punch) per hour | 8; 16, 32, 8 |
 | Anonymous paths: hops known before a path is built, reach a new hop or a `HopConnect` node within, status frame awaited (after `HopStream` or `HopJoin` / after `HopConnect`), `HopJoin` per gate and host, give and take measured over, relays per family in `HopConnect` | 20, 10 s, 10 s / 30 s, 10 per minute, 7 days, 2 |
 | Anonymous paths: answer awaited by the last hop to its `HopCreate`; by the owner after `HopCreate` or `HopGate` / after `HopExtend`; a refused session not opened again to that node ID for | 10 s; 10 s / 30 s; 60 s |
+| Anonymous paths: next message of a session handshake awaited; `HopLookup` answered by the last hop at the latest / awaited by the owner | 10 s; 60 s / 70 s |
 | Anonymous paths: replay window for stream numbers of a path and of a session, PING on a path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most; senders remembered at most, of them per host address; resends after a lost connection at most, within | 10 min, 1,024; 256, 16; 3, 10 min |

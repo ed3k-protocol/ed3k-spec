@@ -127,20 +127,29 @@ source address of `Protocol.md` §10.3.
 
 | Record | host | site | block |
 |---|---|---|---|
-| `SOURCE` records per file | 8 | 32 | — |
+| `SOURCE` records per file, `LIVE` and `SUB` records per target | 8 | 32 | — |
 | `ANON` records per target | 4 | 8 | — |
+| `NOTE` records per file target (`Protocol.md` §10.8) | 4 | 8 | — |
 | `KEYWORD` and `NOTE`: publishers counted per entry | 1 | 1 | — |
 | `FRIEND` records per target ([`friend.md`](friend.md) §4) | 8 | 16 | — |
 | `MEMBER` sets per file ([`file-set.md`](file-set.md) §6) | — | 16 | — |
 | `ALIAS` roots per target ([`alias.md`](alias.md) §3) | — | 8 | — |
 | `PART` records per target ([`multi-author-set.md`](multi-author-set.md) §3.4) | 8 | 32 | — |
+| `HEAD` and `HIDDEN` records held, over all targets ([`file-set.md`](file-set.md) §5.2, [`hidden-set.md`](hidden-set.md) §3) | 1,024 | 4,096 | — |
+| `GATE` records held, over all targets ([`hops.md`](hops.md) §4.3) | 64 | 256 | — |
 
 - `SOURCE`: several nodes behind one carrier-grade NAT address are distinct, honest sources, so
   the host limit is above 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
 - `ANON`: the record names no address, so it is counted on the address the `Store` came from
   ([`hops.md`](hops.md) §4.2).
-- A record beyond a host or site limit of this table (the `KEYWORD`/`NOTE` row is a count, not
-  a limit) is answered `REJECTED`, not `FULL`. `FULL` says that the
+- The `HEAD`/`HIDDEN` and `GATE` rows count over the node, not per target: each of these kinds
+  holds one record per target, and its target follows from a key that costs nothing. A record
+  counts at the host and site of the `Store` that last stored it, a renewal included, also one
+  with `signer`. A record that replaces one held under the same target from the same host adds
+  none. Beyond the limit it is `REJECTED`. An index node, which holds every target, bounds the
+  other kinds over all targets too (`Protocol.md` §11).
+- A record beyond a host or site limit of this table (the row of publishers counted per entry
+  is a count, not a limit) is answered `REJECTED`, not `FULL`. `FULL` says that the
   target has no room (`Protocol.md` §10.8). An address limit says nothing about the target: the
   storing node does not set `spill` for it, and the publisher does not start a lookup of its
   own because of it (`Protocol.md` §10.4).
@@ -193,6 +202,9 @@ that **failed or are still pending**, per hour:
   The other addresses of that source MAY be dialled within their own limits.
 - A live stream ([`live.md`](live.md) §5.2) and a topic ([`pubsub.md`](pubsub.md) §5) each
   count as a file here. The limit over all files counts them together with files.
+- Gates and addresses dialled for a node rather than a file (an uploader's slot offer, chat,
+  browse, friends) count in the row over all files. Only attempts that fail or are pending
+  count, so a node that is reached is dialled without limit, also for a long chat.
 - The limit is per file, so one answer cannot use up a node's attempts for other downloads.
 - **Over all files** the host limit is 8 per hour. A source beyond it is kept and tried in a
   later hour, as above.

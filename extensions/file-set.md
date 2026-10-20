@@ -351,7 +351,8 @@ The record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the au
   storing nodes that leave, and the author need not be online until the head's `expires`
   (7 days at most), when only the author can sign a new one. `signer` is how a `Store`
   carries a record that the connection's key did not sign (`Protocol.md` §10.7).
-- The author stores a new head when it publishes it. That store counts as its store of the
+- The node that signs a new head, the author or a key of the grant
+  ([`multi-author-set.md`](multi-author-set.md)), stores it when it publishes it. That store counts as its store of the
   24 h: the next one follows 24 h later. `Store.signer` is the key the record signature
   verifies under, the author's key or, in a joint head, a key of the grant; it MAY be left out
   when that is the key of the connection.
@@ -484,9 +485,13 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
   `sites` and the order below use this count.
 - `set` is 32 bytes and `name` at most 255 bytes of UTF-8; else `REJECTED`.
 - It cannot check the claim: it does not have the manifest.
-- A search returns up to 16 *(initial)* records in `sets`, the sets named by the most publisher
-  sites first, one record per set. Among equal counts the order is the node's own, which a
-  publisher cannot choose (`Protocol.md` §10.3). A site is the group of
+- A search returns up to 16 *(initial)* records in `sets`, one record per set: the sets named
+  by the most publisher sites first, and among equal counts by
+  `H("ed3k v1 page", secret ‖ set)` compared as bytes, where `set` is the 32 bytes of
+  `SetRef.set` (the root of the manifest) and `secret` that of `Protocol.md` §10.3. Of the
+  records kept for a set, the answer carries the one with the lowest
+  `H("ed3k v1 page", secret ‖ set ‖ publisher key)`, so that no publisher chooses which record
+  is shown, also not by renewing often. A site is the group of
   [`ip-diversity.md`](ip-diversity.md) §1.
 - `KadAnswer.sites` (`Protocol.md` §10.3) has one entry per entry of `sets`: the publisher
   sites the node counted for that set, 0 = not counted.
