@@ -489,7 +489,9 @@ here; a node that does not support it answers the frame with `Error{UNSUPPORTED}
 the exchange (§5.2), so the bytes that follow are never read as frames.
 
 A frame header does not parse when `tag` or `len` is a varint of more than 10 bytes, when
-`len` is above 1 MiB (§5.2), or when the exchange ends inside it. A varint that is longer than its value needs is accepted (§0).
+`len` is above 1 MiB (§5.2), or when the exchange ends inside it. An exchange that ends, or
+is reset, before the first byte of a frame holds no header: it has failed (§5.2), and the
+connection stays open. A varint that is longer than its value needs is accepted (§0).
 
 Types 1–63 keep the tag at one byte.
 
@@ -957,10 +959,12 @@ starts small. Fully separate instances per family were rejected outright.
    `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`,
    `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.168.0.0/16`, `198.18.0.0/15`,
    `192.88.99.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4` and `240.0.0.0/4`.
-   For IPv6 it
-   excludes at least `::/128`, `::1`, `fe80::/10`, `fc00::/7`, `::ffff:0:0/96`,
-   `64:ff9b::/96`, `100::/64`, `2001::/32` (Teredo), `2001:2::/48`, `2001:10::/28`,
-   `2002::/16` (6to4), `2001:db8::/32`, `3fff::/20`, `5f00::/16` and `ff00::/8`. A source
+   For IPv6 the address MUST be inside `2000::/3`, and outside at least `2001::/32` (Teredo),
+   `2001:2::/48`, `2001:10::/28`, `2002::/16` (6to4), `2001:db8::/32` and `3fff::/20`.
+   That leaves out everything else, among it `::/128`, `::1`, `::/8`, `fe80::/10`,
+   `fec0::/10`, `fc00::/7`, `::ffff:0:0/96`, `64:ff9b::/96`, `100::/64`, `5f00::/16` and
+   `ff00::/8`. A library's "global unicast" test, such as Go's `IsGlobalUnicast`, is too
+   loose: it accepts `::81.2.3.4`, `4000::1` and `fec0::1`. A source
    address that a socket reports as IPv4-mapped is treated as the IPv4 address it holds. An
    18-byte endpoint on the wire that holds an IPv4-mapped address is not acceptable, and
    neither is an endpoint with port 0. For the target of an HTTP fetch,
@@ -1166,6 +1170,13 @@ the time the relay keeps the slot without traffic, at most the idle timeout (§4
 ends with the connection. The leaf does not repeat its request. `Relay{reserve = false}` gives
 the slot back and is answered `Relay{ttl = 0}`.
 
+**One slot per leaf.** A leaf with a connection to the relay in each family (§4.6) MAY reserve
+on both. The relay keeps one slot per leaf node ID and lets both connections hold it: a
+`Reserve` on the second one is answered like the first, without a check of the limits below,
+and neither connection is told of the other. The slot ends when the last connection that
+holds it closes or gives it back. A forwarded `Punch` (§9.5) goes over the connection that
+reserved last and is still open, and over the other one when that fails.
+
 **Listing.** The list a relay is in says how an initiator reaches the relay, not which family
 the punch uses: `Punch` carries the endpoints of both. A relay is listed with an endpoint of
 its own in that family, so a node prefers relays that have both.
@@ -1272,8 +1283,9 @@ initiator I                        relay R                          target T
 2. R forwards it to T on a new exchange, with `peer_id` replaced by I's ID, the endpoint of
    the family the `Punch` arrived on replaced by I's observed endpoint as R sees it (as §9.3
    does for `target_ep`) when I's `Punch` holds one there (a family I left out stays
-   declined; the other family stays as I claimed it), `seen` set to the family it
-   observed, and the rest unchanged. I's `Punch` has `seen` 0; one with `seen` set is not a
+   declined; the other family stays as I claimed it), `seen` set to the family the
+   `Punch` arrived on, also when I declined that family, and the rest unchanged. `seen` is
+   also the mark of a forwarded `Punch`, so it is never 0 here. I's `Punch` has `seen` 0; one with `seen` set is not a
    request to R as a relay (**Who may ask**).
    R answers `Error{NOT_FOUND}` if T holds no reservation. It waits 5 s *(initial)* for T's
    answer and then answers `Error{BUSY}`.
@@ -1288,7 +1300,7 @@ initiator I                        relay R                          target T
    aim the probes at a third party.
 4. R returns T's answer to I, with `peer_id` set to T's ID, the endpoint of the family of T's
    reservation replaced by T's observed endpoint when T's answer holds one there (a family T
-   left out stays declined), and `seen` set to that family. I dials T
+   left out stays declined), and `seen` set to that family, also when T left it out. I dials T
    with a normal QUIC handshake; its retransmitted Initials open I's mapping. I is the QUIC client, T the server. A `PROBE` with I's `nonce` that
    reaches I before the answer, or within 5 s *(initial)* after it, tells I the address T's
    packets leave from: when that address is acceptable, I dials it at once, beside the dials
@@ -1584,7 +1596,9 @@ Rules:
   considered. It sets `responsible`, executes a `search`, and accepts a `store`.
 - **Search or store.** A request is a search when `search` is present, also when it is empty,
   and a store when `store` is present. A request with both is answered `Error{MALFORMED}`.
-  With neither, the node returns contacts only, whatever `kind` says. `all` and `none` of a
+  With neither, the node returns contacts only, whatever `kind` says. It still sets
+  `responsible` as below, and, for a kind it stores, `load` and `spill` (§10.8), so that a
+  lookup learns them without a search. `all` and `none` of a
   `Query` hold at most 64 *(initial)* terms together; a search with more is answered
   `Error{MALFORMED}`.
 - **Order of checks.** A node checks a `KadRequest` in this order, and the first step that
@@ -1952,7 +1966,7 @@ record cannot be replayed under another keyword or file. One kind signs a value 
 | Form | `body` parses as a `Record`; else the record is `REJECTED`. `key` is ignored | the same, and `key` is an index into `keys`; else the record is dropped |
 | Signature | valid under the connection's key, or under `signer` | valid under `keys[key]` |
 | `expires` | later than now, and at most the lifetime of the kind plus 1 h *(initial)* ahead | later than now minus 1 h *(initial)* |
-| Content | `file` for `KEYWORD`, `note` for `NOTE`, and no other record field that this version defines; fields it does not know are allowed | the same |
+| Content | `file` for `KEYWORD`, `note` for `NOTE`, and no other of the fields 1–3 of `Record`; the fields of extensions (4 and up, §13.1) and fields it does not know are allowed and ignored for these kinds | the same |
 | Size | `file.name` is 1 to 255 bytes of UTF-8; `file.root` is 32 bytes; `file.ed2k` is empty or 16 bytes (§0); `note.rating` is 0 to 5 and `note.text` at most 512 *(initial)* bytes of UTF-8; the `Signed` is at most 1 KiB *(initial)* as measured above | the same |
 | Keyword | one keyword of `file.name` (§10.1) gives the target of the request at its `level` | one keyword of `file.name` gives the target that was searched |
 | Count | one record per publisher and file under a keyword; one note per publisher and target (a note carries no root: it is bound to `root[0..16)`, the target) | duplicates by publisher and file, or publisher and target for a note, are merged |
@@ -2032,7 +2046,7 @@ same few nodes. Version 1 bounds that as follows.
 - `BUSY` means the node as a whole is out of room, or the sender is over its request rate
   (§10.3). It says nothing about the target.
 - `load` and `spill` MUST be set, as §10.3 defines them, in every answer of a responsible node
-  to a request of kind `KEYWORD`. For other kinds `load` is 0, and `spill` is set when the node
+  to a request of kind `KEYWORD`, a store answer and a contacts-only answer included. For other kinds `load` is 0, and `spill` is set when the node
   answered `FULL` for that target within the last record lifetime of the kind. `sites` MAY be
   left at 0 for `KEYWORD` in version 1; for `MEMBER` and `ALIAS` it carries the count the
   answer is ordered by ([`extensions/file-set.md`](extensions/file-set.md) §6,

@@ -178,7 +178,13 @@ checks no bytes.
 
 With the login tag `CT_ED3K` (section 2) the server pairs the user hash with the node ID. It
 can then send the source in `OP_FOUNDSOURCES_OBFU` with the user hash, so that a
-dual-protocol peer goes to ed3k (§14.2). Without the login tag it does not use a user hash.
+dual-protocol peer goes to ed3k (§14.2). The login tag is not authenticated, so the server
+pairs them only when both hold, and otherwise lists the source without a user hash:
+
+- the login's user hash is the one derived from the tag's node ID (§14.2);
+- the login comes from the IPv4 address observed on that node's ed3k connection (§8.2 (5)).
+
+Without the login tag it does not use a user hash.
 
 A node that does not want to be listed on eD2K leaves `ED2K` unset in its `Hello`.
 
