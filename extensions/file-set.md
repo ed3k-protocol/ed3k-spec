@@ -258,8 +258,12 @@ optional bytes members = 10;  // bitmap over FileSet.files, LSB first; bit set =
   bits after the last member are ignored. An uploader that has no member complete sends the
   one byte `00`, so that its answer is not read as "not told".
 - A bit is set only for a member the uploader holds completely. A partial member is found by
-  asking for it.
-- `members` is sent again only when the downloader asks again.
+  asking for it. A member whose root is that of the empty input is complete without data
+  (§2.3, `Protocol.md` §12.4): its bit is always set.
+- `members` is sent again only when the downloader asks again: a later `FileRequest` on the
+  stream with `want_members` is answered with a `FileStatus` that carries `members` alone,
+  without the limit of `Protocol.md` §12.1 for sources. One that also asks for sources gets
+  them in the same `FileStatus` within that limit.
 
 For 10,000 members the bitmap is 1.25 KiB.
 

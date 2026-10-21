@@ -155,7 +155,10 @@ source address of `Protocol.md` §10.3.
   own because of it (`Protocol.md` §10.4).
 - **Address limits come first.** A storing node checks the limits of this table, and those per
   publisher key, before the limits of the target: a record over one is `REJECTED`, whether or
-  not the target has room. A record that renews one held for the same publisher counts as a
+  not the target has room. A valid record that is not newer than the one held is `OLDER`
+  (`Protocol.md` §10.7) before these limits are looked at: it changes nothing. A limit over
+  all targets of an index node (`Protocol.md` §11) is an address limit too, `REJECTED` before
+  the target. A record that renews one held for the same publisher counts as a
   new one at a host or site that holds no record of that publisher there. Over a limit it is
   `REJECTED`, and the held record stays as it was until it expires.
 - Limits per publisher key, not per address, are in the documents of the kinds: a `KEYWORD`

@@ -65,6 +65,11 @@ traffic of others covers its own.
 
 **How many hops.** A user setting, 0 to 3, for each direction. 0 is ed3k as it is.
 
+- With 0 hops outwards and more inwards, a node searches and downloads under its node key, as
+  ed3k is. Under its anonymous key it only shares. For the Kad requests of that key it keeps
+  one path without a gate, of as many hops as inwards, and uses it for `HopLookup` alone
+  (§2.1, §4.1).
+
 | Hops | A single hop knows | It takes to connect address and deed |
 |---|---|---|
 | 0 | | the peer sees it |
@@ -100,7 +105,8 @@ neighbours. The hop furthest from the owner is the **last hop**.
   rate of each path and replaces the slowest when it is far below the others. How far is local
   policy.
 - An owner MUST NOT send `HopLookup` (§4.1) on a path that has a gate, and SHOULD NOT open a
-  `HopConnect` there: those streams would tie the gate to what the owner does outwards.
+  `HopConnect` there: those streams would tie the gate to what the owner does outwards. A
+  path built to become a gate counts as one from its first `HopCreate`, before its `HopGate`.
 - A node with 0 hops inwards has no gate: a gate at the node itself would show its address
   under the anonymous key. Without a gate, B cannot open a stream to a hidden A (§3.3): an
   uploader cannot offer it a slot (`Protocol.md` §12.5), and A comes back by itself when
@@ -325,7 +331,7 @@ that has a gate is answered `Error{MALFORMED}`: the gate is the last hop.
   frame.
 - The owner publishes its gates in a `GATE` record (§4.3).
 - A gate accepts at most 10 *(initial)* `HopJoin` per minute from one host and answers
-  `Error{BUSY}` above that.
+  `Error{BUSY}` above that, always with a `retry_after` above 0.
 
 **Status frame.** As after `HopStream` (§2.4), the first thing in the other direction after
 `HopConnect` and after `HopJoin` is one frame, `HopOk` or an `Error`, before any raw byte.
@@ -334,8 +340,8 @@ Both are, like `HopStream`, followed by raw bytes.
 | After | Sent by | `HopOk` when | `Error` |
 |---|---|---|---|
 | `HopStream` | the neighbour that received it, on that link, without a layer | it accepted the stream for itself | §2.4 |
-| `HopConnect` | the last hop, on the stream towards the owner. The frame is in the layers of the path, as every byte of that stream | `node` answered its `HopJoin` with `HopOk` | `NOT_FOUND` when `node` cannot be reached within 10 s *(initial)*; `MALFORMED` for a `node` that §2.2 refuses; `DENIED` for a `node` in its own site (§2.1); `BUSY` above a dial limit (§5); else the `Error` that `node` gave |
-| `HopJoin` | the node that received it, without a layer | with a gate value: its neighbour on the path answered the `HopStream` with `HopOk`. Without one: at once | `NOT_FOUND` for an unknown gate value; `BUSY` above the limit; a failed stream on the path is a reset |
+| `HopConnect` | the last hop, on the stream towards the owner. The frame is in the layers of the path, as every byte of that stream | `node` answered its `HopJoin` with `HopOk` | `NOT_FOUND` when `node` cannot be reached within 10 s *(initial)*; `MALFORMED` for a `node` that §2.2 refuses; `DENIED` for a `node` in its own site (§2.1); `BUSY` without `retry_after` above a dial limit (§5); else the `Error` that `node` gave, unchanged |
+| `HopJoin` | the node that received it, without a layer | with a gate value: its neighbour on the path answered the `HopStream` with `HopOk`. Without one: at once | `NOT_FOUND` for an unknown gate value; `BUSY` with `retry_after` above 0 above the limit; a failed stream on the path is a reset |
 
 The last hop reads the status frame of the `HopJoin` it sent and does not copy it: the owner
 gets the one of `HopConnect`. After `HopOk` the two ends speak to each other. The hops and
@@ -442,7 +448,8 @@ first stream has the number 0, and its records follow the three messages of §3.
   A that does not hide, B opens through a path of its own with `HopConnect`, `gate` absent, to
   an endpoint and relays from A's `Peer` record, else from the `Hello` A sent in the session.
   Those are then claims (`Protocol.md` §8.2 (5)), dialled within the limits of §5 and
-  [`ip-diversity.md`](ip-diversity.md) §2.5.
+  [`ip-diversity.md`](ip-diversity.md) §2.5. Such an attempt counts there as pending until
+  B has checked the key of A (§3.2), as in §4.3; a wrong key is a failed attempt.
 
 ---
 
@@ -472,6 +479,14 @@ message HopLookupAnswer {     // type 31
   closest first: the page that the request's `offset` asks for. The owner asks for further
   pages by sending the request again with the next `offset`; each node pages in its own order
   (`Protocol.md` §10.3). Answers are left out from the far end so that the frame fits 1 MiB.
+- **Paging across nodes.** An answer does not say which node gave it, and the last hop walks
+  again for each page, so the owner pages over the records, not over the nodes. The next
+  `offset` is the request's `offset` plus the smallest number of records among the answers
+  that set `more`; an answer with `more` and no record is ignored. The owner merges the
+  records of all pages as a searcher merges those of several nodes (`Protocol.md` §10.3): by
+  publisher and file, sources by node ID. A record seen on several pages keeps the per-answer
+  values (`load`, `spill`, `sites`) of the first page that held it. Paging ends when no answer
+  of a page sets `more`.
 - The owner waits 70 s *(initial)* for the `HopLookupAnswer`, then resets the stream.
 - It answers `Error{DENIED}` to a `HopLookup` whose `store` carries `source`, `also`, `http`,
   `links` or `sealed`: those records are bound to the connection (`Protocol.md` §10.3) and
@@ -561,9 +576,12 @@ is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon
   [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
   One session attempt is one gate dialled. An attempt counts until the searcher, as A, has checked
   the key of B (§3.2); one still pending counts as failed.
-- A gate's `Error{BUSY}` on a `HopJoin` is no failed attempt. That gate waits `retry_after`,
-  or 60 s without one (`Protocol.md` §5.6); other gates of the node MAY be tried meanwhile. The
-  60 s wait per node ID of §3.3 is for a reset of the first stream, the node's own refusal.
+- A gate's `Error{BUSY}` on a `HopJoin` is no failed attempt. A gate always sends it with a
+  `retry_after` above 0 (§3.1), and that gate waits `retry_after`; other gates of the node MAY
+  be tried meanwhile. A `BUSY` without `retry_after` in answer to `HopConnect` comes from the
+  last hop at its own dial limits (§5): it is no failed attempt and puts no wait on the gate,
+  and the owner tries again over another path. The 60 s wait per node ID of §3.3 is for a
+  reset of the first stream, the node's own refusal.
 - A node stores its `GATE` record before its first `ANON` record. It stores no `GATE` record
   while it has no gate: `gates` is never empty.
 - An owner stores its `GATE` record again after 45 min *(initial)*, and at once when a gate

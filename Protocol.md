@@ -369,7 +369,9 @@ holds one packet (above); a datagram with several packets is a `HANDSHAKE` and i
   are then the probes. The check passes as above, and QUIC's loss detection and the idle
   timeout end a path that drops them. The check exists for file data: a side that sends no
   file data on the connection MAY skip it, and starts it before it sends its first `Block`
-  there. An index node sends none. After a migration the check is not repeated:
+  there. The lost probes count from the first one the side sent on the connection, also when
+  it started the check before it had to; nothing resets the count. A path MTU probe above
+  the path limit is no such probe. An index node sends none. After a migration the check is not repeated:
   QUIC's path validation expands its datagrams to 1,200 bytes (RFC 9000 §8.2.1), 1,213 on the
   wire.
 
@@ -1184,7 +1186,9 @@ Why 2, with a comparison to one relay, to two per family and to libp2p (2 by def
 [`docs/relay-count.md`](docs/relay-count.md).
 
 **Finding relays.** A leaf takes its relays from the `ROUTER` nodes it meets in its own Kad
-lookups.
+lookups, and from the index nodes it is connected to (§11), which it does not meet in a
+lookup when they leave `ROUTER` unset. An index node sets `RELAY` while it is open and offers
+the service.
 
 - It asks nodes whose `Hello` has `RELAY` set, with `Relay{reserve = true}`. A node that
   answers `Error{BUSY}` is skipped and not asked again for 30 min *(initial)*.
@@ -1277,7 +1281,7 @@ initiator I                        relay R                          target T
    reservation, when it advertises none there, with the `observed` of the relay's `Hello`. Its
    `nonce` is 0, and I ignores it. T at once starts
    sending `PROBE` datagrams that carry I's `nonce` to each of I's endpoints in the families
-   both share, at random intervals of 100–300 ms *(initial)* per endpoint for 5 s
+   both share and T does not decline (**Class and family**), at random intervals of 100–300 ms *(initial)* per endpoint for 5 s
    *(initial)*. These open T's mapping. T sends a `PROBE` to an acceptable address only (§8.2 (7), and (8) in a named network),
    and at most 3 *(initial)*
    to an endpoint that `seen` does not mark: that one is a claim of I, and a false one would
@@ -1315,7 +1319,10 @@ of the relay (§9.4) bound an honest relay only.
 sent the `Punch` to the relay; the relay forwards it unchanged, and the receiver learns that
 family from `seen` (steps 2 and 4). T declines a family by leaving its endpoint out of its
 answer; an answer without an endpoint declines the punch. A declining answer ends the try,
-and I does not punch T again for 30 min *(initial)* (step 5).
+also when `PROBE`s of T arrived, and I does not punch T again for 30 min *(initial)* (step 5);
+a handshake that already completed stands. An answer whose acceptable endpoints are all in
+families I cannot dial is no decline, but it leaves no family to try: it ends the try the
+same way.
 
 Pairs that cannot work, `symmetric` on both sides in a family both need, are not punched. I
 does not know T's class before T answers, and `nat` holds for the family of one connection
@@ -2197,8 +2204,9 @@ message SlotOffer {
   they are sent is limited by §12.5. The same holds for `have` in a later `FileRequest`.
 - The downloader sends a new `FileRequest` to update `have` or to ask for sources again. The
   uploader answers a later `FileRequest` only when its `want_sources` is above 0, with a
-  `FileStatus` that carries `sources` alone, and at most once per 10 min *(initial)*. Any
-  other later `FileRequest` is not answered.
+  `FileStatus` that carries `sources` alone, and at most once per 10 min *(initial)*, or when
+  it asks for the member bitmap of a set ([`extensions/file-set.md`](extensions/file-set.md)
+  §4.1). Any other later `FileRequest` is not answered.
 - Either side ends by closing the exchange. There is no cancel message.
 - An `Error` on a file stream ends it: its sender closes the stream. The exceptions are
   `NOT_FOUND` and `BUSY` in answer to a `HashRequest` (§12.4).

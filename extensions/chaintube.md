@@ -59,7 +59,9 @@ An upload is a file set with an author signature (`file-set.md` §2.4), an `id` 
 | `subs/<language>.vtt` | subtitles, WebVTT in UTF-8 | optional, at most 1 MiB each *(initial)* |
 | `thumb.jpg` | a still picture, JPEG | optional, at most 1 MiB *(initial)* |
 | `video/<label>.m3u8` | an HLS media playlist with byte ranges into `<label>.mp4` beside it | optional, at most 1 MiB *(initial)* |
-| `master.m3u8` | an HLS multivariant playlist that names the playlists above, the sound tracks and the subtitles by relative paths | optional, at most 1 MiB *(initial)* |
+| `audio/<language>.m3u8` | an HLS media playlist with byte ranges into `<language>.m4a` beside it | optional, at most 1 MiB *(initial)* |
+| `subs/<language>.m3u8` | an HLS subtitle playlist that names `<language>.vtt` beside it | optional, at most 1 MiB *(initial)* |
+| `master.m3u8` | an HLS multivariant playlist that names the playlists above by relative paths: of the renditions, of the sound tracks and of the subtitles | optional, at most 1 MiB *(initial)* |
 
 - `<label>` is the height in lines followed by `p`: `2160p`, `1080p`, `720p`, `480p`, `360p`.
   A reader takes the label for what the file is and need not open the file to choose.
@@ -98,6 +100,8 @@ The protocol carries any format. The baseline is the one of live streams
 - The segment index is what the playlist of §2.1 is written from: one byte range per
   fragment. A web player that knows no playlists plays the file itself with range requests.
 - Other codecs are allowed. A reader that cannot play a member says so.
+- `2160p` needs H.264 level 5.1, above the baseline. A set with it SHOULD also have a
+  rendition within the baseline.
 - Who encodes is not part of the protocol: the uploader's client, or a site on its behalf.
 
 ### 2.3 The field in the manifest
