@@ -2096,7 +2096,7 @@ protocol of its own:
 | Search | `KadRequest{kind=KEYWORD, search}` |
 | Get sources | `KadRequest{kind=SOURCE, search}` |
 | Callback request | `Punch` (an index node that offers the relay service is a relay, §9.4; it SHOULD offer it) |
-| Server list | none; index nodes are found as said below and recognised by `Hello.caps` |
+| Server list | none on the wire; a client keeps its own list of index nodes, found as said below and recognised by `Hello.caps` |
 
 Differences from a Kad node: an index node is `responsible` for **every** target, also before it
 has adopted an endpoint (§9.2, §10.3), never needs the iterative walk, MAY keep a `SOURCE`
@@ -2151,6 +2151,23 @@ A client finds index nodes from a configured list, from a link (§13.2) or from 
 that advertises one ([`docs/ed2k-tags.md`](docs/ed2k-tags.md)). Index nodes are optional for the
 network and optional for a client. An eD2K server that runs an index node MAY list some of its
 ed3k sources on eD2K as well ([`docs/ed2k-tags.md`](docs/ed2k-tags.md) §6).
+
+**One index node at a time.** A client SHOULD publish and search at one index node of its list
+at a time, over one connection, and move to another of the list when that one cannot be
+reached. Records sent to every index node of a list multiply the load of each (**Load**). A
+client MAY also hold a relay reservation (§9.4) at a second index node of its list, and opens
+no other exchange there.
+
+- **Redial.** A client does not dial an index node again sooner than 30 s *(initial)* after its
+  connection there ended or a dial failed, and doubles the wait after each try that fails, up
+  to 10 min *(initial)*. A longer `retry_after` (§5.6) wins. That keeps it well within the
+  budget of §4.6.
+- **Moving.** A client that moves to another index node stores its records there at once. The
+  old one keeps them until their lifetimes end (above).
+- **What a searcher sees.** An index node answers with what was published there, as an eD2K
+  server did without global search; Kad has what was published in Kad. A searcher MAY also ask
+  up to 3 *(initial)* other index nodes of its list per search, over connections it does not
+  hold: it sends no PING on them (**Keepalive**).
 
 An index node stores and answers records. A service that keeps a catalogue of its own, such as
 a video site, is not an index node by that; it runs a node next to it, which may be one
@@ -2858,6 +2875,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Exchanges a peer may have open on a connection, more per path between the two (both directions); a request must arrive whole within | 64, 65; 30 s |
 | Keep-alive (PING) by the side that wants a connection kept | 20 s |
 | Towards an index node: `max_idle_timeout` (both sides); client PING with a relay reservation there or not `open` / otherwise, jitter | 300 s; 60 s / 240 s, ±10 % |
+| Index node, client: redial after a connection ended or a dial failed; further index nodes asked per search at most | 30 s doubling up to 10 min; 3 |
 | `Hello` of the peer awaited on stream 0 | 30 s |
 | Fragment reassembly: messages per source, timeout, one message at most, all messages at most (bytes / messages), attempts in fragments per packet type before an unsplit one; `msg_id` not used again towards one address within | 4, 3 s, 1,500 B, 4 MiB / 65,536, 2; 3 s |
 | Full-size path probes lost before the connection is closed | 3 |

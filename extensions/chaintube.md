@@ -75,6 +75,9 @@ An upload is a file set with an author signature (`file-set.md` §2.4), an `id` 
   them.
 - A playlist names files by relative paths inside the set only. A reader MUST NOT follow an
   absolute URL in one.
+- A playlist names members of the set only: a media playlist the file beside it,
+  `master.m3u8` playlists of the set. A reader ignores a playlist that names a file not in
+  the set.
 - An upload set has at most 64 files *(initial)* and no inner sets.
 - A member is an ordinary file. A rendition that two uploads share is one file with one set of
   sources.
@@ -87,7 +90,7 @@ The protocol carries any format. The baseline is the one of live streams
 | | Baseline |
 |---|---|
 | Container | fragmented MP4 with `ftyp` and `moov` at the start of the file |
-| Video | H.264 (AVC), High profile, up to level 4.1 |
+| Video | H.264 (AVC), High profile, up to level 4.1 (1080p at 30 frames per second) |
 | Audio | AAC-LC or Opus |
 | Fragments | each starts with a key frame; 2 to 6 s long |
 | Index | a segment index (`sidx`) after `moov` SHOULD be present |
@@ -97,11 +100,13 @@ The protocol carries any format. The baseline is the one of live streams
   as separate files would give a manifest of thousands of members and nothing in return.
 - A rendition that starts with `moov` plays while it downloads. A client that plays SHOULD
   request the blocks in file order, and the blocks around a seek position first.
-- The segment index is what the playlist of §2.1 is written from: one byte range per
+- The segment index is what the playlists of §2.1 are written from: one byte range per
   fragment. A web player that knows no playlists plays the file itself with range requests.
+- A sound track (`audio/<language>.m4a`) follows the same container, fragments and index.
 - Other codecs are allowed. A reader that cannot play a member says so.
-- `2160p` needs H.264 level 5.1, above the baseline. A set with it SHOULD also have a
-  rendition within the baseline.
+- A rendition above level 4.1 is outside the baseline: `1080p` at 60 frames per second needs
+  level 4.2, `2160p` level 5.1, and 5.2 at 60. A set with one SHOULD also have a rendition
+  within the baseline.
 - Who encodes is not part of the protocol: the uploader's client, or a site on its behalf.
 
 ### 2.3 The field in the manifest
