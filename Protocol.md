@@ -1175,7 +1175,8 @@ on both. The relay keeps one slot per leaf node ID and lets both connections hol
 `Reserve` on the second one is answered like the first, without a check of the limits below,
 and neither connection is told of the other. The slot ends when the last connection that
 holds it closes or gives it back. A forwarded `Punch` (§9.5) goes over the connection that
-reserved last and is still open, and over the other one when that fails.
+reserved last and is still open, and over the other one when that fails: when the exchange
+cannot be opened there, or fails within the 5 s of §9.5 step 2. A timeout is not tried again.
 
 **Listing.** The list a relay is in says how an initiator reaches the relay, not which family
 the punch uses: `Punch` carries the endpoints of both. A relay is listed with an endpoint of
@@ -2160,10 +2161,14 @@ no other exchange there.
 
 - **Redial.** A client does not dial an index node again sooner than 30 s *(initial)* after its
   connection there ended or a dial failed, and doubles the wait after each try that fails, up
-  to 10 min *(initial)*. A longer `retry_after` (§5.6) wins. That keeps it well within the
-  budget of §4.6.
+  to 10 min *(initial)*. A connection that stayed open 60 s *(initial)* resets the wait to
+  30 s; one that ended sooner, also after a completed handshake, is a try that failed. A longer
+  `retry_after` (§5.6) wins. That keeps it well within the budget of §4.6.
 - **Moving.** A client that moves to another index node stores its records there at once. The
-  old one keeps them until their lifetimes end (above).
+  old one keeps them until their lifetimes end (above). After a redial of the same index node
+  there is nothing to store again: its records outlive the connection and are renewed before
+  their lifetimes end, as anywhere else (§10.4), and a relay lost with the connection is
+  replaced as §9.4 says.
 - **What a searcher sees.** An index node answers with what was published there, as an eD2K
   server did without global search; Kad has what was published in Kad. A searcher MAY also ask
   up to 3 *(initial)* other index nodes of its list per search, over connections it does not
@@ -2310,9 +2315,13 @@ Text, databases, disk images and file set manifests gain a lot. A sender MAY the
 a block, and every node MUST be able to receive one.
 
 - **One `Block` per range.** A `Block` answers exactly one range of a `BlockRequest`, with that
-  range's `offset` and length; the uploader MAY send the ranges of a request in any order and
-  MUST NOT split or merge them. Compression is over the bytes of that `Block` alone. A
-  `Block` whose `offset` is that of no outstanding range is a protocol fault (below).
+  range's `offset` and length. The uploader MUST NOT split or merge ranges. Compression is
+  over the bytes of that `Block` alone. A `Block` whose `offset` is that of no outstanding
+  range is a protocol fault (below).
+- **Send order.** The uploader SHOULD send the outstanding ranges in the order they were
+  asked for: those of an earlier `BlockRequest` before those of a later one, and within one
+  request in the order of its `offset` entries. So the downloader decides what comes first
+  (§12.6). A `Block` that arrives out of that order is no protocol fault.
 - Profile: one magicless zstd frame per `Block` as in §5.3, without a dictionary. Each range is
   compressed on its own, so blocks can be asked for in any order and from any source. A
   `Block` whose frame names a dictionary is a protocol fault (below).
@@ -2541,7 +2550,8 @@ not, or the connection is lost, the uploader closes the stream. The entry is the
   from a node it is not queued at; that entry is removed too.
 - A downloader that has a file stream of its own open to the uploader when the offer
   arrives keeps that stream: it closes the offer exchange unanswered, and the uploader
-  grants the slot on the open stream.
+  grants the slot on the open stream. An offer exchange that ends unanswered while such a
+  stream is open is read so, not as a failed offer.
 - The uploader waits 30 s *(initial)* from the start of the dial. After that the slot goes to
   the next downloader.
 - A downloader that could not be reached keeps its position and is offered the next free slot.
@@ -2587,6 +2597,48 @@ at least 2 *(initial)* slots; below about 18 KiB/s of upload that minimum comes 
 
 The comparison with eMule's reask and with the alternatives is in
 [`docs/queue-status-comparison.md`](docs/queue-status-comparison.md).
+
+### 12.6 Playing while downloading *(informative)*
+
+A client MAY play a video or a sound while it downloads it, and seek to any place in it. The
+wire needs nothing more for that: any block can be asked for from any source in any order
+(§12.2), every block is verified on its own (§7.2), and an uploader sends in the order asked
+(§12.3). What is left is the downloader's choice of blocks, which stays local. A client that
+plays SHOULD choose as follows.
+
+- **Only verified bytes are played.** A block goes to the decoder after it passed under the
+  root (§12.3). For a seek the client asks for the hash values of the blocks around the new
+  position, with their proof (§12.4), not for those of the whole file. `HashRequest` is allowed
+  at any `rank`, so this can be done while queued.
+- **The index first.** Many containers keep their index at the end of the file: MP4 with
+  `moov` last, the cues of Matroska, `idx1` of AVI. The client fetches the first block and the
+  blocks that hold the index before it plays, so that it can map a time to an offset.
+- **A window ahead of the play position.** The blocks of the next seconds to be played, about
+  30 s of media, are asked for in file order and before any other block. The media rate comes
+  from the container or from `FileInfo.bitrate` (§5.4). Blocks outside the window are chosen as
+  for any download, rare pieces first, so that a swarm of viewers does not hold only the
+  starts of a file.
+- **Few ranges outstanding per source.** Every range already asked for is sent before one asked
+  for after it (§12.3). A client that plays therefore keeps only as many ranges outstanding at
+  each source as keep it busy, 2 rather than 16, and asks its fastest sources for the window.
+- **After a seek** the window moves. Its blocks go to the sources with the fewest ranges
+  outstanding. The first block of the window MAY be asked for from two sources at once; the
+  copy that arrives second is dropped. Ranges still outstanding for the old position are taken
+  as they arrive.
+- **Keeping the slots.** A slot with no outstanding range for 30 s is taken away (§12.5). A
+  client that pauses goes on downloading outside the window and so keeps its slots.
+- **What limits it.** Playback needs as many slots as the media rate divided by the rate of one
+  slot. At 9 to 55 KiB/s per slot (§12.5), 1080p at 5 Mbit/s needs some 11 to 70 sources at
+  once. A seek waits at least for one block of 256 KiB from one source, 5 to 28 s at those
+  rates. Before it holds slots a client waits in the queue as for any download; HTTP sources
+  ([`extensions/http-source.md`](extensions/http-source.md)), links at hosters
+  ([`extensions/hoster.md`](extensions/hoster.md)), peers in the local network and the
+  priority slots of [`extensions/credit.md`](extensions/credit.md) §5 start a playback sooner.
+- A message to take back outstanding ranges was left out to keep the protocol small; few
+  ranges outstanding per source (above) serves the same end.
+
+A layout of media made for playing, fragmented MP4 with its index at the start, is in
+[`extensions/chaintube.md`](extensions/chaintube.md) §2.2.
 
 ---
 
@@ -2692,7 +2744,7 @@ extension adds `paid` to `ed3k:live` and `ed3k:set`, and defines `ed3k:pass`.
 
 ### 13.3 Not carried over
 
-Preview requests, PeerCache, the eD2K server message, comment packets separate from file status,
+Preview requests (a file is played while it downloads instead, §12.6), PeerCache, the eD2K server message, comment packets separate from file status,
 a separate packet type for compressed parts (a flag on `Block`, §12.3), Kad v1, and every
 "version N of packet X" have no ed3k equivalent.
 
@@ -2875,7 +2927,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Exchanges a peer may have open on a connection, more per path between the two (both directions); a request must arrive whole within | 64, 65; 30 s |
 | Keep-alive (PING) by the side that wants a connection kept | 20 s |
 | Towards an index node: `max_idle_timeout` (both sides); client PING with a relay reservation there or not `open` / otherwise, jitter | 300 s; 60 s / 240 s, ±10 % |
-| Index node, client: redial after a connection ended or a dial failed; further index nodes asked per search at most | 30 s doubling up to 10 min; 3 |
+| Index node, client: redial after a connection ended or a dial failed; open time that resets the wait; further index nodes asked per search at most | 30 s doubling up to 10 min; 60 s; 3 |
 | `Hello` of the peer awaited on stream 0 | 30 s |
 | Fragment reassembly: messages per source, timeout, one message at most, all messages at most (bytes / messages), attempts in fragments per packet type before an unsplit one; `msg_id` not used again towards one address within | 4, 3 s, 1,500 B, 4 MiB / 65,536, 2; 3 s |
 | Full-size path probes lost before the connection is closed | 3 |

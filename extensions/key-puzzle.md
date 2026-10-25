@@ -118,6 +118,11 @@ Verification costs one Argon2id run, so the rules keep that cost under the verif
   a router that moved shows its old solution once before it learns its new address.
 - **Datagram binding.** A node that only sent `REQUEST`s has shown no solution (§3). It is
   puzzle-verified only by an exchange in which it is the responder, or by a `Hello`.
+- **One value per connection.** A connection carries the value of its `Hello` for its whole
+  life. A contact whose value leaves the accepted epochs while its connection stays open is
+  not puzzle-verified until its next connection; its requests are still served.
+- **The newest value counts.** A contact whose new value fails is not puzzle-verified, also
+  when an older value of the same site was valid.
 
 A lookup that meets 10 to 20 routers for the first time costs roughly 0.4 to 2 seconds of one
 core in total. A warm node pays close to nothing.

@@ -68,7 +68,9 @@ traffic of others covers its own.
 - With 0 hops outwards and more inwards, a node searches and downloads under its node key, as
   ed3k is. Under its anonymous key it only shares. For the Kad requests of that key it keeps
   one path without a gate, of as many hops as inwards, and uses it for `HopLookup` alone
-  (§2.1, §4.1).
+  (§2.1, §4.1). Sharing is serving: under that key it sends no `FileRequest` and no search,
+  and no `SlotOffer` (`Protocol.md` §12.5), since it has no path to reach a downloader. Its
+  downloaders stay connected or come back when `recheck` says.
 
 | Hops | A single hop knows | It takes to connect address and deed |
 |---|---|---|
@@ -331,7 +333,9 @@ that has a gate is answered `Error{MALFORMED}`: the gate is the last hop.
   frame.
 - The owner publishes its gates in a `GATE` record (§4.3).
 - A gate accepts at most 10 *(initial)* `HopJoin` per minute from one host and answers
-  `Error{BUSY}` above that, always with a `retry_after` above 0.
+  `Error{BUSY}` above that, always with a `retry_after` above 0. A gate whose path has no room
+  for a further stream (§2.4) answers the same `BUSY`. The value of `retry_after` is local
+  policy.
 
 **Status frame.** As after `HopStream` (§2.4), the first thing in the other direction after
 `HopConnect` and after `HopJoin` is one frame, `HopOk` or an `Error`, before any raw byte.
@@ -485,8 +489,9 @@ message HopLookupAnswer {     // type 31
   that set `more`; an answer with `more` and no record is ignored. The owner merges the
   records of all pages as a searcher merges those of several nodes (`Protocol.md` §10.3): by
   publisher and file, sources by node ID. A record seen on several pages keeps the per-answer
-  values (`load`, `spill`, `sites`) of the first page that held it. Paging ends when no answer
-  of a page sets `more`.
+  values (`load`, `spill`, `sites`) of the first page that held it. An answer whose records
+  were all seen on earlier pages adds none, and still counts for `more` and for the next
+  `offset`. Paging ends when no answer of a page sets `more`.
 - The owner waits 70 s *(initial)* for the `HopLookupAnswer`, then resets the stream.
 - It answers `Error{DENIED}` to a `HopLookup` whose `store` carries `source`, `also`, `http`,
   `links` or `sealed`: those records are bound to the connection (`Protocol.md` §10.3) and
@@ -580,7 +585,10 @@ is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon
   `retry_after` above 0 (§3.1), and that gate waits `retry_after`; other gates of the node MAY
   be tried meanwhile. A `BUSY` without `retry_after` in answer to `HopConnect` comes from the
   last hop at its own dial limits (§5): it is no failed attempt and puts no wait on the gate,
-  and the owner tries again over another path. The 60 s wait per node ID of §3.3 is for a
+  and the owner tries again over another path. How many paths it tries, and how long it
+  avoids a busy one, is local policy. A `BUSY` without `retry_after` on a `HopJoin` that a
+  node sent itself (§3.1, 0 hops) breaks §3.1; that gate is waited for 60 s, as
+  `Protocol.md` §5.6 says where no section names a wait. The 60 s wait per node ID of §3.3 is for a
   reset of the first stream, the node's own refusal.
 - A node stores its `GATE` record before its first `ANON` record. It stores no `GATE` record
   while it has no gate: `gates` is never empty.

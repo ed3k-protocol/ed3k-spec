@@ -242,7 +242,9 @@ message CreditOffer {
   proves nothing about the sender (§5.2).
 - An uploader with a `floor` SHOULD NOT close the stream of an entry that bids
   (`Protocol.md` §12.5, `recheck` above 0) before the receipt of §3.1 arrived or 30 s
-  *(initial)* passed. A downloader that knows `payee` and `challenge` from an earlier stream
+  *(initial)* passed. Only a receipt whose `proof` verifies ends the wait early; the 30 s
+  count from the `CreditOffer` that carried `challenge` on this stream. A downloader that
+  knows `payee` and `challenge` from an earlier stream
   of the same queue entry MAY send that receipt right after its `FileRequest`.
 
 Both ledger parameters, chain ID and contract address, are fixed for a network (§7.1) and are
@@ -356,15 +358,21 @@ message CreditRelayAnswer {   // type 37, answer
   `settle` returns nothing, so there is nothing to simulate.
 - **Nothing worth sending:** receipts that verify and stay below that threshold, and no hold
   the relay sends, are answered `Error{BUSY}` with a `retry_after` above 0. The relay keeps
-  nothing; the asker comes back with newer receipts.
+  nothing; the asker comes back with newer receipts. Until `retry_after` has passed it sends
+  those receipts to no relay: every relay computes the same.
 - **A hold** is sent as one `holdFor` call each (§6.5). The amount is in µ; a `uint64` holds
   it, as it holds `spent`. The ledger pays no reward for a hold: a hold burns and mints
   nothing, so a reward would pay for filling blocks. The peer with a reason to send it is its
   `payee`, which earns the uploader's share (§6.2) of the turn the hold makes possible. A
   node SHOULD send a hold that names its own credit address as `payee`, and MAY refuse any
   other with `Error{BUSY}`.
+- **Whom to ask** *(SHOULD)*: a hold its `payee` (above); receipts a connected peer with
+  `CREDIT`, the issuer of the receipts first. A node that hides asks only peers of its
+  sessions (§9.1), never its own main node, and the main node asks no peer over a path.
+  Receipts and holds go in separate requests, since one item that fails fails the request.
 - The asker checks the outcome itself: a `settle` by transaction hash or by `settled()`, a
-  hold by `holdOf()`, or by the slot it is offered if it cannot read (§9.1).
+  hold by `holdOf()`, or, if it cannot read (§9.1), a hold by the slot it is offered and a
+  `settle` by a second relay (§9.1).
 - Part of each reward goes to the holder of the receipt, so a node needs a relay for its first
   settlements only.
 
@@ -569,7 +577,9 @@ Then, in this order:
 
 - If the issuer is **not mature**, step 1 is done and step 2 is not. The settled `kib` stays
   where it was, so the same receipt can be settled again when the issuer has matured, within
-  the 7 days.
+  the 7 days. A holder reads `isMature` (or `accountOf`) before it settles a receipt that
+  takes nothing, and settles one of an immature issuer only once that issuer is mature; a
+  holder that cannot read tries once per 48 h round.
 - A holder MUST settle a receipt whose `spent` grew, and do so **before the `until` of the
   hold** it read for that turn (§5.2). After `until` the issuer can move the credits away.
 - A holder MUST settle its other receipts **at least every 48 h** while it has new ones, at a
@@ -670,7 +680,8 @@ function holdOf(address payer, address payee) external view returns (uint256 amo
   before `until`. After `until` the payer may lower it, which is checked as a hold placed
   anew (below), and `amount` = 0 releases it.
 - The payee gives a hold up with `release(payer)`, at any time.
-- When a hold is placed, raised or renewed, the sum of the payer's holds MUST fit 90 %
+- When a hold is placed, raised or renewed, the sum of the payer's holds, a hold that ran
+  out and was not released or swept included, MUST fit 90 %
   *(initial)* of its balance after decay, else the call fails. A hold lasts 6 h, so at most
   one step of decay falls within it, and every hold stays covered until its `until`. A call
   with `amount` = 0 is not checked, so a release never fails.
@@ -857,7 +868,10 @@ there, with a credit address of its own:
 - **No direct RPC.** A transaction goes out by `CreditRelay` (§4.3) to a peer of a session.
   A read comes from a ledger node on the same machine, or through a proxy the user set up
   for that purpose, or not at all. A node that cannot read sells no priority; it can still
-  sign, earn and bid.
+  sign, earn and bid. It checks a `settle` by a second relay: after the next round of 48 h it
+  offers the same receipts to another one. `Error{BUSY}` with `retry_after` there means they
+  are settled, or below the threshold (§4.3). A relay that sends them shows that the first
+  did not, and the node does not ask the first again.
 - **It bids with a signed hold** (`holdFor`, §6.5), sent by `CreditRelay` to the uploader it
   bids at, and renewed the same way. The signature needs no read. The ledger pays nothing
   for a hold; the uploader sends it for its share of the turn (§4.3).

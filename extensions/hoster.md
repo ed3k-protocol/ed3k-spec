@@ -294,18 +294,23 @@ every volume, and the file that came out has the root in `id`.
 - It downloads the volumes as a set of their own. Every block of a volume is verified under
   the volume's root, whoever sent it.
 - **Unpacking is the check.** The client unpacks only `entry`. It stops and drops the output
-  when the output grows beyond the size of the file it looks for. Where it has block hashes of
+  that is not verified when the output grows beyond the size of the file it looks for. Blocks
+  that already passed under the root stay, as from any source. Where it has block hashes of
   that file, it verifies the output block by block as it comes; otherwise it computes the root
   at the end.
 - If the output is not the file, the claim is false. The client ignores the publisher. The
   volumes stay what they are: verified files of their own roots.
 - Bytes of the file that the client already has do not make the archive smaller. A client
-  SHOULD compare what is still missing with `set_size` before it starts.
+  SHOULD compare what is still missing with `set_size` before it starts. How much more it
+  fetches is local policy; for a file with no source that delivers there is no other way.
 
 **Rules for unpacking**
 
 - A client unpacks by formats it chooses to support, and MAY refuse any. An archive it cannot
-  read is not a false claim.
+  read is not a false claim: a format, a method or an encryption it does not support. An
+  archive of a format and method it supports whose directory, compressed data or checksum is
+  broken gives no file, and the claim is false: the volumes are verified, so they are the
+  bytes the publisher unpacked.
 - The output is written as a stream to the place of the download. Paths, links and attributes
   from inside the archive are not used.
 - Unpacking reads data that its author controls. It SHOULD run apart from the node, like a

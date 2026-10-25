@@ -98,15 +98,16 @@ The protocol carries any format. The baseline is the one of live streams
 - **A rendition is one file, not a row of segments.** ed3k verifies any range of a file block
   by block (`Protocol.md` §7.2), so a player that seeks asks for the range it needs. Segments
   as separate files would give a manifest of thousands of members and nothing in return.
-- A rendition that starts with `moov` plays while it downloads. A client that plays SHOULD
-  request the blocks in file order, and the blocks around a seek position first.
+- A rendition that starts with `moov` plays while it downloads. A client that plays chooses
+  its blocks as `Protocol.md` §12.6 says: in file order, and around a seek position first.
 - The segment index is what the playlists of §2.1 are written from: one byte range per
   fragment. A web player that knows no playlists plays the file itself with range requests.
 - A sound track (`audio/<language>.m4a`) follows the same container, fragments and index.
 - Other codecs are allowed. A reader that cannot play a member says so.
 - A rendition above level 4.1 is outside the baseline: `1080p` at 60 frames per second needs
   level 4.2, `2160p` level 5.1, and 5.2 at 60. A set with one SHOULD also have a rendition
-  within the baseline.
+  within the baseline. A reader that does not open the file takes a label of `1080p` or less
+  for one.
 - Who encodes is not part of the protocol: the uploader's client, or a site on its behalf.
 
 ### 2.3 The field in the manifest
@@ -201,7 +202,9 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
   So that it sees the same video, the author and every node of this extension that store a
   head for the set MUST store the one of the version the chain names, and a newer one only
   after its transaction is in a block that the chain treats as final (§4.3). This holds also
-  for a head pushed on a `SET_HEAD` topic ([`pubsub.md`](pubsub.md) §4.1).
+  on a `SET_HEAD` topic ([`pubsub.md`](pubsub.md) §4.1): a node of this extension holds,
+  passes on and gives to a node that joins only such a head. A newer head whose version no
+  final block names yet is dropped as not newer, and it is no fault of the neighbour.
 - One channel key in the links of two accounts means that both accounts chose it. It says
   nothing more.
 
@@ -323,7 +326,8 @@ the user downloaded it.
 - **Only verified bytes are decoded.** A client shows or plays a block after it passed under
   the root. A file that comes from a gateway without block hashes (`ipfs` in a file link) is
   shown when it is complete and verified.
-- A player asks for blocks as in §2.2: in file order, and around a seek position first. A
+- A player asks for blocks as in §2.2 and `Protocol.md` §12.6: in file order, and around a
+  seek position first. A
   sound or a video is never fetched before the user asks; the user's leave to fetch pictures
   unasked (below) does not cover them.
 - A client refuses a picture of more than 16,384 pixels on a side or 64 million pixels in all
@@ -448,8 +452,9 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 - A video with `blocked` set is not shown unless the user asks. A video with `closed` set takes
   comments from its moderators only; the comment contract refuses the others.
 - The contracts refuse a comment or a vote on a video that does not exist, and an answer to a
-  comment of another video. A client still ignores one that names a contract other than those
-  of §4.2.
+  comment of another video. A comment names the content contract; a vote names the content
+  contract for an entry and the comment contract for a comment. A client ignores one that
+  names another contract.
 - An account can vote on one thing many times. A client SHOULD count one vote per account and
   thing, the newest, and SHOULD show the sum of the values apart from the count.
 - An avatar is used when it is an `ed3k:file` link to a picture of at most 1 MiB *(initial)*.
@@ -463,6 +468,9 @@ credit extension does ([`credit.md`](credit.md) §7.3).
   one.
 - A key that the client holds is as private as the node key. A client MUST NOT write it to a
   log or show it in an error message.
+- **A write is done** when a read at a block that the chain treats as final shows it:
+  `getContentById` or `getCommentById` returns the new state. This holds alike for a
+  transaction of the client and for one that a site sent for it (§10).
 - A client sends a transaction only when the user asked for this one. It shows the amount and
   the receiver contract before.
 - `platformWallet` is the zero address unless the user chose a site to support.
