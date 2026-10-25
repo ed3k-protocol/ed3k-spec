@@ -1633,7 +1633,8 @@ Rules:
   says otherwise. The node
   keeps no state between pages; what changes in between can be missed or seen twice, and the
   searcher merges by publisher and file. An extension that pages its own records says in what
-  order and how many an answer holds.
+  order and how many an answer holds. How many pages a searcher asks of one node is local
+  policy, unless the document of the kind says otherwise.
 - **Every `ROUTER` stores every record kind of version 1**, those of extensions included,
   whether or not it sets the extension's capability: a kind that comes into use later then
   needs no network upgrade. The content and the storing-node checks of each kind are in the
@@ -2111,7 +2112,9 @@ that a node has left a stream or a topic, or no longer wants to be found. Signed
 (§10.7) expire on an index node as anywhere else; the publisher renews them. The limits of
 §10.8, of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.4 and the limits per
 target in the document of each kind bind an index node as any storing node, unless its own
-policy is stricter.
+policy is stricter. The one exception is the level size (§10.8): an index node's operator
+chooses it. Until a keyword target holds that many files the node answers no `FULL` for it;
+from then on it answers `FULL` and sets `spill` as §10.8 says.
 
 **Limits over all targets.** Those limits are per target, and an index node holds every target;
 keys, names and roots cost nothing, so a limit per target does not bound what one publisher

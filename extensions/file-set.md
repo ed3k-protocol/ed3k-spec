@@ -295,8 +295,7 @@ A set that changes has an author and an `id`:
 - A set that may get co-owners later is created with an `id` of at most 16 bytes: a joint
   head cannot hold a longer one, and the `id` cannot change
   ([`multi-author-set.md`](multi-author-set.md) §1.1, §1.3). In a joint head `Head.name`
-  (§5.2) MAY be empty, or the manifest's name cut at a code point boundary to at most 64
-  bytes.
+  (§5.2) is empty.
 - `FileSet.seq` is the version number. Every new version has a higher one.
 
 The pair (`key`, `id`) is the name of the set. Its head is stored at
@@ -454,10 +453,15 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
 
 **Publisher**
 
-- A node publishes a `MEMBER` record only for a file it shares and a set it shares, and only
-  for the manifest that lists the file directly, not for outer sets.
+- A node publishes a `MEMBER` record only for a file it shares and a set it shares, both
+  under the same key ([`hops.md`](hops.md) §1), and only for the manifest that lists the file
+  directly, not for outer sets. Sharing is serving: the node serves the file and the manifest
+  file; whether it publishes their `SOURCE` and `KEYWORD` records is its normal policy (§3).
 - It sends the record to the nodes its `SOURCE` lookup for the file found. No second lookup is
-  needed; the target is the same.
+  needed; the target is the same. Each `MEMBER` record goes in a `Store` of kind `MEMBER` at
+  its own target, never in `also`, which carries `SOURCE` only. For a file whose source record
+  a batch stored (`Protocol.md` §10.4), these are the nodes of that batch that did not answer
+  `FAR` for its target.
 - It publishes at most 4 *(initial)* sets per file, and SHOULD prefer the newest version of a
   set that changes.
 

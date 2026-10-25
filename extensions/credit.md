@@ -157,8 +157,10 @@ bound = spent at the start of the turn
   `due` is 0. The two sides need not compute the same number: `due` is the
   uploader's, and the bound is what protects the downloader.
 - The uploader sends `due` in the `FileStatus` that grants the slot, and in a further one
-  whenever it changes: after a receipt that paid a tranche, with a new `price`, and after the
-  first receipt of a new day.
+  whenever it changes: when it has sent the last byte of the paid tranches (the paid mark),
+  with a new `price`, and after the first receipt of a new day. At the paid mark `due` covers
+  the delivered tranches whole and the next one ahead, so the receipt for the last tranche
+  can pay it at once; the 30 s of a late payment (§5.2) count from that `FileStatus`.
 - The first receipt of a priority turn carries the payment for the first tranche. The uploader
   serves `BlockRequest`s only up to the end of the tranche that is paid. A range beyond that
   mark is held, and counts among the 16 outstanding (`Protocol.md` §12.2), until the tranche it
@@ -211,7 +213,9 @@ message CreditOffer {
 ```
 
 - A downloader sends `credit` only to a peer with `CREDIT`, and only if it is willing to sign
-  receipts. `payer` alone, without a bid, says so.
+  receipts. `payer` alone, without a bid, says so. A downloader that would send `credit`
+  sends the first `FileRequest` of a stream after it has read the peer's `Hello`; the peer
+  answers nothing before that anyway (`Protocol.md` §5.5).
 - An uploader answers with `credit` only if the `FileRequest` carried one. `payee` alone,
   without `floor`, says: I take receipts and sell no priority.
 - An uploader with a `floor` sends `challenge` with `payee`. It draws it at random when the
@@ -229,7 +233,9 @@ message CreditOffer {
   no bid. `max_price` = 0 withdraws it.
 - A downloader changes its bid with a `FileRequest` that carries another `max_price`, at most
   once per 30 min *(initial)*; this counts as an early return of `Protocol.md` §12.5. A
-  `FileRequest` with the same value, or with none, is no change and does not count.
+  `FileRequest` with the same value, or with none, is no change and does not count. A change
+  beyond that limit on an open stream is ignored, since an `Error` would end the stream; as
+  the first `FileRequest` of a new stream it is answered as `Protocol.md` §12.5 says.
 - A `FileRequest` for another file inside a turn (`Protocol.md` §12.5) keeps the bid. A
   priority turn goes on at the same `price`, and `due` goes on counting.
 - A `payer` other than the one of the queue entry **voids the bid** (§5.2): the entry keeps
@@ -334,6 +340,7 @@ message CreditRelayAnswer {   // type 37, answer
 }
 ```
 
+- A request with more than 32 receipts or 8 holds *(initial)* is `Error{MALFORMED}`.
 - Any node with `CREDIT` MAY relay. One that does not answers `Error{BUSY}` without a
   `retry_after`, and the asker turns to another node. A receipt or a hold that does not verify
   is answered `Error{DENIED}` (`MALFORMED` is for a body that does not parse, or an address
@@ -507,7 +514,8 @@ remaining = bytes left of that turn / its rate over the last 10 s (initial)
 - A downloader that signed more `spent` in total than it has is **overdrawn** once the
   receipts are settled (§6.4). A client MUST keep the sum of its open payments at or below
   80 % *(initial)* of its balance as last read, so that two days of decay (§6.5) cannot
-  leave it short. A receipt that is settled more than 1 day after its `day` takes what is
+  leave it short. Its open payments are the `spent` it signed for today and yesterday, over
+  all holders: only those can set `overdrawn` (§6.2). A receipt that is settled more than 1 day after its `day` takes what is
   there and does not flag the account (§6.2).
 
 ## 6. The ledger
@@ -799,7 +807,9 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 - Transactions are signed by the credit key. The account of the credit address holds the coin.
 - **A local node** needs nothing more. It follows the L1 without being a validator.
 - **A remote node** is believed for what it says. A client that uses remote nodes SHOULD ask
-  two of different operators for a read it acts on, and act only if they agree.
+  two of different operators for a read it acts on, and act only if they agree. An
+  `eth_estimateGas` that decides a refusal (§4.3) is such a read. A transaction goes to one
+  node.
 - What a lying node can do is bounded: it can make an uploader give one priority turn for
   nothing, or make a node pay gas for a `settle` that mints nothing. It cannot move or mint
   credits; that takes signatures.
@@ -845,8 +855,9 @@ This is the price of a public ledger, and it is the main reason to leave the ext
 
 - A client MUST leave the extension **off by default** and MUST tell the user the above when
   it is switched on.
-- A node MUST NOT send its credit address in a session that runs through an anonymous path
-  ([`hops.md`](hops.md)). §9.1 says what it may use there.
+- A node that hides MUST NOT send its node's credit address in a session that runs through an
+  anonymous path ([`hops.md`](hops.md)). §9.1 says what it may use there. A node that does
+  not hide answers in such a session as on any connection.
 - A new credit address breaks the link to the past, and starts immature.
 - Settling at a random time within 48 h keeps single transfers from showing in the order of
   blocks. That holds for receipts without a payment only.
@@ -859,6 +870,10 @@ This is the price of a public ledger, and it is the main reason to leave the ext
 A node that hides acts under its anonymous key ([`hops.md`](hops.md) §1). It MAY use credits
 there, with a credit address of its own:
 
+- A node under its anonymous key sets `CREDIT` whenever its implementation has the
+  extension, as every hidden node of it does ([`hops.md`](hops.md) §3.3). Whether it uses
+  credits shows on the file stream only: without an anonymous credit address it sends and
+  answers no `credit` field.
 - The **anonymous credit address** belongs to the anonymous key. It MUST NOT be used outside
   a path, and the node's other credit address MUST NOT be used inside one.
 - It is replaced when the anonymous key is replaced, and not more often (see the table).
@@ -867,8 +882,8 @@ there, with a credit address of its own:
   its own and MUST warn a user who does.
 - **No direct RPC.** A transaction goes out by `CreditRelay` (§4.3) to a peer of a session.
   A read comes from a ledger node on the same machine, or through a proxy the user set up
-  for that purpose, or not at all. A node that cannot read sells no priority; it can still
-  sign, earn and bid. It checks a `settle` by a second relay: after the next round of 48 h it
+  for that purpose, or not at all. A node that cannot read sells no priority and does not
+  bid: a bid needs the balance of §5.4. It can still sign and earn. It checks a `settle` by a second relay: after the next round of 48 h it
   offers the same receipts to another one. `Error{BUSY}` with `retry_after` there means they
   are settled, or below the threshold (§4.3). A relay that sends them shows that the first
   did not, and the node does not ask the first again.

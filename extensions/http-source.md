@@ -214,6 +214,9 @@ is the starting point: the two nodes of level L−1 must give it.
   fetches from the hash URL only if that check fails, to find the blocks that are wrong.
 - A node MAY fetch hashes earlier when it needs verified blocks before the file is complete,
   for example to act as a source for the parts it has: unverified blocks MUST NOT be served.
+  A `hashes` field does not change this. A node without an ed3k source fetches hashes before
+  the file is complete only for blocks it is about to offer: once it stores a `SOURCE` record
+  for the file in part (`Protocol.md` §10.3), or a downloader asks it for a range.
 - The field is optional on both sides.
 
 ## 4. Cache servers
@@ -256,7 +259,10 @@ except as a spare for a server that fails.
   sealed sources that cover it. A source is live until its `expires`; with `expires` = 0,
   until a fetch from it fails.
 - When it knows 1, it SHOULD publish a second only on another server: one whose URL has a
-  different host name and, where both are known, a different IP address.
+  different host name and, where both are known, a different IP address. The host names
+  compared are those of the sources' `url`. For a copy it posted itself, a node also takes
+  the host of the server it posted to; a second copy goes to a server that differs from
+  both.
 - The rule counts sources from every origin: `FileStatus`, source exchange, Kad records and
   the node's own uploads.
 
@@ -340,6 +346,7 @@ resolves where the downloader is. The result (§2.1) therefore depends on the ch
 | Target address, of the first URL or of a redirect, literal or resolved | `HTTP_FAILED` |
 | Scheme or form of a redirect target | `HTTP_FAILED` |
 | Load | `BUSY` |
+| Fetch limits: failed or pending fetches per file, per namer or per host | `BUSY` |
 
 `BAD_SOURCE` is for what every node decides alike from the description alone. It says nothing
 of the downloader's network. A refused address is reported like a server that could not be
@@ -364,7 +371,9 @@ what a host receives.
   who named it is the pair of the target and the node that answered.
 - A fetch is **pending** from the request until the response header arrived. After that it is
   a failure or it counts nothing.
-- A fetch that was redirected counts at every address of the chain, the first included.
+- A fetch that was redirected counts at every address of the chain, the first included. Each
+  address of the chain is checked against these limits before its request, and counts as
+  pending from it, whether the target is a literal address or a resolved name.
 - **Not counted over all files:** a fetch at a host that delivered a block which passed
   verification within the last hour, and a fetch at a gateway, a cache server or a link that
   the user configured or pasted. The same holds for the limit over all namers. The limit per

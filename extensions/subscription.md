@@ -384,6 +384,12 @@ message SignedPass {
 - A pass that names several scopes shows all of them to every node it is shown to. A client
   SHOULD tell the user so before it buys one.
 - A renewal (§9.2) keeps the holder key. A client MAY make a new one at each purchase.
+- A node MAY hold a pass under its anonymous key ([`hops.md`](hops.md) §1). Its holder key is
+  then shown under that key only, never under the node key. Buying it and polling `pass_url`
+  (§9.1) are not ed3k and show an address to the seller, who can tie it to the holder key; a
+  client MUST tell its user so before it buys for the anonymous key. Whether a client offers
+  it is local policy. The `SUB` or `LIVE` record of the scope is then an `ANON` record at its
+  target ([`pubsub.md`](pubsub.md) §5, [`live.md`](live.md) §5.1).
 - The client stores the private holder key like a password. Whoever has it uses the pass.
 
 ### 5.2 Showing a pass
@@ -875,7 +881,7 @@ gets a pass back, so that any client can buy from any seller.
 3. The client polls `GET <pass_url>?scope=<base32>&holder=<base32>` (with `&` in place of `?`
    when `pass_url` has a query already) every 15 s *(initial)* for
    30 min *(initial)*, and then at each start of the client until it gets an answer other than
-   404 or 7 days passed.
+   404 or 7 days *(initial)* passed since it opened `pay_url`.
 
 | Answer | Meaning |
 |---|---|

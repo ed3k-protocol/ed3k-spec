@@ -77,16 +77,20 @@ Rows are tried in order; the first that applies decides.
 | F is held under T and not leaving | renew the entry, add the site | `STORED` |
 | F is held but **leaving** (§2.3 of this document) | add the site to the candidates | `FULL` |
 | F is not held, and the node has no room at all | nothing | `BUSY` |
-| F is not held, T has fewer than S entries | create the entry | `STORED` |
+| F is not held, T has fewer than S entries | create the entry with the candidate's sites, if any | `STORED` |
 | F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
 | F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
 
-- A `Store` with `signer` that §2.1 of this document refuses is answered `REJECTED`, whatever
-  the row.
+- A `Store` with `signer` that §2.1 of this document refuses is answered `REJECTED` where a
+  record would take a place (row 2). A leaving entry takes none, so row 3 answers `FULL` also
+  to such a `Store`, which adds no candidate site.
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
-  file with the fewest sites is forgotten.
-- **Outranks** means: more candidate sites than the rank of the weakest entry. Equal rank never
+  file with the fewest sites is forgotten, and among files of equally few sites the one whose
+  last offer is oldest.
+- **Outranks** means: more candidate sites than the rank of the weakest entry. The site of the
+  offer at hand counts among them, once; that of a `Store` with `signer` does not (§2.1 of
+  this document). Equal rank never
   displaces, so files that came first stay.
 - **Weakest** is the entry with the lowest rank that is not leaving; among equals, the one
   created last.
@@ -113,7 +117,14 @@ admitted by outranking.
   lifetime. It stays set for that long after the target stopped being full, which covers records
   that still live one level down.
 - Search results are returned in descending rank, leaving entries last. `offset` pages along
-  that order. `sites` carries the rank of each returned file.
+  that order. `sites` carries the rank of each returned file. An answer carries every record
+  of an entry it returns, one after the other, each with the entry's rank in `sites`. Entries
+  of equal rank are in the order of **Paging** (`Protocol.md` §10.3) by their first record,
+  and so are the records of one entry.
+- **An index node** (`Protocol.md` §11) follows this document as any storing node, with a
+  level size S that its operator chooses. Each level is a target of its own there. A target
+  answers no `FULL` until it holds S entries, and spills to the next level from then on. A
+  publisher that stores at one index node judges §3 by that node's answer.
 - `BUSY` means the node as a whole is out of room. How much a node stores in total is local
   policy; it SHOULD have room for at least 2 S entries, and no target takes more than S plus
   its leaving entries (§2.3 of this document).
@@ -151,11 +162,13 @@ publisher that moved down on it would get a fresh quota on every level.
 
 1. Search at level 0.
 2. Go on to the next level when more results are wanted and any responsible node of the current
-   level answered with `spill`. Stop at level 15.
+   level answered with `spill`. Stop at level 15. How many results a searcher wants is local
+   policy.
 
 - A searcher MAY remember how deep a keyword went and query those levels in parallel next time.
 - Results are merged by root across nodes and levels. The popularity of a file is the lower median of
-  the non-zero `sites` values reported for it within one level, and 0 when all are 0; it is the storing nodes' claim, not a
+  the non-zero `sites` values reported for it within one level, and 0 when all are 0; a file
+  found at several levels has the highest of its values per level; it is the storing nodes' claim, not a
   signed fact.
 - A false `spill` costs one lookup. Following it on the word of a single node is therefore
   acceptable, and the level limit bounds the total.
@@ -257,7 +270,5 @@ Further alternatives:
   are popular within one large provider.
 - S, the number of levels and the size of the candidate and leaving tables are set without
   measurements. The record size of 300 B is an estimate from the encoding rules.
-- How an index node (§11), which is responsible for every target, treats levels. The simplest
-  rule is that it holds everything at level 0 and never sets `spill`.
 - Whether notes need the same treatment. A file with more than a few hundred notes is not
   expected.

@@ -79,6 +79,9 @@ An upload is a file set with an author signature (`file-set.md` §2.4), an `id` 
   `master.m3u8` playlists of the set. A reader ignores a playlist that names a file not in
   the set.
 - An upload set has at most 64 files *(initial)* and no inner sets.
+- A reader ignores a member that breaks a size limit of this table, a member marked `set`,
+  and a member under `ed3k/`, as one at another path. A set of more than 64 files is not an
+  upload set: the video has no media (§3.2).
 - A member is an ordinary file. A rendition that two uploads share is one file with one set of
   sources.
 
@@ -167,8 +170,9 @@ value = ed3k:set?key=<channel key, base32>&id=<id, base32>&b3=<root, base32>&sz=
   this extension ignores them.
 - **`ipfs` is added by this extension too.** It is the content ID of an IPFS directory that
   holds the files of the set at their paths (§5.5). It is optional, at most 128 bytes, and
-  SHOULD be a version 1 CID in base32. It MUST consist of the characters of base32 (`a`–`z`,
-  `2`–`7`) or of base58 (`1`–`9`, `A`–`H`, `J`–`N`, `P`–`Z`, `a`–`k`, `m`–`z`) only; a client
+  SHOULD be a version 1 CID in base32. It MUST consist only of the characters of base32
+  (`a`–`z`, `2`–`7`) or only of those of base58 (`1`–`9`, `A`–`H`, `J`–`N`, `P`–`Z`, `a`–`k`,
+  `m`–`z`); a client
   ignores any other value rather than put it into a gateway URL.
 - The value is at most 512 bytes. A longer one is not read.
 - A video has one such pair. It is written when the video is created, so an upload is one
@@ -398,8 +402,16 @@ Four contracts. The sources are part of the ChainTube backend.
 | Read one video or other entry | `getContentById(uint256 contentId)` |
 | Read one comment | `getCommentById(uint256 commentId)` |
 
-The ABI of the contracts is not in this repository. The signatures above are what a reader
-needs; they are informative until the contracts are published with the parameters of §4.2.
+The ABI of the contracts is published with the ChainTube backend
+(`github.com/ChainTube/stream-daemon`, `chain/contracts/abi/`); the signatures above are taken
+from it. The two getters return their values flat, not as one struct, in this order:
+
+| Getter | Returns |
+|---|---|
+| `getContentById` | `address author, uint32 kind, uint256 parentId, uint256 refId, string title, (string,string)[] media, string[] tags, string content, bool closed, bool blocked` |
+| `getCommentById` | `address author, address contractHash, uint256 contentId, uint256 replyId, string content, (string,string)[] media, bool blocked` |
+
+The addresses of the contracts are assigned with the parameters of §4.2.
 
 ### 4.2 Parameters of a network
 

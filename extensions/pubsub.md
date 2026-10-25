@@ -201,7 +201,7 @@ document's searcher checks it, and ordered as there, by `Grant.number` before `H
 | Joint head | the grant is a valid grant ([`multi-author-set.md`](multi-author-set.md) §1.1) and `grant.key` MUST be the key of the topic; the `cosigs` pass the check of §1.3 there. A failure is a content failure (§2.2) |
 | `expires` | later than now minus 1 h |
 | Content | `head`, or `joint` in a joint head, and nothing else |
-| Size | `id`, `root` and `name` as in [`file-set.md`](file-set.md) §5.2; in a joint head `name` at most 64 B and `id` at most 16 B |
+| Size | `id`, `root` and `name` as in [`file-set.md`](file-set.md) §5.2; in a joint head `name` empty and `id` at most 16 B |
 
 These are the checks of a searcher in [`file-set.md`](file-set.md) §5.2. A node that accepts
 the item goes on as in §5.3 there, from step 2: it downloads the manifest and accepts it only
@@ -293,6 +293,13 @@ A subscriber publishes a record of kind `SUB` (7) under the target `topic`.
   node that left the topic drops out of the list as on any other node.
 - Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
   `PUBSUB`. It needs to know nothing about topics for that.
+- **A node under its anonymous key** ([`hops.md`](hops.md) §1) cannot store a `SUB` record: a
+  session has no observed address ([`hops.md`](hops.md) §3.3). It stores an `ANON` record
+  under `topic` in its place, through a `HopLookup` ([`hops.md`](hops.md) §4), with `expires`
+  at most 60 min *(initial)* ahead, and stores it again every 30 min. A subscriber that sets
+  `ANON` also searches kind `ANON` under `topic` and reaches those nodes through their gates
+  ([`hops.md`](hops.md) §4.3). A node without a gate stores none: it joins others and is not
+  found by them.
 
 **Joining.** The subscriber looks up `SUB` records under `topic`, sends `TopicJoin` to peers
 from the answer and to peers named in `TopicState.peers` until it has its neighbours, and

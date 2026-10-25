@@ -354,8 +354,14 @@ under the target `stream`.
   viewer that left drops out of the list as on any other node.
 - Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
   `LIVE`. It needs to know nothing about streams for that.
+- **A node under its anonymous key** ([`hops.md`](hops.md) §1) stores an `ANON` record under
+  `stream` (or the target of §10.4) in place of a `LIVE` record, through a `HopLookup`
+  ([`hops.md`](hops.md) §4), with `expires` at most 10 min *(initial)* ahead, every 5 min,
+  once it holds a segment. A viewer that sets `ANON` also searches kind `ANON` there and
+  reaches those nodes through their gates. A broadcaster under its anonymous key is found
+  only by viewers that set `ANON`; its `ANON` records count for "on air" below.
 
-A stream is on air when its target holds records, and off when it holds none. The short
+A stream is on air when its target holds `LIVE` or `ANON` records, and off when it holds none. The short
 lifetime is the reason for a kind of its own: a `SOURCE` record lives 5 h, and most viewers
 listed that long would have left.
 

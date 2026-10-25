@@ -64,8 +64,9 @@ whose grant is not valid is refused, and a head whose grant is not valid is `REJ
 - The owner key is a signer only when it is in `keys`. An owner who lists other keys alone can
   keep its own key off the machine that publishes.
 - **A set that may get co-owners is created with an `id` of at most 16 bytes.** A joint head
-  cannot hold a longer one (§1.3), and the `id` of a set cannot change. `Head.name` of a joint head
-  is at most 64 bytes: it MAY be empty, or the manifest's name cut at a code point boundary.
+  cannot hold a longer one (§1.3), and the `id` of a set cannot change. `Head.name` of a joint
+  head is empty, so that every co-owner signs the same bytes; a storing node answers a joint
+  head with a `name` `REJECTED`. A reader takes the name from the manifest or the link.
 - A grant has no end date. The owner ends it with a grant of a higher `number`.
 - **The owner stays above the group.** It can replace the grant at any time, with any keys.
   `required` protects against one bad co-owner. It does not protect against the owner.
@@ -126,8 +127,8 @@ outrank the heads of that grant.
   never saw the new one, as with any old head (`file-set.md` §5.2). The order above makes a
   searcher prefer the newer grant.
 - With 8 keys and 4 signatures the record is about 900 bytes, inside the 1 KiB of `Protocol.md` §10.7.
-  In a joint head `Head.name` is therefore at most 64 bytes and `id` at most 16 bytes; a
-  storing node answers `REJECTED` above that.
+  In a joint head `Head.name` is therefore empty (§1.1) and `id` at most 16 bytes; a
+  storing node answers `REJECTED` otherwise.
 
 A reader follows the set as in `file-set.md` §5.3, with §1.2 in place of "signed by the same
 key", and with two additions:
@@ -170,7 +171,8 @@ message Mount {
   A version that is not keeps the one before.
 - **The limits are measured on the manifests the reader opened,** not on claims: the files
   that the mounted version and the inner sets below it list, and the sum of their `size`
-  values, count against `max_files` and `max_size`. `set_files` and `set_size` are for display
+  values, count against `max_files` and `max_size`. Every entry of `files` counts, `set`
+  members included, with its `size`, as for the total of `file-set.md` §2.5. `set_files` and `set_size` are for display
   (`file-set.md` §2.5) and are not used for this.
 - **The outer signature covers the mount, not what will be in it.** It says: this key may fill
   this directory, up to these limits.
@@ -182,7 +184,8 @@ message Mount {
   `set`, or with a malformed mount: a `key` that is not 32 bytes, or an `id` that is empty or
   above 32 bytes.
 - **One set has at most 256 *(initial)* mounts over all its levels,** mounts inside mounted
-  sets included, counted in the order in which the reader opens the manifests. A reader does
+  sets included, counted in the order in which the reader opens the manifests. A mount in any
+  inner set, mounted or not, counts and is followed while it is within them. A reader does
   not follow a mount beyond that: it shows the version the outer manifest names and watches
   no head for it.
 - The outer author takes the directory back with a new version that leaves the mount out.
@@ -354,7 +357,8 @@ A part that fails is not shown, and an older version that passed is kept.
 - **Listing is automatic, downloading is not.** A client MAY fetch part manifests to show
   them. It MUST NOT download the files of a part unless the user chose that for this set, for
   this author, or for the file.
-- A client reads at most 1,024 *(initial)* parts per set.
+- A client reads at most 1,024 *(initial)* parts per set. It pages a part target until no
+  node sets `more` or it holds that many.
 - A part that is no longer shown is no longer stored again by followers. As everywhere, a
   client does not delete its files without the user (`file-set.md` §5.3).
 - An author named in a filter list the user follows

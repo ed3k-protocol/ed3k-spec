@@ -120,7 +120,10 @@ needed, the file is gone.
   [`http-source.md`](http-source.md) §5: per file, over all files per pair of who named the
   link and the hoster's address, and over all files and namers together. A link from a
   manifest is named by that manifest, a link from a Kad answer by the target and the node that
-  answered. A link the user pasted is not counted over all files.
+  answered. A link the user pasted is not counted over all files. A core that does not see the
+  addresses its resolver connects to counts per hoster by the host of the link as `canonical`
+  gives it (§4), with the values per host; a resolver that knows several names of one hoster
+  counts them as one.
 
 ---
 
@@ -203,6 +206,9 @@ expanded the link itself and holds every member.
 - **The root is a claim until bytes from the link pass under it.** A client that wants to be
   sure fetches the first block from the link and verifies it; block hashes come from an ed3k
   source (`Protocol.md` §12.4).
+- A client SHOULD ask an ed3k source for the hash values of a range before it opens the link
+  for it. A block whose value has not arrived is kept unverified, is not served, and is
+  verified when the value arrives.
 - If a block from the link fails under the root while the link was the name the user started
   from, the claim is false: the client ignores the publisher, drops what it took for that root,
   and downloads from the link alone (§4.1).

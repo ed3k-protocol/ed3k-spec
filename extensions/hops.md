@@ -56,7 +56,8 @@ traffic of others covers its own.
 
 - A file MUST NOT be offered under both keys. Two source records for the same rare files
   connect the keys. Records that name a file shared under the anonymous key (keywords, notes,
-  aliases) are published only under that key, through a path.
+  aliases, `MEMBER`) are published only under that key, through a path. A `MEMBER` record is
+  published only when the file and the set are shared under the same key.
 - What is done under the anonymous key MUST go through a path: no direct connection, no HTTP
   source ([`http-source.md`](http-source.md)), no eD2K (`Protocol.md` §14), no answer in the
   local network ([`lan-discovery.md`](lan-discovery.md)).
@@ -425,14 +426,25 @@ first stream has the number 0, and its records follow the three messages of §3.
   connection in a family in which the node has adopted no endpoint (`Protocol.md` §10.3): no
   contacts and not `responsible`, so only an index node answers with records. Limits that
   count a host address count the host of the node that sent the `HopJoin`, per gate; limits
-  count per node ID as well. A node that hides uses `HopLookup` for Kad (§4.1).
+  count per node ID as well. A session the node opened itself counts at the address its last
+  hop dialled: the endpoint of `node` in its `HopConnect`, or the `Gate.node` of the gate. A
+  session that came through a gate of the node's own counts under that gate, as one host. A
+  node that hides uses `HopLookup` for Kad (§4.1).
+- Where `Protocol.md` §5.5 closes a connection with `PROTOCOL`, a side ends the session: it
+  resets the session's other streams and forgets `sid`. A record is not acknowledged from end
+  to end, so a responder that answers a malformed `Hello` with `Error{MALFORMED}` ends the
+  session once it has sent the `Error` and the empty record. It does not reset that stream, so
+  the hops still deliver both (§2.4). The opener does not open another session to that node ID
+  for 60 s *(initial)*.
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
 - The first exchange is `Hello`, on the first stream: A sends it and B answers, as in
   `Protocol.md` §5.5. A node under its anonymous key sends no `observed`, `ep4`,
   `ep6` and no `nat`, an empty `nick`, and as `agent`, `caps` and `dict` the values that its
   implementation sends for every hidden node; `caps` never holds `ROUTER`, `RELAY` or `HOP`
-  (§1). A `Peer` that names it carries its node ID alone, and its `FileRequest`s carry no
+  (§1). An implementation that has an extension sets its bit there, also when the user turned
+  it off: a node under its anonymous key that takes no part answers as a node that takes part
+  in nothing (`TOPIC_LEFT`, `LIVE_LEFT`, no `credit` field), not `Error{UNSUPPORTED}`. A `Peer` that names it carries its node ID alone, and its `FileRequest`s carry no
   `relays4` or `relays6`. Anything else would tie the two keys. A receiver that sets `ANON`
   treats a `Peer` with a node ID alone as an anonymous source and looks up its `GATE` record
   under the limits of §4.3; any other receiver drops it.
@@ -546,7 +558,7 @@ Signed gate = 17;             // GATE search
 
 | | `ANON`: an anonymous source of a file | `GATE`: where an anonymous node is reached |
 |---|---|---|
-| Target | `root[0..16)`, as for `SOURCE` | `H("ed3k v1 gate", node ID)[0..16)` |
+| Target | `root[0..16)`, as for `SOURCE`; `topic` or `stream` in place of a `SUB` or `LIVE` record ([`pubsub.md`](pubsub.md) §5, [`live.md`](live.md) §5.1) | `H("ed3k v1 gate", node ID)[0..16)` |
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |
@@ -579,7 +591,9 @@ is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon
   gives the node ID, picks a gate at random, and opens a session through it. It makes at most
   4 *(initial)* failed `GATE` lookups or session attempts per file and hour, as
   [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
-  One session attempt is one gate dialled. An attempt counts until the searcher, as A, has checked
+  A topic and a live stream each count as a file for this limit, and a gate dialled counts
+  there too, in the row per file and in the row over all files. One session attempt is one
+  gate dialled. An attempt counts until the searcher, as A, has checked
   the key of B (§3.2); one still pending counts as failed.
 - A gate's `Error{BUSY}` on a `HopJoin` is no failed attempt. A gate always sends it with a
   `retry_after` above 0 (§3.1), and that gate waits `retry_after`; other gates of the node MAY
@@ -736,5 +750,5 @@ nothing was run. The broader comparison is in
   it a duty would put the session of §3 into the core. To be looked at again when
   it is known how many nodes set it.
 - Give and take reaches one link far and starts at nothing between two nodes that never met.
-- Live streams, publish and subscribe, and friends under an anonymous key are not looked at.
+- Friends under an anonymous key are not looked at.
 - All numbers are first values.

@@ -33,7 +33,9 @@ A client tries these in order and stops when its lookups work:
 5. **Node lists** (§2 to §4 of this document).
 
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the
-sources above completed a handshake, and at most once per 6 h *(initial)*. The 6 h are counted
+sources above completed a handshake, and at most once per 6 h *(initial)*. It judges this once
+every candidate of those sources has been dialled, or 60 s *(initial)* after it started,
+whichever comes first. The 6 h are counted
 per first contact, not per source: one first contact fetches from several sources (§3 of this
 document), and the next one starts 6 h later at the earliest.
 

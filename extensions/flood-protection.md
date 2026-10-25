@@ -58,13 +58,18 @@ about 16.
 | Retry token | a Retry packet | 10 s | the host address (IPv4 /32, IPv6 /64) and port |
 | Return token | a `NEW_TOKEN` frame after a handshake | 24 h | the host address |
 
-- **One binding.** A token is bound to the host address, the IPv4 address or the IPv6 /64
-  ([`ip-diversity.md`](ip-diversity.md) §1), and a Retry token to the port as well. A node
-  checks no more and no less: another address in the same /64 passes, another port passes a
-  return token.
+- **One binding.** A token is bound at least to the host address, the IPv4 address or the
+  IPv6 /64 ([`ip-diversity.md`](ip-diversity.md) §1), and a Retry token to the port as well.
+  A node MAY bind it more narrowly, to the exact address: a peer whose address changed within
+  its /64 then answers one Retry more.
 - `secret` is random and replaced every 24 h; the previous one stays valid for one period.
 - A node SHOULD send a return token on every connection, guarded or not. A peer that comes back
-  from the same address presents it and is not asked to retry. Downloaders returning to a queue
+  from the same address presents it and is not asked to retry.
+- A node SHOULD accept a return token once (RFC 9000 §8.1.4). Its log of used tokens is the
+  only state this needs; an entry is kept until the token's validity ends, and a node whose
+  log is full treats a token as not valid. An initiator uses a return token once and keeps the
+  newest one per node. The validated-start limit of §3 stays for nodes that accept a token
+  more than once. Downloaders returning to a queue
   (§12.5) and routing-table contacts are the usual case.
 - A Retry costs the initiator one round trip and one more padded Initial. 0-RTT data is sent
   again with the second Initial.
