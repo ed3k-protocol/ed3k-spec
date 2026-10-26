@@ -269,6 +269,20 @@ padding is encrypted and a record and a request have one length on the wire:
 | Someone who gets an open link later | the node's current address. There is no forward secrecy |
 | Someone who takes a node's private key | every place of that node, past and future |
 
+**A friend learns the node ID.** The key in a link is the node key, and the handshake proves
+it (T1), so a friend or a holder of an open link knows the node ID, and with it the source
+records and every other trace of that node. *(Informative.)* A user who does not want this
+runs a **second node** for friends and chat: a key of its own, never `ROUTER`, so that it is in
+no routing table and does not compete with the first node for the one entry per host group
+([`ip-diversity.md`](ip-diversity.md) §1). It publishes no source records and shares no credits
+with the first node. It names its relays in its records when it has no port of its own. To the network it is
+an ordinary leaf, and nothing in the protocol changes. It does not hide:
+
+- the address: once connected, a friend sees it, and may find it in the records of the first
+  node. Behind a shared address this is a hint, not a proof;
+- timing: two nodes that come and go together can be matched;
+- the budgets: both nodes count against the same host address (§4.6).
+
 ---
 
 ## 6. Alternatives considered

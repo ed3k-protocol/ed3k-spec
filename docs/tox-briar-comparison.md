@@ -66,6 +66,12 @@ with a secret stays as the *open link*, for a node that wants many people to fin
 | **The node key itself** | no second key to manage; the handshake proves it | whoever takes the node's private key finds every place of that node |
 | **Both forms kept** | one link for many people is still possible | two derivations for one record |
 
+**The node key, not a second key.** A second key that only finds the node hides nothing: the
+handshake proves the node key, so the friend learns the node ID on the first connection. A
+user who wants friends kept apart from the node ID runs a second node, a leaf with a key of its
+own. That is a choice of the client, and the protocol needs no change for it
+([`friend.md`](../extensions/friend.md) §5).
+
 ### 2.2 The friend request (Tox)
 
 **What Tox does.** A Tox address is the long-term key, 4 further bytes and a checksum. A user
@@ -211,4 +217,3 @@ by files on removable media.
 
 - The ideas of section 4. Presence (4.1) and introduction (4.2) are the two that
   [`friend.md`](../extensions/friend.md) §7 lists.
-- Whether a node key should be the key that friends agree on, or a second key made for it.
