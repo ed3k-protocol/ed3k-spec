@@ -122,7 +122,11 @@ formats, because their layout assumes it. That is the point at which a new wire 
 |---|---|---|
 | TLS over TCP with a stream multiplexer | networks that block or throttle UDP | head-of-line blocking; no hole punching; a second listening port |
 | WebTransport | browser clients | needs HTTP/3 and certificates that browsers accept, which conflicts with raw public keys |
+| WebRTC data channels | browser clients, also browser to browser | a second UDP port, signalling through relays; see [`browser-bindings.md`](browser-bindings.md) |
 | In-memory | tests | none; it needs no advertisement |
+
+Ways to serve browsers, with and without a binding, are compared in
+[`browser-bindings.md`](browser-bindings.md).
 
 ## 7. Open points
 
