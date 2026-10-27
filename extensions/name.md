@@ -83,6 +83,8 @@ ed3k:name?n=<global name ending in .ed3k, domain or handle>[&path=<url-encoded p
   Unknown parameters are ignored.
 - A link without `key` is not a secure name. A client shows how it resolved it (§4.4) before it
   opens it for the first time.
+- What a user types as one label without `.ed3k` (`alice`) is a petname if the user has one by
+  that text, else `alice.ed3k`. In a link a name of one label without `key` is invalid.
 
 ---
 
@@ -118,11 +120,15 @@ A delegation is **valid** when:
   `issued` and at most 90 days *(initial)* after it, and `expires` has not passed;
 - `scope` has the bit of the record that carries it.
 
-**Replacing a signing key.** The root key signs a new delegation with a later `issued`. A
-record under the newer delegation wins over every record under an older one (§3.2), whatever
-its `seq`. A signing key that was taken is therefore replaced by one signature of the root key,
-and its records lose from the first store of a record under the new one on. A signing key that
-was lost is replaced the same way.
+A root key MUST NOT sign two delegations with the same `issued`.
+
+**Replacing a signing key.** The root key signs a new delegation with a later `issued`, and the
+owner stores the apex record (§3.1) under it first. A record under the newer delegation wins over
+every record under an older one (§3.2), whatever its `seq`, and the apex sets the **floor** of
+the zone: a searcher refuses every record of the zone under an older delegation (§3.3). A
+signing key that was taken is therefore replaced by one signature of the root key and one
+store, and every record it signed, also for names the zone never used, is refused from then on.
+A signing key that was lost is replaced the same way.
 
 **What it does not cover.** A root key that is taken is the end of the zone: the thief can
 sign delegations as well as the owner. A root key that is lost leaves the zone with the last
@@ -131,11 +137,13 @@ that it changed; they cannot tell them that it is still the same owner.
 
 A zone that does not want two keys signs its records with the root key itself. Such a record
 loses against every valid record under a delegation (§3.2), so a zone can start with one key
-and move to a signing key at any time.
+and move to a signing key at any time. The way back is not open: a zone that used a delegation
+signs under a delegation until the last one it signed has expired, up to 90 days.
 
 `scope` is a list of bits so that other records signed for a key that stays offline can use
 the same message later: the heads of sets, live channels and rooms each name the successor of
-their key as an open point (§11).
+their key as an open point ([`file-set.md`](file-set.md) §10, [`live.md`](live.md),
+[`room.md`](room.md)).
 
 ---
 
@@ -145,11 +153,14 @@ their key as an open point (§11).
 
 A **zone** is the set of names under one root key. Its owner gives each name one record. The
 name `""`, the **apex**, is the zone itself: a website at the apex is what `ed3k:name?key=…`
-opens.
+opens. A zone that signs under a delegation MUST keep an apex record under its newest
+delegation, with neither links nor `sub` if the apex is not in use: it is the floor of §2.
 
 A name may have dots (`shop.blog`), and a record may hand every name below it to another zone
 (`sub`, below): `x.shop.blog` is then the name `x` in that zone. This is how a zone gives a
-name to someone else without giving them its key.
+name to someone else without giving them its key. Before it stores a record with `sub`, the zone
+takes back every name below it that it gave a record (a record with neither links nor `sub`,
+§3.2), and keeps those until the records they replace have expired.
 
 ### 3.2 The record
 
@@ -183,8 +194,11 @@ target = H("ed3k v1 name", zone(32) ‖ label)[0..16)
 The record is a `Signed` of kind `NAME` (`Protocol.md` §10.7), signed by the root key, or by
 the key of `delegation`.
 
-- **Links.** Each is an ed3k link of `Protocol.md` §13.2 or of an extension, at most 512 B
-  *(initial)*, beginning with `ed3k:`. At most one per kind of link (`ed3k:set`,
+- **Size.** The record is a `Signed` of at most 1 KiB (`Protocol.md` §10.7), as every record.
+  The links of a record are at most 512 B *(initial)* together, so that a record with a label of
+  253 B and a delegation still fits.
+- **Links.** Each is an ed3k link of `Protocol.md` §13.2 or of an extension, beginning with
+  `ed3k:`. At most one per kind of link (`ed3k:set`,
   `ed3k:friend`, …): a name can be a website and a person at once, and a client takes the link
   that fits what the user does with it. A link of a kind the reader does not know is ignored,
   and so is a link that carries a secret (see the introduction). A publisher MUST NOT put such a
@@ -202,7 +216,7 @@ the key of `delegation`.
 |---|---|
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7); `expires` at most 7 days *(initial)* plus 1 h ahead |
 | Signer | without `delegation`, the record is signed by `zone`, and `Store.signer` (or the key of the connection) is `zone`. With `delegation`, the delegation is valid under `zone` (§2) with bit 0 of `scope`, the record is signed by `delegation.key`, the signer of the `Store` is that key, and `expires` is not after `delegation.expires` |
-| Content | `name`, nothing else. `zone` is 32 B, `label` a name of §1.1 or empty, `links` at most 4, each 6 to 512 B starting with `ed3k:`, `sub` absent or 32 B; else `REJECTED` |
+| Content | `name`, nothing else. `zone` is 32 B, `label` a name of §1.1 or empty, `links` at most 4, each at least 6 B and starting with `ed3k:`, 512 B together at most, `sub` absent or 32 B; else `REJECTED` |
 | Target | `H("ed3k v1 name", zone ‖ label)[0..16)` is the target of the request |
 | Count | one record per target, whichever key signed it. It is replaced by a record that is newer by the order below; any other valid record is answered `OLDER` |
 
@@ -211,42 +225,55 @@ the key of `delegation`.
 1. the higher **rank**: `delegation.issued` for a record under a delegation, 0 for one signed by
    the root key;
 2. then the higher `seq`;
-3. then the lower `body`, compared as bytes.
+3. then, when both have the same `links`, `sub` and delegation, the later `expires` (a renewal);
+4. then the lower `body`, compared as bytes.
 
-- A storing node deletes a record at its `expires`, and one under a delegation also when the
-  delegation expires.
+An owner raises `seq` whenever it changes the content; a renewal keeps it.
+
+- A storing node deletes a record at its `expires`.
 - A storing node counts the `NAME` records it holds over all targets per host and site, as it
   does `HEAD` records ([`ip-diversity.md`](ip-diversity.md) §2.4).
 
 **Searcher.** It checks every record as the storing node does, and as the target it searched.
 Of all valid records the answers hold, it takes the newest by the order above. A record that is
-older than one it already holds for the name is dropped, as a follower of a set does
+older than one it already holds for the name, and that one still valid (not expired, its
+delegation not expired), is dropped, as a follower of a set does
 ([`file-set.md`](file-set.md) §5.3).
 
 **Who stores it.** The owner stores a record when it signs it and renews it every 24 h
-*(initial)*, with an `expires` of up to 7 days. A node that holds a name pinned (§4.4) SHOULD
-store the record it holds once per 24 h with `signer` set, as a follower stores a head
-([`file-set.md`](file-set.md) §5.2), so that a zone whose owner is offline keeps its names until
-their `expires`.
+*(initial)*, with an `expires` of up to 7 days. A node whose user opened a name SHOULD store each
+record on its way (§3.3: the apexes and the records that resolved it) once per 24 h, as long as
+it keeps the name, with `signer` set to the key the record verifies under, as a follower stores
+a head ([`file-set.md`](file-set.md) §5.2). A zone whose owner is offline then keeps its names
+until their `expires`.
 
 ### 3.3 Resolving a name in a zone
 
 The labels are taken from the right, as DNS does:
 
-1. For each suffix of the name, from the shortest (`blog` of `x.shop.blog`) to the whole name,
-   search `NAME` at `H("ed3k v1 name", zone ‖ suffix)`.
-2. The first suffix whose record has `sub`, and that is shorter than the name, hands the rest
+1. Search the apex of the zone, `H("ed3k v1 name", zone)`. The rank of the newest valid apex
+   record is the zone's **floor**; no apex record found: the floor is 0. A record of the zone
+   whose rank is below the floor is refused (§2).
+2. For each suffix of the name, from the shortest (`blog` of `x.shop.blog`) to the whole name,
+   search `NAME` at `H("ed3k v1 name", zone ‖ suffix)`. The apex is not a suffix: a `sub` in
+   the apex record stands for the apex alone.
+3. The first suffix whose record has `sub`, and that is shorter than the name, hands the rest
    on: the client goes on with the labels in front of it in the zone of `sub`, from step 1.
-3. Otherwise the record of the whole name is the answer. A record of the whole name that has
+4. Otherwise the record of the whole name is the answer. A record of the whole name that has
    `sub` and no links stands for the apex of that zone.
-4. No record of the whole name: the name does not exist.
+5. No record of the whole name: the name does not exist. The name `""` is answered by step 1
+   alone.
 
-- The searches of step 1 are independent targets, and a client MAY send them at once. Most
-  names have no `sub` on their way, so the whole name is known after one round of lookups.
-- At most 8 *(initial)* zones are followed and at most 16 *(initial)* lookups made per name. A
-  zone that comes up twice ends the resolution with no answer.
+- The searches of steps 1 and 2 are independent targets, and a client MAY send them at once.
+  Most names have no `sub` on their way, so the whole name is known after one round of lookups.
+- At most 8 *(initial)* zones are followed, the first one counted, and at most 24 *(initial)*
+  lookups made per name, counted as a search one at a time would make them: per zone the apex
+  and each suffix up to the one that hands on or answers. Searches sent at once beyond these
+  are not counted, and so every client reaches the same answer. A zone that comes up twice ends
+  the resolution with no answer.
 - A record of a name below a `sub` (in the zone that handed it on) is ignored: what the other
-  zone says decides, as in DNS.
+  zone says decides, as in DNS. The zone takes such names back before it hands them on (§3.1),
+  so that a lookup of the `sub` record that is lost or withheld finds no stale answer below.
 
 ---
 
@@ -260,10 +287,10 @@ holds is a count of the sites that make a claim, not a proof.
 
 | # | Source | What it is | Shown as |
 |---|---|---|---|
-| 1 | **Petnames** | names the user gave keys; any text, also in other scripts; never sent anywhere except as §4.3 says | yours |
+| 1 | **Petnames** | names the user gave keys; any text, also in other scripts; never sent anywhere, unless the user marks one that is a global label as shareable (§4.3) | yours |
 | 2 | **Pins** | the zone a name led to when the user first opened it (§4.4) | pinned, with the date |
 | 3 | **Name lists** the user follows | files of names and zones, published by their authors as signed sets (§4.5) | the title of the list |
-| 4 | **Friends** | what the user's friends hold in sources 1 to 3, asked by `NameQuery` (§4.3), and the lists they publish | *k* of *n* friends |
+| 4 | **Friends** | the friends' own zones, the names they vouched for, their shareable petnames and their followed lists, asked by `NameQuery` (§4.3), and the lists they publish | *k* of *n* friends |
 | 5 | **The network** | `CLAIM` records in Kad (§4.2) | network, *s* sites |
 
 - The first source that names a zone for the name decides. A client that has no pin for the
@@ -297,8 +324,8 @@ target = H("ed3k v1 name claim", name)[0..16)
 ```
 
 A claim says: *the publisher calls this zone by this name.* It is signed by its publisher, any
-key, like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(initial)*. It travels in
-`Store.names` and `KadAnswer.names`.
+key, like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(initial)*, stored again every
+20 h *(initial)*. It travels in `Store.names` and `KadAnswer.names`.
 
 **Publisher**
 
@@ -307,7 +334,8 @@ key, like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(initial)*. It
   for, one by one. A client MUST NOT publish claims for every name it pinned or saw.
 - At most 2 *(initial)* zones per name and publisher key.
 - A node that hides behind other nodes ([`hops.md`](hops.md)) publishes claims under its
-  anonymous key only, as it does aliases.
+  anonymous key only, so that a claim does not tie its zone to its node. Such claims arrive as
+  stores with `signer` (hops.md §4.3) and count no site, as for `ALIAS`.
 
 **Storing node.** As for `ALIAS` ([`alias.md`](alias.md) §3), with the zone in the place of the
 root:
@@ -317,7 +345,13 @@ root:
 | Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
 | Content | `claim`, nothing else. `name` a global label, `zone` 32 B; else `REJECTED` |
 | Target | `H("ed3k v1 name claim", name)[0..16)` is the target of the request |
-| Count | one record per publisher, target and zone. At most 2 *(initial)* zones per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the target. At most 64 *(initial)* zones per target; further ones get `FULL`. At most 3 *(initial)* records kept per zone, by the rule of `ALIAS` |
+| Count | one record per publisher, target and zone. At most 2 *(initial)* zones per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the limit of 64 zones per target. At most 64 *(initial)* zones per target (a full target, below). At most 3 *(initial)* records kept per zone, by the rule of `ALIAS` |
+
+- **A full target.** Unlike `ALIAS`, a record for a new zone at a target that holds 64 zones
+  takes the place of the zone with the fewest sites, of those the one first stored earliest,
+  when that zone has 1 site; it is `FULL` when every zone has more. A zone that publishers of
+  several sites name therefore always gets in, and a squatter that filled a name early holds
+  zones of 1 site, which give way.
 
 - Sites per zone are counted as `ALIAS` counts them per root: each site that stored a valid
   record for the zone, until that record would have expired, a `Store` with `signer` not
@@ -330,7 +364,8 @@ root:
 
 **Searcher.** It checks each record as the storing node does, merges the answers by zone, and
 takes as the site count of a zone the lower median of the non-zero `sites` reported for it, as
-for `ALIAS`. The zone with the highest count is the answer of source 5.
+for `ALIAS`. The zone with the highest count is the answer of source 5. Two zones with the
+highest count: no answer from this source; the client shows them, as for friends (§4.1).
 
 ### 4.3 Asking friends
 
@@ -354,17 +389,18 @@ message NameHit {
 enum NameSource {
   NAME_NONE = 0;
   NAME_OWN = 1;               // the node's own zone
-  NAME_PETNAME = 2;           // a petname of its user that is a global label
-  NAME_PINNED = 3;
+  NAME_PETNAME = 2;           // a petname its user marked as shareable, a global label
+  NAME_PINNED = 3;            // a pin its user vouched for (§4.4)
   NAME_LISTED = 4;            // a name list its user follows
 }
 ```
 
 `NameQuery` and `NameAnswer` are a request and its answer (`Protocol.md` §5.2).
 
-- **No hearsay.** A node answers from sources 1 to 3 of §4.1 and its own zones only, never from
-  what friends or the network told it. Trust is not passed on from friend to friend, and the
-  network's answer does not come back dressed as a friend's.
+- **No hearsay.** A node answers only from its own zones, the names its user vouched for (§4.4),
+  the petnames its user marked as shareable, and the name lists its user follows. A pin alone is
+  not answered: it may have come from friends or the network. Trust is not passed on from
+  friend to friend, and the network's answer does not come back dressed as a friend's.
 - A node answers its friends ([`friend.md`](friend.md) §1), and answers `Error{DENIED}` to any
   other node unless its user chose otherwise. A node without `NAMES` answers
   `Error{UNSUPPORTED}`.
