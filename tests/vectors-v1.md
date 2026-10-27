@@ -871,6 +871,17 @@ manifest     = "ed3kset" ‖ 01 ‖ SetFile{ body }, FileSet = { files, usenet =
 its root     = 3184070839b8235c2812381efd8564172321bf1c4e5621cfdc6232056f55f3e9
 ```
 
+A `=ypart` glued onto the `=ybegin` line (§2). Both lines give the same values:
+
+```
+=ybegin part=2 total=2 line=128 size=16 name=sample.txt=ypart begin=9 end=16
+=ybegin part=2 total=2 line=128 size=16 name=sample.txt =ypart begin=9 end=16
+
+name = sample.txt     (73 61 6d 70 6c 65 2e 74 78 74; the space before =ypart is trailing whitespace)
+size = 16
+part = begin 9, end 16: 8 bytes at offset 8
+```
+
 ## Hoster links (hoster.md §4)
 
 | Link | `canonical` | `id` = H("ed3k v1 url", canonical) |

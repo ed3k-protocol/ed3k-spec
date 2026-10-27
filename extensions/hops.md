@@ -431,11 +431,12 @@ first stream has the number 0, and its records follow the three messages of §3.
   session that came through a gate of the node's own counts under that gate, as one host. A
   node that hides uses `HopLookup` for Kad (§4.1).
 - Where `Protocol.md` §5.5 closes a connection with `PROTOCOL`, a side ends the session: it
-  resets the session's other streams and forgets `sid`. A record is not acknowledged from end
+  resets the session's other streams, except a direction whose empty record it has already
+  sent, reads none of them further, and forgets `sid`. A record is not acknowledged from end
   to end, so a responder that answers a malformed `Hello` with `Error{MALFORMED}` ends the
   session once it has sent the `Error` and the empty record. It does not reset that stream, so
-  the hops still deliver both (§2.4). The opener does not open another session to that node ID
-  for 60 s *(initial)*.
+  the hops still deliver both (§2.4). After a session ended so, by either side, its opener does
+  not open another session to that node ID for 60 s *(initial)*.
 - **One stream is one exchange** (`Protocol.md` §5.2). The records carry its frames. Every
   message of ed3k works unchanged.
 - The first exchange is `Hello`, on the first stream: A sends it and B answers, as in
@@ -508,7 +509,10 @@ message HopLookupAnswer {     // type 31
 - It answers `Error{DENIED}` to a `HopLookup` whose `store` carries `source`, `also`, `http`,
   `links` or `sealed`: those records are bound to the connection (`Protocol.md` §10.3) and
   would name the last hop as a source. It refuses in the same way a `store` with a signed
-  record and no `signer`, which would be counted under its own key.
+  record and no `signer`, which would be counted under its own key. A search of any kind goes
+  over a path; which stores do follows from these refusals.
+- It answers `Error{DENIED}` to a `HopLookup` of kind `NONE`. A node under its anonymous key
+  keeps no routing table (§1) and takes its hops from its own lookups (§2.1).
 - It allows 20 *(initial)* lookups per minute and path, and answers `Error{BUSY}` above that.
 - **The last hop sees what is searched and stored. It does not see by whom.** An owner SHOULD
   spread its lookups over its paths.
@@ -602,10 +606,11 @@ is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon
   and the owner tries again over another path. How many paths it tries, and how long it
   avoids a busy one, is local policy. A `BUSY` without `retry_after` on a `HopJoin` that a
   node sent itself (§3.1, 0 hops) breaks §3.1; that gate is waited for 60 s, as
-  `Protocol.md` §5.6 says where no section names a wait. The 60 s wait per node ID of §3.3 is for a
-  reset of the first stream, the node's own refusal.
+  `Protocol.md` §5.6 says where no section names a wait. The 60 s waits per node ID of §3.3 are for a
+  reset of the first stream, the node's own refusal, and for a session ended with `PROTOCOL`.
 - A node stores its `GATE` record before its first `ANON` record. It stores no `GATE` record
-  while it has no gate: `gates` is never empty.
+  while it has no gate: `gates` is never empty. While it has no gate it stores no `ANON` record
+  either; those stored run out.
 - An owner stores its `GATE` record again after 45 min *(initial)*, and at once when a gate
   was lost.
 - The batch of `Protocol.md` §10.4 does not carry `ANON` records: each is signed for its

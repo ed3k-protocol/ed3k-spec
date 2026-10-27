@@ -586,8 +586,9 @@ Then, in this order:
 - If the issuer is **not mature**, step 1 is done and step 2 is not. The settled `kib` stays
   where it was, so the same receipt can be settled again when the issuer has matured, within
   the 7 days. A holder reads `isMature` (or `accountOf`) before it settles a receipt that
-  takes nothing, and settles one of an immature issuer only once that issuer is mature; a
-  holder that cannot read tries once per 48 h round.
+  takes nothing, and settles one of an immature issuer only once that issuer is mature and
+  not `overdrawn` (`accountOf`); an overdrawn issuer never mints (§6.4). A holder that cannot
+  read tries once per 48 h round.
 - A holder MUST settle a receipt whose `spent` grew, and do so **before the `until` of the
   hold** it read for that turn (§5.2). After `until` the issuer can move the credits away.
 - A holder MUST settle its other receipts **at least every 48 h** while it has new ones, at a
@@ -808,8 +809,9 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 - **A local node** needs nothing more. It follows the L1 without being a validator.
 - **A remote node** is believed for what it says. A client that uses remote nodes SHOULD ask
   two of different operators for a read it acts on, and act only if they agree. An
-  `eth_estimateGas` that decides a refusal (§4.3) is such a read. A transaction goes to one
-  node.
+  `eth_estimateGas` that decides a refusal (§4.3) is such a read. A relay that cannot get two
+  to agree does not refuse: it answers `Error{BUSY}` with a `retry_after`. A transaction goes
+  to one node.
 - What a lying node can do is bounded: it can make an uploader give one priority turn for
   nothing, or make a node pay gas for a `settle` that mints nothing. It cannot move or mint
   credits; that takes signatures.
@@ -883,10 +885,13 @@ there, with a credit address of its own:
 - **No direct RPC.** A transaction goes out by `CreditRelay` (§4.3) to a peer of a session.
   A read comes from a ledger node on the same machine, or through a proxy the user set up
   for that purpose, or not at all. A node that cannot read sells no priority and does not
-  bid: a bid needs the balance of §5.4. It can still sign and earn. It checks a `settle` by a second relay: after the next round of 48 h it
-  offers the same receipts to another one. `Error{BUSY}` with `retry_after` there means they
+  bid: a bid needs the balance of §5.4. It can still sign and earn. It checks a `settle` by a
+  second relay: 48 h after the first relay's answer it offers the same receipts, in a request
+  of their own, to another one. Only a relay that answered with `tx` is checked;
+  `Error{BUSY}` is no claim. `Error{BUSY}` with `retry_after` at the second relay means they
   are settled, or below the threshold (§4.3). A relay that sends them shows that the first
-  did not, and the node does not ask the first again.
+  did not, and the node sends the first no receipts again; a hold still goes to its `payee`
+  (§4.3).
 - **It bids with a signed hold** (`holdFor`, §6.5), sent by `CreditRelay` to the uploader it
   bids at, and renewed the same way. The signature needs no read. The ledger pays nothing
   for a hold; the uploader sends it for its share of the turn (§4.3).

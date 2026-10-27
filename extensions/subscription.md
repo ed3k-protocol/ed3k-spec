@@ -440,7 +440,8 @@ has devices. A node that sees that MAY report it to the seller, with the proofs 
 - **What counts.** `devices` of the offer is the number of node IDs one holder key may use at
   the same time, 1 to 63; 0 means 3 *(initial)*. A report holds at most 64 sightings, so 63 is
   the highest number that a report can exceed. A node counts, per scope and holder key, the distinct
-  sender node IDs of the valid proofs it received in the last hour *(initial)*. Above
+  sender node IDs of the valid proofs of viewer passes it received in the last hour
+  *(initial)*; a relay pass gets no key and is not counted. Above
   `devices` it MAY report.
 - A node reports only what it received itself. It does not pass on, collect or ask for proofs
   that other nodes received.
@@ -478,7 +479,9 @@ message ShareReport {
   who paid. A client that reports SHOULD let its user turn reports off, and MUST NOT report a
   holder key that stays within `devices`.
 - The seller answers `204` and nothing else. A node sends at most one report per holder key and
-  scope per day *(initial)*.
+  scope per day *(initial)*. A node under its anonymous key ([`hops.md`](hops.md) §1) MUST NOT
+  report, except through a proxy the user set up for that purpose: the `POST` shows its
+  address with its anonymous node ID.
 
 ---
 
@@ -859,8 +862,9 @@ set.
 - A node without a pass that covers the current epoch, or a relay pass whose `until` is in the
   future, neither joins nor publishes a `SUB` record.
 - A client that has a pass but no key looks up `target`, and sends `KeyRequest` or joins. A
-  client without `PUBSUB` uses `KeyRequest` alone, to the nodes it finds there and to the
-  sources of the manifest.
+  client without `PUBSUB` looks up the `SUB` records too, stores none, and uses `KeyRequest`
+  alone, to the nodes it finds there and to the sources of a manifest it can name: a
+  catalogue's, or a hidden set's version it opened before.
 - **The author** joins its topic when it publishes a version, and pushes the key of that epoch
   to its neighbours.
 

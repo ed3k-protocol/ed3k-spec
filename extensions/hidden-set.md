@@ -112,9 +112,11 @@ message Sealed {
 
 **Storing**
 
-- The author stores the record when it publishes a version.
-- A follower stores the record it holds under the target of the current day, once per day, at
-  a random time in the first 6 h *(initial)* of the day. The author need not be online.
+- The author stores the record when it publishes a version. It stores it again as a follower
+  does, and before `expires` signs the same `data` with a later `expires`.
+- A follower stores the record it holds under the target of the current day, once per day: at
+  a random time in the first 6 h *(initial)* of the day that others cannot predict, or at once
+  when it comes online later in the day. The author need not be online.
 - A storing node of one day is, as a rule, not one of the next.
 
 **Reading**
@@ -122,7 +124,9 @@ message Sealed {
 1. Search `HIDDEN` at the targets of the current day and of the day before, and merge the
    answers: a follower's store of an old version on the new day must not hide a newer one that
    is still under yesterday's target.
-2. Take the record with the highest `seq` and open `data`.
+2. Take the record with the highest `seq` and open `data`. One that does not open as the
+   Content row says is not taken: the reader keeps the version it holds and stores the record
+   it held.
 3. Download the sealed manifest by its `root`, open it (§4.1), and accept it by the rules of
    [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` and the `id` of
    the opened `Head`, and with the `id` of the version held before, if there is one.

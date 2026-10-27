@@ -171,7 +171,8 @@ copying its list.
   unopened when its `set_files` would pass the total limit below.
 - The reader downloads the inner manifest like any member, verifies it against `root` and
   applies §2.1 to §2.4 to it. An inner manifest that is refused, or a file that is not a
-  manifest, fails that member only. The rest of the outer set is not affected.
+  manifest, fails that member only. The rest of the outer set is not affected. One not yet
+  fetched is a member still downloading: nothing below it is opened or counted until it is.
 - The inner manifest is kept by the client next to the outer one. It is not written into the
   directory tree of the set.
 - **Depth.** At most 8 *(initial)* manifests lie below each other, counting the outer one. A
@@ -515,8 +516,8 @@ its publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(init
   comes first.
 
 - The claim is checked by fetching the manifest and looking for the root. A record whose
-  manifest does not list the file is false; the client SHOULD ignore that publisher from then
-  on.
+  set root is no valid manifest (§2.1 to §2.4), or whose manifest does not list the file, is
+  false; the client SHOULD ignore that publisher from then on.
 - A client SHOULD fetch a manifest for this purpose only when the user asks for the sets of a
   file, and SHOULD start with the set that most sites name.
 - From a manifest that has an `id`, the client can go on to the newest version (§5).

@@ -316,7 +316,8 @@ every volume, and the file that came out has the root in `id`.
   read is not a false claim: a format, a method or an encryption it does not support. An
   archive of a format and method it supports whose directory, compressed data or checksum is
   broken gives no file, and the claim is false: the volumes are verified, so they are the
-  bytes the publisher unpacked.
+  bytes the publisher unpacked. So does an archive in an encryption the client supports that
+  the record's `password`, or its absence, does not open.
 - The output is written as a stream to the place of the download. Paths, links and attributes
   from inside the archive are not used.
 - Unpacking reads data that its author controls. It SHOULD run apart from the node, like a

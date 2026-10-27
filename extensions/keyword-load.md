@@ -87,7 +87,8 @@ Rows are tried in order; the first that applies decides.
 - **Candidates.** For files it refused, the node keeps the sites that offered them, for one
   record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
   file with the fewest sites is forgotten, and among files of equally few sites the one whose
-  last offer is oldest.
+  last offer is oldest; of offers in the same second, the lower root as bytes. The file at
+  hand is among them.
 - **Outranks** means: more candidate sites than the rank of the weakest entry. The site of the
   offer at hand counts among them, once; that of a `Store` with `signer` does not (§2.1 of
   this document). Equal rank never

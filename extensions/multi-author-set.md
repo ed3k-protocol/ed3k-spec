@@ -173,7 +173,9 @@ message Mount {
   that the mounted version and the inner sets below it list, and the sum of their `size`
   values, count against `max_files` and `max_size`. Every entry of `files` counts, `set`
   members included, with its `size`, as for the total of `file-set.md` §2.5. `set_files` and `set_size` are for display
-  (`file-set.md` §2.5) and are not used for this.
+  (`file-set.md` §2.5) and are not used for this. A mount below counts with the version the
+  reader shows for it. A newer version of a mount is taken only when it and every mount above
+  it stay within their limits; else the one before is kept.
 - **The outer signature covers the mount, not what will be in it.** It says: this key may fill
   this directory, up to these limits.
 - The mounted set may have co-owners (§1) and mounts of its own. The depth and total limits of

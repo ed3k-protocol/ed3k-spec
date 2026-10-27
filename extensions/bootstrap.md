@@ -35,7 +35,8 @@ A client tries these in order and stops when its lookups work:
 A client fetches node lists by itself only when fewer than 10 *(initial)* nodes from the
 sources above completed a handshake, and at most once per 6 h *(initial)*. It judges this once
 every candidate of those sources has been dialled, or 60 s *(initial)* after it started,
-whichever comes first. The 6 h are counted
+whichever comes first. Saved contacts count once they are loaded, and LAN discovery once its
+first round ended; until then only the 60 s decide. The 6 h are counted
 per first contact, not per source: one first contact fetches from several sources (§3 of this
 document), and the next one starts 6 h later at the earliest.
 

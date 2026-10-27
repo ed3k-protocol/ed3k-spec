@@ -94,8 +94,8 @@ enum Verdict {
 - A client follows at most 32 *(initial)* sets of lists and reads at most 64 *(initial)* list
   files per set, the first ones as above. The list files it reads are at most 64 MiB
   *(initial)* in all, counted by their `size` in the manifest, and a list opened by hand by
-  its file length. Lists count in the order the user followed or opened them; one that would
-  go beyond is not read. A list opened by hand is not one of the 32. A new version that
+  its file length. Lists count in the order the user followed or opened them, an order kept
+  across restarts; one that would go beyond is not read. A list opened by hand is not one of the 32. A new version that
   would go beyond is not read either: the client keeps the old version. In both cases the
   client says so.
 - A list file that was opened by hand, without a set, MAY be used. It has no author and no
@@ -113,12 +113,15 @@ enum Verdict {
   with the verdict and the title of the list. Whether a `FAKE`, `HARMFUL` or `SPAM` result is
   hidden, and whether a download of it is refused, is a setting the user makes per list.
 - **The user can always see why.** A client that hides something MUST be able to show what it
-  hid and which list said so, and the user's own decision for an entry overrules every list.
+  hid and which list said so, and the user's own decision for an entry overrules every list:
+  a verdict in their own list, or a local choice to show it that is not published.
 - **Nothing is deleted.** A client MUST NOT delete a file, or stop a download that is under
   way, because of a list. It tells the user.
 - **`GOOD` replaces no check.** A file is verified against its root as always. `GOOD` says only
   that the author of the list looked at it.
-- **Lists that disagree** are both shown. A client does not decide between them.
+- **Lists that disagree**, `GOOD` against `FAKE`, `HARMFUL` or `SPAM`, are both shown: the
+  entry is marked and not hidden or refused, unless the user decided it. A client does not
+  decide between them.
 - **A list judges what is published, not who connects.** A client MUST NOT refuse a
   connection, a Kad request or an upload because of a list. A list has no addresses in it.
 - **A storing node does not filter.** A node MUST NOT apply a list to the records it stores or

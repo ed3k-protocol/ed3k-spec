@@ -318,7 +318,8 @@ A source is a URL chosen by someone else. A node fetches only when all of this h
 
 - A literal address is checked at once, a name after it is resolved, and again for every
   redirect. The fetch connects to the address that was checked, not to a second resolution of
-  the name.
+  the name. When that address is refused, by the address check or by the fetch limits, the
+  fetch ends; no other address of the name is tried.
 - `Alt-Svc` and similar hints are ignored. The fetch uses only the checked address.
 - An IPv4-mapped address (`::ffff:0:0/96`) is normalised to IPv4 first and checked as IPv4.
 - An address of NAT64 (`64:ff9b::/96`) or of 6to4 (`2002::/16`) is judged by the IPv4 address
@@ -373,7 +374,9 @@ what a host receives.
   a failure or it counts nothing.
 - A fetch that was redirected counts at every address of the chain, the first included. Each
   address of the chain is checked against these limits before its request, and counts as
-  pending from it, whether the target is a literal address or a resolved name.
+  pending from it, whether the target is a literal address or a resolved name. A chain that a
+  later address ends, refused by these limits or by the address check, is a failure at every
+  address before it.
 - **Not counted over all files:** a fetch at a host that delivered a block which passed
   verification within the last hour, and a fetch at a gateway, a cache server or a link that
   the user configured or pasted. The same holds for the limit over all namers. The limit per

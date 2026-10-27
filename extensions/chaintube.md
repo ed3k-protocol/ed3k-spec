@@ -75,9 +75,11 @@ An upload is a file set with an author signature (`file-set.md` §2.4), an `id` 
   them.
 - A playlist names files by relative paths inside the set only. A reader MUST NOT follow an
   absolute URL in one.
-- A playlist names members of the set only: a media playlist the file beside it,
-  `master.m3u8` playlists of the set. A reader ignores a playlist that names a file not in
-  the set.
+- A playlist names members of the set only: a media playlist the file beside it by its name
+  alone, `master.m3u8` playlists of the set by their paths (`video/<label>.m3u8`, …), written
+  as in the manifest: no query, fragment, scheme, leading `/`, `.` or `..` segment, nor
+  percent-escape. A reader ignores a playlist that names a file not in the set, or one it
+  ignores.
 - An upload set has at most 64 files *(initial)* and no inner sets.
 - A reader ignores a member that breaks a size limit of this table, a member marked `set`,
   and a member under `ed3k/`, as one at another path. A set of more than 64 files is not an
@@ -290,7 +292,7 @@ in IPFS, not of a directory. The rules of the parameter are those of §3.1: opti
 **The attachment set**
 
 - It has at most 64 files *(initial)* and no inner sets. A member marked `set` is ignored. No
-  member has a path under `ed3k/` (§2.1).
+  member has a path under `ed3k/` (§2.1); a reader ignores one that has.
 - **Paths are free.** Every member is one attachment, shown under its path.
 - **A set with the layout of §2.1**, that is with at least one `video/<label>.mp4`, is played
   as a video is, and its other members are read by §2.1. It stays an attachment: its entry is
@@ -382,9 +384,11 @@ Four contracts. The sources are part of the ChainTube backend.
 - IDs count from 1 per contract. A video is named by chain ID, content contract and content ID.
 - A vote names what it rates by a contract and an ID: the content contract for a video, the
   comment contract for a comment.
-- `voteType` above 0 is a vote up, below 0 a vote down. `voteValue` is an amount of the chain's
-  coin that the voter paid. The contract divides it between the author, the creator of the
-  video, the operator of the contract and a wallet that the sender of the transaction names.
+- `voteType` above 0 is a vote up, below 0 a vote down, 0 a plain like: neither up nor down,
+  its value counted all the same. `voteValue` is an amount of the chain's coin that the voter
+  paid, in all, after any `updateVote`. The contract divides it between the author, the
+  creator of the video, the operator of the contract and a wallet that the sender of the
+  transaction names.
 - A video cannot be deleted. Its author can change the title, the pairs, the tags and the
   text. Kind, parent and reference are fixed when it is created.
 - The **moderators** of an entry are its author, the accounts its author named, and the
@@ -399,17 +403,20 @@ Four contracts. The sources are part of the ChainTube backend.
 | Comment | `createComment(address contractHash, uint256 contentId, uint256 replyId, string content, (string,string)[] media)`; `replyId` 0 = not an answer; `media` empty, or one pair of `ed3k` and a link of §3.4 |
 | Change a comment | `updateComment(uint256 commentId, string content, (string,string)[] media)`; both are replaced, `blocked` is kept |
 | Rate | `castVote(address contractHash, uint256 contentId, int256 voteType, address platformWallet)`, with the value as the amount of the transaction |
+| Change a vote | `updateVote(uint256 voteId, int256 voteType, address platformWallet)`, with the added value as the amount of the transaction |
 | Read one video or other entry | `getContentById(uint256 contentId)` |
 | Read one comment | `getCommentById(uint256 commentId)` |
+| Read one vote | `getVoteById(uint256 voteId)` |
 
 The ABI of the contracts is published with the ChainTube backend
 (`github.com/ChainTube/stream-daemon`, `chain/contracts/abi/`); the signatures above are taken
-from it. The two getters return their values flat, not as one struct, in this order:
+from it. The three getters return their values flat, not as one struct, in this order:
 
 | Getter | Returns |
 |---|---|
 | `getContentById` | `address author, uint32 kind, uint256 parentId, uint256 refId, string title, (string,string)[] media, string[] tags, string content, bool closed, bool blocked` |
 | `getCommentById` | `address author, address contractHash, uint256 contentId, uint256 replyId, string content, (string,string)[] media, bool blocked` |
+| `getVoteById` | `address author, address contractHash, uint256 contentId, int256 voteType, uint256 voteValue` |
 
 The addresses of the contracts are assigned with the parameters of §4.2.
 
@@ -468,7 +475,9 @@ credit extension does ([`credit.md`](credit.md) §7.3).
   contract for an entry and the comment contract for a comment. A client ignores one that
   names another contract.
 - An account can vote on one thing many times. A client SHOULD count one vote per account and
-  thing, the newest, and SHOULD show the sum of the values apart from the count.
+  thing, the newest, and SHOULD show the sum of the values, the newest `voteValue` of each
+  vote ID, apart from the count. A plain like (`voteType` 0) counts in the sum, as neither up
+  nor down.
 - An avatar is used when it is an `ed3k:file` link to a picture of at most 1 MiB *(initial)*.
 
 ### 4.4 Writing
@@ -481,8 +490,14 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 - A key that the client holds is as private as the node key. A client MUST NOT write it to a
   log or show it in an error message.
 - **A write is done** when a read at a block that the chain treats as final shows it:
-  `getContentById` or `getCommentById` returns the new state. This holds alike for a
+  `getContentById`, `getCommentById` or `getVoteById` returns the new state: the values
+  written, compared in full; `closed` and `blocked` are not compared. This holds alike for a
   transaction of the client and for one that a site sent for it (§10).
+- The ID of a new item is in its event (`ContentSet`, `CommentSet`, `VoteSet`): in the
+  receipt of the client's transaction, or, for one a site sent, found by `eth_getLogs` at the
+  contract with topic `author` (§4.3) from the block the request was handed over, as the
+  newest item that shows what was written. An ID a site gives is a shortcut, checked by the
+  getter.
 - A client sends a transaction only when the user asked for this one. It shows the amount and
   the receiver contract before.
 - `platformWallet` is the zero address unless the user chose a site to support.

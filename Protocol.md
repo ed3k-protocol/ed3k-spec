@@ -2512,8 +2512,9 @@ A value from 1 to 1799 is read as 1800 and a value above 14400 as 14400.
   *(initial)* for the receipt of an entry that bids ([`extensions/credit.md`](extensions/credit.md) §4.1). A downloader cannot stay connected against the uploader's
   choice.
 - The downloader comes back by opening a new file stream; `brief` keeps the answer small.
-- It MAY come back earlier to report changed endpoints or relays, or to ask for another file,
-  which keeps its position as in eMule; both reasons together at most once per 30 min
+- It MAY come back earlier to report changed endpoints or relays (what the uploader dials by,
+  below), or to ask for another file, which keeps its position as in eMule; these reasons and
+  a changed bid ([`extensions/credit.md`](extensions/credit.md) §4.1) together at most once per 30 min
   *(initial)*. Any other
   early `FileRequest` MAY be answered with `Error{BUSY}` and `retry_after`. The
   position is not affected.

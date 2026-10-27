@@ -38,14 +38,14 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
+| mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved; CDATA sections are character data, comments and processing instructions are skipped; a `segment` with a child element gives no mᵢ, as an empty one), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
 | Order of parts | by the `number` attribute, 1 to n, where n is the number of different `number` values of the file. Where a number occurs twice, the first entry in the NZB counts |
 | fⱼ | the different file ids of the files of the NZB, in ascending order of their bytes; a file whose file id equals another's counts once: both name the same articles, so they are one file, with one `name` and `size` (§2) |
 
 - **A file with a gap** in its part numbers has no file id, and an NZB with such a file has no
   post id. A part numbered 0 is a gap, and so is a file without parts: the parts are numbered
   1 to n, each number present. A file with a `number` outside 1..n, or one that is not a
-  decimal number, has no file id either. A file with an empty mᵢ has no file id, as a file
+  decimal number, has no file id either. A file with an empty or missing mᵢ has no file id, as a file
   with a gap. Such an NZB is not joined with ed3k; the files of it
   that are whole still are, one by one.
 - Subject, poster, date, groups and the sizes an NZB tells are not part of a name. They differ
@@ -83,10 +83,12 @@ message Post {
 
 - **`name` and `size` come from the articles,** not from the NZB: the `name` and the `size` of
   the yEnc header line `=ybegin`, with trailing whitespace (space and tab) removed. `name` is the text after `name=` up to
-  the end of the line, as it stands: quotation marks are part of the name. All
+  the end of the line, or up to the first `=ypart ` on it, as it stands: quotation marks are
+  part of the name. Text from such a `=ypart ` on is that article's `=ypart` line. All
   parts of a file carry the same values; a client takes them from the lowest-numbered part it
-  has, and makes no manifest and no `ALIAS` record for a post in which a file's parts
-  disagree among the parts it fetched, also when the NZB lists that file twice (§1).
+  has that passed its CRC-32 (§4), and makes no manifest and no `ALIAS` record of `nzb` for a
+  post in which a file's parts disagree among the parts that passed, also when the NZB lists
+  that file twice (§1). `nzb-file` records do not depend on names and are published as in §6.
 - A name that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8.
 - **A message ID that is not valid UTF-8** cannot be written into `ids`. A post with such a
   message ID has no article list and no manifest (§3).
@@ -162,7 +164,9 @@ A client keeps what it has of a member as byte ranges (`Protocol.md` §14.4). A 
 is a range of a member, at the place its `=ypart` line says.
 
 **An article is checked, not verified.** yEnc carries a CRC-32 per part. It finds damage and
-proves nothing. A decoded article that passes it is *checked*: the client MUST NOT show its
+proves nothing. An article passes only when its decoded length is also `=yend size` and, with a
+`=ypart` line, `end` − `begin` + 1; else it failed as a failed CRC-32. A decoded article that
+passes is *checked*: the client MUST NOT show its
 bytes in a `have` bitmap or send them to an ed3k node until they pass under the member's root
 ([`alias.md`](alias.md) §5 rule 5).
 
@@ -196,15 +200,18 @@ a claim.
    `nzb`, in parallel with the download from Usenet. It searches `nzb-file` only when `nzb`
    gave no post set that passes §3, and then for at most 256 *(initial)* files of the NZB.
 2. For a post set it finds, it downloads the manifest and the article list and makes the
-   checks of §3. It tries at most 3 *(initial)* sets, those named by the most publisher sites
-   first. A root found through `nzb-file` is a claim for that one file.
+   checks of §3. A set whose `usenet.id` is not the post id it searched is refused; its
+   publisher is blamed (§8). It tries at most 3 *(initial)* sets, those named by the most
+   publisher sites first. A root found through `nzb-file` is a claim for that one file.
 3. It adds the ed3k sources of each member. A block from them is verified under the member's
    root as always.
 4. **The claim is tested against articles.** Before the client keeps anything from ed3k
-   sources of a member, it fetches at least one article of that member, and it goes on
+   sources of a member, it fetches at least one article of that member, or, where none can
+   be fetched, the complete member passes under the repair files' hashes; it goes on
    comparing as articles arrive. If an article passes its CRC-32 and its block fails under
-   the claimed root, the claim is false for that member: the client drops the claim and what
-   it took from ed3k sources for it, and ignores the publisher of the record.
+   the claimed root, or its `=ybegin` gives another `size` than the member's, the claim is
+   false for that member: the client drops the claim and what it took from ed3k sources for
+   it, and ignores the publishers of the records that named that root.
 5. When the post is complete, the client computes the canonical manifest itself (§3). That
    root is the post root, whatever the records said.
 
@@ -249,7 +256,8 @@ password.
 A node publishes when it has the complete post and shares the files. Two kinds of rows have a
 further condition, as in [`torrent.md`](torrent.md) §5: the `ALIAS` rows and `PACKED` are
 published only by a node that decoded the articles itself and computed every member's root
-from them. Members that were only verified under roots the node was given prove the manifest,
+from them, with no byte taken from ed3k sources (bytes repaired by the post's repair files
+count as from the articles). Members that were only verified under roots the node was given prove the manifest,
 not the post. Such a node, one that got the post over ed3k, still publishes the other rows.
 
 | What | How | Who |
@@ -302,8 +310,8 @@ of a type they do not know.
 | A block from an ed3k source fails under the member's root | that source (`Protocol.md` §12.3) |
 | §4.1: a block made of articles fails under the member's root | nobody in ed3k. The articles are damaged, or they are not the ones of this post |
 | §4.1: a complete member from Usenet does not give the root of the manifest | nobody. The link was wrong, and the client tells the user |
-| §4.2: an article passes its CRC-32 and its block fails under a claimed root | the publisher of the `ALIAS` record. The ed3k sources are not blamed: they sent the file they were asked for |
-| An `ALIAS` record of `nzb` whose manifest fails §3 | the publisher of the record |
+| §4.2: an article passes its CRC-32 and its block fails under a claimed root, or its `=ybegin` gives another `size` | the publishers of the `ALIAS` records that named that root. The ed3k sources are not blamed: they sent the file they were asked for |
+| An `ALIAS` record of `nzb` whose manifest fails §3 or names another post id | the publisher of the record |
 | A `PACKED` record whose archive does not give the file | its publisher ([`hoster.md`](hoster.md) §7) |
 
 ---

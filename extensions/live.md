@@ -286,6 +286,8 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
 - `LiveGet` is accepted only from a neighbour, that is while a live exchange with that node is
   open. Anything else is answered `Error{DENIED}`.
 - A segment of more than one block may be fetched from several neighbours at once, by block.
+  How many neighbours, how the blocks are split, and which exchange asks for hash values is
+  local policy.
 - **Init data** is asked of a neighbour whose `have` shows a segment whose record names it.
   `Error{NOT_FOUND}` from such a neighbour counts as for a segment (below), unless every such
   segment has left its window since.
@@ -293,6 +295,10 @@ Data is never pushed. A node asks a neighbour whose `have` shows the segment.
   segment it belongs to, because each segment has an exchange of its own.
 - `Error{NOT_FOUND}` for a segment that the neighbour's last `have` showed counts as a miss
   (§6), unless the segment has left its window since.
+- A bad block is that of `Protocol.md` §12.3, with the stream in place of the file: the node
+  sends `BadBlock` on the segment's exchange, closes the live exchange, and answers a
+  `LiveJoin` of that node ID with `LIVE_BLOCKED` for 4 h *(initial)*, for this stream only.
+  The bans of §12.3 apply.
 - A node gives up on a request after 4 s *(initial)* plus 1 s per MiB it asked for, and asks
   another neighbour.
 
@@ -361,7 +367,8 @@ under the target `stream`.
   reaches those nodes through their gates. A broadcaster under its anonymous key is found
   only by viewers that set `ANON`; its `ANON` records count for "on air" below.
 
-A stream is on air when its target holds `LIVE` or `ANON` records, and off when it holds none. The short
+A stream is on air when its target holds `LIVE` or `ANON` records, and off when it holds none,
+as a node's own lookups show; a node that does not set `ANON` sees only `LIVE` records. The short
 lifetime is the reason for a kind of its own: a `SOURCE` record lives 5 h, and most viewers
 listed that long would have left.
 
