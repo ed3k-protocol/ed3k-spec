@@ -389,7 +389,7 @@ sources are part of the ChainTube backend.
   its value counted all the same. `voteValue` is an amount of the chain's coin that the voter
   paid, in all, after any `updateVote`: `updateVote` adds its value and replaces `voteType`.
   The contract refuses it once `voteUpdatePeriod` seconds have passed since the `castVote`
-  (0 = never). The contract divides it between the author, the
+  (0 = never); `getVoteById` returns the time of the `castVote` as `created`. The contract divides it between the author, the
   creator of the video, the operator of the contract and a wallet that the sender of the
   transaction names.
 - A video cannot be deleted. Its author can change the title, the pairs, the tags and the
@@ -412,6 +412,9 @@ sources are part of the ChainTube backend.
 | Read one vote | `getVoteById(uint256 voteId)` |
 | Count of items | `totalCount()`, `totalComments()`, `totalVotes()` |
 | Name a moderator | `setModerator(uint256 contentId, address moderator, bool enabled)`, by the author of the entry; the moderator counts for the entry and everything below it |
+| May this account comment here | `canPost(uint256 contentId, address account)` of the content contract: the entry exists, is not `blocked` and has no `blocked` entry above it, and is not `closed` unless the account is a moderator |
+| Is a profile needed | `requireProfile()` and `profileContract()` of the comment contract; then `getUserByAddress(address)` of that profile contract, whose `userId` 0 is no profile |
+| How long a vote can be changed | `voteUpdatePeriod()` of the vote contract, in seconds; 0 = always |
 | Forward a request a site sends | `execute` of the forwarder; `getNonce(address from)` reads the next nonce of an account |
 
 The ABI of the contracts is published with the ChainTube backend
@@ -422,7 +425,8 @@ from it. The three getters return their values flat, not as one struct, in this 
 |---|---|
 | `getContentById` | `address author, uint32 kind, uint256 parentId, uint256 refId, string title, (string,string)[] media, string[] tags, string content, bool closed, bool blocked` |
 | `getCommentById` | `address author, address contractHash, uint256 contentId, uint256 replyId, string content, (string,string)[] media, bool blocked` |
-| `getVoteById` | `address author, address contractHash, uint256 contentId, int256 voteType, uint256 voteValue` |
+| `getVoteById` | `address author, address contractHash, uint256 contentId, int256 voteType, uint256 voteValue, uint64 created` (block time of the `castVote`) |
+| `getUserByAddress` | `uint256 userId, string userName, string userAlias, string userAvatar, string userBio` |
 
 The addresses of the contracts are assigned with the parameters of §4.2.
 
@@ -478,8 +482,10 @@ credit extension does ([`credit.md`](credit.md) §7.3).
   comments from its moderators only; the comment contract refuses the others.
 - The contracts refuse a comment or a vote on a video that does not exist, and an answer to a
   comment of another video. The comment contract also refuses a comment on an entry that is
-  `blocked` or has a `blocked` parent, and, while `requireProfile` is set, a comment from an
-  account without a profile in the profile contract. A comment names the content contract; a vote names the content
+  `blocked` or has a `blocked` entry above it (at most 8 levels, the depth the content
+  contract allows), and, while `requireProfile` is set, a comment from an account without a
+  profile in the profile contract. A client reads `canPost` and the profile (§4.1) before it
+  sends a comment. A comment names the content contract; a vote names the content
   contract for an entry and the comment contract for a comment. A client ignores one that
   names another contract.
 - An account can vote on one thing many times. A client SHOULD count one vote per account and
@@ -502,13 +508,22 @@ credit extension does ([`credit.md`](credit.md) §7.3).
   written, compared in full; `closed` and `blocked` are not compared. `updateVote` adds to a
   sum: the client reads `getVoteById` at the newest block before it sends, and the vote is
   done when `voteType` is the one written and `voteValue` is at least that total plus the
-  added value. This holds alike for a transaction of the client and for one that a site sent
+  added value. It sends no `updateVote` when `created` plus `voteUpdatePeriod` (unless 0) has
+  passed by the newest block's `timestamp`. A client SHOULD also run a transaction through
+  `eth_estimateGas` at the newest block before it shows the amount (below), and sends none
+  that reverts there.
+- **`setModerator`** has no getter of its own: `isModerator` is true through the parents as
+  well. It is done when its `ModeratorSet` log, with `contentId`, `moderator` and `enabled` as
+  written, is in the receipt at a final block; for a request a site sent (§10), when the newest
+  `ModeratorSet` log of that `contentId` and `moderator` from the block of hand-over has
+  `enabled` as written. This holds alike for a transaction of the client and for one that a site sent
   for it (§10).
 - **A write that fails.** A transaction whose receipt at a final block has status 0 reverted:
   not done, reported once. A request a site sends through the forwarder (§10) leaves no trace
   when it reverts; the forwarder keeps the nonce, and the request stays valid until its
-  `deadline`. When a final block is later than `deadline` and the write does not show, it is
-  not done; `getNonce(from)` still at the request's `nonce` shows it was never executed.
+  `deadline`. When a final block whose `timestamp` is later than `deadline` does not show the
+  write, it is not done; `getNonce(from)` still at the request's `nonce` at that block shows it
+  was never executed. `from` is the author.
 - The ID of a new item is in its event (`ContentSet`, `CommentSet`, `VoteSet`): in the
   receipt of the client's transaction, or, for one a site sent, found by `eth_getLogs` at the
   contract with topic `author` (§4.3) from the block the request was handed over, as the

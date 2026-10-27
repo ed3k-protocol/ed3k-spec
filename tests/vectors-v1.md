@@ -671,15 +671,16 @@ A sealed head. The root and size of the sample file stand in for those of a seal
 ```
 Head      = { id = "sid1", seq = 1, root, size = 16 }
           = 0a047369643110011a20453b9482e0d4f14e084be18f10b4b16b0f61bfa2ffae0f6e48fc4a0e9bc3e3942010      (44 bytes)
+nonce     = H("ed3k v1 hidden head nonce", k_head ‖ seq(8) ‖ root)[0..12) = 52c0689ff3ae35d6a8fb0a90
 data      = nonce ‖ ChaCha20(k_head, nonce, Head)      (56 bytes)
-          = 000102030405060708090a0b6e3273c6a981662a7e630759015dc4c9be2e0576b31a1c22464db19002aadaa2866ddb98
-            c49f9ca44aad69d6
+          = 52c0689ff3ae35d6a8fb0a902955e9cae8e7f47c8bd1f233a460ebb988ca1783e5d9e4e1f16c52a418dbf47e9acb7988
+            a9e2ac06a8157ff6
 Record    = { expires = 1791936000, sealed = { seq = 1, data } }
-body      = 08808cbbd6063a3c08011238000102030405060708090a0b6e3273c6a981662a7e630759015dc4c9be2e0576b31a1c22
-            464db19002aadaa2866ddb98c49f9ca44aad69d6      (68 bytes)
+body      = 08808cbbd6063a3c0801123852c0689ff3ae35d6a8fb0a902955e9cae8e7f47c8bd1f233a460ebb988ca1783e5d9e4e1
+            f16c52a418dbf47e9acb7988a9e2ac06a8157ff6      (68 bytes)
 signed    = "ed3k v1 record" ‖ 08 (HIDDEN) ‖ base ‖ body      (99 bytes; base = 08299d3a4b291d676e0ecd0d39db534a, above)
-signature = e60c764f765a3e642804265178fb1de104edbbcd641285cba8781293add3e12f
-            89331ce926caa0fa6aa6ecf08b58642c9d219e120ef390b687b0218e063fb20b
+signature = 41749de6cbfbfa18b605ad7415fbbbc053f00ab1425d76e708304ccefc41c2f0
+            e4ccf1b5de2bd1efd0b5efdda27fcb17b5d8c08b135dc2f87bfc1d9a98909104
 ```
 
 ## Friend records (friend.md §1, §3 and §4)

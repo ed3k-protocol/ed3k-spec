@@ -214,6 +214,10 @@ An `ALIAS` record ([`alias.md`](alias.md)) leads from the infohash to the manife
   not the infohash, and a node that published on that ground would repeat a false claim as
   its own (the publisher rule of [`alias.md`](alias.md)).
 - It MUST NOT publish one for a private torrent.
+- **A torrent that was downloaded is published,** whether it started from a `.torrent` file, a
+  magnet link or a torrent root: a node that shares the set and meets the rules above
+  publishes the record. A torrent that is not private is public by its nature; there is no
+  setting that holds it back. The private flag (§6.3) is the one exception.
 
 Because the manifest is canonical, all honest publishers of a torrent name the same root, and
 that root collects their sites.

@@ -62,8 +62,17 @@ Sealed data is
 sealed bytes = nonce(12) ‖ ChaCha20(key, nonce, plain bytes)              RFC 8439 cipher, counter from 0
 ```
 
-with a random `nonce` for every use. There is no authentication tag: every sealed thing is
-fixed by a signature or by a signed root.
+with a random `nonce` for every use. The one exception is the sealed `Head` of a head record
+(§3), whose nonce is derived, so that a version stored again has the same bytes, also after a
+restart:
+
+```
+head nonce = H("ed3k v1 hidden head nonce", k_head ‖ seq(8) ‖ root)[0..12)     seq and root as in the Head
+```
+
+The plain `Head` follows from `seq` and `root`, so one nonce never seals two different texts.
+There is no authentication tag: every sealed thing is fixed by a signature or by a signed
+root.
 
 ---
 
@@ -108,7 +117,8 @@ message Sealed {
 - **Only the author can make a record.** The target follows from the key that signs, so nobody
   can take the place first with a record under a key of their own.
 - An author MUST store the same sealed bytes each time it stores one version again: a fresh
-  nonce would change `data`, and with it the tie-break between two records of one `seq`.
+  nonce would change `data`, and with it the tie-break between two records of one `seq`. The
+  derived nonce of §2 gives that.
 
 **Storing**
 

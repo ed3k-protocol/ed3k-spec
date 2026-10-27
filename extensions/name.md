@@ -356,11 +356,12 @@ root:
   takes the place of the zone with the fewest sites, of those the one first stored earliest
   (the earliest time a record still held for it was first stored, renewals not counted; in one
   second the lower zone as bytes), when that zone has at most 1 site; else it is `FULL`. A
-  `Store` with `signer` never takes the place of a zone; it is `REJECTED`, as in `Protocol.md`
-  §10.8.
+  `Store` with `signer` never takes the place of a zone: where it would, it is `REJECTED`, as in
+  `Protocol.md` §10.8; where no zone gives way, it is `FULL`, as any store.
 - **Refused zones.** Per target the node remembers up to 64 *(initial)* zones it answered
   `FULL`, each with its site count: each site whose store for the zone was refused, until that
-  record would have expired. A `Store` with `signer` adds no site. When a 65th zone is refused,
+  record would have expired. A `Store` with `signer` adds no site, and no zone to the list. When
+  a 65th zone is refused,
   the remembered zone with the fewest sites is forgotten, of those the one remembered earliest.
   A store that makes a refused zone's count higher than that of the weakest held zone is
   answered `STORED`: the zone takes that place and keeps its count, and the zone it displaces is
@@ -647,7 +648,9 @@ the browser there.
 - **Only verified bytes are sent.** A member the client does not have yet is downloaded at
   once, before other downloads, and sent as its blocks pass under the root, in file order, as
   the window of `Protocol.md` §12.6 does for media. Range requests are answered from verified blocks. A member that is not
-  there within 60 s *(initial)* is answered 504.
+  there within 60 s *(initial)* is answered 504. So is a set that is fetched (§6.2) and whose
+  manifest is not there within 60 s. A set that is not held and not fetched, under the rules
+  of §6.2, is answered 503.
 - Headers: `Content-Type` by the extension of the member's name from a fixed table, and
   `application/octet-stream` for any other; `X-Content-Type-Options: nosniff`;
   `Referrer-Policy: no-referrer`; `ETag` with the member's root in base32; `Cache-Control:

@@ -2140,7 +2140,9 @@ index node MAY rank and keep leaving entries as
 [`extensions/keyword-load.md`](extensions/keyword-load.md) §2 says; one that does not refuses
 when full, as §10.8 says. A client that publishes or searches at an index node follows that
 document's §3 and §4 by that node's answers: it moves down on `FULL` and follows `spill`. Each
-level is a target of its own there. On Kad, levels wait for the network upgrade (§10.8).
+level is a target of its own there. The level it remembers per (file, keyword) is that of the
+index node it uses; answers from Kad never move it, and on moving to another index node it
+starts again at level 0. On Kad, levels wait for the network upgrade (§10.8).
 
 **Limits over all targets.** Those limits are per target, and an index node holds every target;
 keys, names and roots cost nothing, so a limit per target does not bound what one publisher
@@ -2519,8 +2521,9 @@ files in one turn" below). The uploader closes the old stream only after it has 
 first `FileRequest` of the new one with a `FileStatus`, and finishes the `Block` it is sending
 on the old stream first. The ranges outstanding on the old stream are then void, and ranges
 are counted from 0 on the new one. A `Block` cut short on a stream that the uploader replaced
-is not a protocol fault (§12.3). If the uploader answers the new stream with
-`Error{NOT_FOUND}`, the entry stays as it was, with the old file and its stream.
+is not a protocol fault (§12.3). If the uploader answers the new stream with an `Error`
+(`NOT_FOUND`, or `MALFORMED` for a bad bid), the entry stays as it was, with the old file and
+its stream.
 
 **Stay or come back.** The first `FileStatus` to a queued downloader carries `recheck`, and a
 later one carries it when it changes:
@@ -2599,7 +2602,7 @@ not, or the connection is lost, the uploader closes the stream. The entry is the
 - An uploader SHOULD take the slot away after 1 h *(initial)* even if less was transferred, so
   that a downloader with little bandwidth does not hold it. Bytes count from the `FileStatus` that
   granted the slot.
-- After 16 MiB the uploader MAY go on while nobody else is waiting.
+- After 16 MiB, or after 1 h, the uploader MAY go on while nobody else is waiting.
 - A slot with no outstanding range for 30 s *(initial)* is taken away.
 - A slot outlives its stream only by a hold: when the downloader closes or resets the stream
   that holds its slot, or the uploader answers the `FileRequest` on a `SlotOffer` exchange with
@@ -3043,7 +3046,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: replay window for stream numbers of a path and of a session, PING on a path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most; senders remembered at most, of them per host address; resends after a lost connection at most, within | 10 min, 1,024; 256, 16; 3, 10 min |
-| Rooms: item at most (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban at most; lift kept for | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days |
+| Rooms: item at most (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban at most; lift kept for; ban window of a moderator kept after the ban (when no longer in `mods`), windows per key | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days; 30 days, 64 |
 | Rooms: presence renewed every, `expires` at most after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1; 60; 600 |
 | Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info (time, items per room); member proof clock tolerance; `SUB` target of a private room changes every, neighbour hours searched in the first / last | 3 / 2–4, 16, 24 h, 60 s, 64; 10 min; 1 h, 10 min / 10 min |
 | Rooms, generations: started again after (with posts), post of an older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; post awaiting its `KeyDrop` (time, posts per room); a moderator starts a new generation once the current one has `KeyDrop`s; key forgotten after a later generation (no post held / at the latest) | 24 h, 2 min, 64, 1,032; 60 s, 64; 32; 1 h / 48 h |

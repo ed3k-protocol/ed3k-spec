@@ -189,7 +189,9 @@ fn main() {
     println!("k {}\nk_head {}\nk_data {}", hx(&k), hx(&k_head), hx(&k_data));
     let base = h("ed3k v1 hidden head", &pk1)[..16].to_vec(); assert_eq!(hx(&base), "08299d3a4b291d676e0ecd0d39db534a");
     let hhead = cat(&[&fb(1, b"sid1"), &fv(2, 1), &fb(3, &root), &fv(4, 16)]);
-    let nonce: Vec<u8> = (0..12u8).collect();
+    // hidden-set.md §2: the head nonce is derived from k_head, seq and root
+    let nonce = h("ed3k v1 hidden head nonce", &cat(&[&k_head, &1u64.to_be_bytes(), &root]))[..12].to_vec();
+    println!("head nonce {}", hx(&nonce));
     let sealed = cat(&[&nonce, &chacha(&k_head, &nonce, &hhead)]);
     wrap("Head", &hhead); wrap("data", &sealed);
     let rbody = cat(&[&fv(1, exp), &fm(7, &cat(&[&fv(1, 1), &fb(2, &sealed)]))]);

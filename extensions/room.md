@@ -54,7 +54,8 @@ proof and the target that moves every hour are those of private channels
   [`subscription.md`](subscription.md) §5.1: neighbours of one room would learn the others.
 - The owner posts as any member does, with a member key of its own. It may list that key as a
   moderator. In a closed or `moderated` room a key not in `mods` needs an admit (§2.2), which
-  the owner signs with the room key.
+  the owner signs with the room key: when it makes such a room, and when a room info turns the
+  room closed or `moderated`, together with that room info.
 - The **member ID** of a member key is `H("ed3k v1 node id", member key)[0..16)`, computed as a
   node ID is. It names a member in a wrap (§3.2), in the permanent ban list (§2.1) and in a
   filter list ([`filter-list.md`](filter-list.md) §1, subject `AUTHOR`).
@@ -179,7 +180,8 @@ message RoomInfo {
   A member ID added to `banned` is banned as by §2.3, with no end.
 - A room info can turn a room closed or back. When a room turns closed, a moderator starts a
   generation (§3.2). A node that takes a room info that turns the room closed closes every
-  exchange of the room that was opened without the steps of §4.2, and joins again.
+  exchange of the room that was opened without the steps of §4.2. Of each such exchange, the
+  side that opened it joins again by §4.2, while its own member key is admitted.
 
 ### 2.2 Admit
 
@@ -233,7 +235,12 @@ message Ban {
 - **A moderator does not ban a moderator.** A ban of a key in `mods` counts only when the room
   key signed it. A key that is banned is no moderator while the ban lasts, whatever `mods`
   says. An admit, ban or `KeyDrop` it signed with an `issued` within the ban does not count,
-  also after the ban ends.
+  also after the ban ends. A node remembers the window of such a ban while the key is in
+  `mods`, and 30 days *(initial)* after the ban ends otherwise, at most 64 *(initial)* windows
+  per key, the oldest forgotten first. An item signed within a window the node forgot counts
+  again: the moderator could have signed it after the ban as well. A listing in
+  `RoomInfo.banned` leaves no window: an owner that unlists a moderator and wants its items of
+  that time void drops it from `mods` (§2.1).
 - A node keeps a ban until its `until`, and a lift until 30 days *(initial)* after its
   `issued`. An older ban that arrives after that is over by then.
 - **What a ban does.** The node drops every post of that key, also those it holds and those
@@ -443,7 +450,8 @@ a `KeyDrop` of the same `gen`, `key_id` and `g` with a wrap for that member, and
 other admitted member it knows that still lacks one. A moderator MAY do the same when it
 admits a member, so that the key waits for it in the room. This is how a member that was
 admitted, or offline when the generation began, gets the key. A moderator whose current
-generation already has 32 *(initial)* `KeyDrop`s starts a new generation instead. A moderator MAY
+generation already has 32 *(initial)* `KeyDrop`s that count, of any `key_id` of that `gen`,
+starts a new generation instead. A moderator MAY
 add wraps of earlier generations it still holds in the same way, as `KeyDrop`s of those
 generations: that gives a new member the history (§4.3). Without them a new member reads only
 what is posted after it joined.
@@ -640,8 +648,9 @@ rules would say of the item; the form of a closed or a private room (§2.5) is a
 - **First answer and catch-up.** No rate of this section applies to the items of a first
   answer or of a joiner's catch-up (§4.3), up to as many of each kind as a node holds (§2.2
   to §4.3): 1,024 admits of one moderator come in one answer. Further items are rated. A
-  node passes on what it took from them within the rates; the rest it keeps and does not
-  pass on.
+  node passes on what it took from them within the rates of an author and of a signer above;
+  the rest it keeps and does not pass on. The rate of a neighbour bounds what a node takes,
+  not what it passes on. A room info has no rate and is always passed on.
 - **Waiting for the room info.** A node that holds no room info, or holds one with a lower
   `seq` than a neighbour's `RoomJoin.info_seq` named, keeps an admit, ban or `KeyDrop` whose
   signer is not a moderator for 60 s *(initial)* without passing it on, and checks it again

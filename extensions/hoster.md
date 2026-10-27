@@ -227,14 +227,14 @@ Nobody has published the file, or the client has no ed3k source for it.
   such data is **checked, not verified** ([`alias.md`](alias.md) §5 rule 5).
 - When the file is complete the client computes its root. From then on it is an ordinary
   shared file and the client is its first source.
-- **A link that was downloaded is shared when the user allows it.** Once the file is complete
+- **A link that was downloaded is shared.** Once the file is complete
   and verified, a client that shares the file and does not hold links back (below) publishes
   the `ALIAS` record of the link, attaches the link to its `SOURCE` record, and hands it to its
   downloaders (§2). This holds for a link the user
   pasted as for any other, and for a link that came with a known root as well.
-- **Holding links back** is a setting, **on by default**: a link is often all that protects a
-  file at a hoster, so a client publishes and hands out links only when the user switched that
-  off. With it on, the client does none of
+- **Holding links back** is a setting, **off by default**: links are shared like the files
+  they lead to. A link is often all that protects a file at a hoster, so a user who got a link
+  meant to stay private switches it on. With it on, the client does none of
   the three: no `ALIAS` record of the link, no link at its `SOURCE` record, none handed to
   downloaders, and no link in a manifest it makes. **The file is shared all the same,** under
   its root, like any file. The setting covers every link the client knows, also those it got
@@ -347,10 +347,10 @@ every volume, and the file that came out has the root in `id`.
 - **To the hoster:** the address of the node, and which file it fetches. With a login, also
   who the user is to that hoster.
 - **To a peer or a storing node that is given a link:** the link. A link is often all that
-  protects a file at a hoster. This extension can share it: a link the user pasted is passed
-  on and published once the file is downloaded (§4.1) when the user has switched that on; by
-  default links are held back. A client MUST say what sharing a link means where the user
-  switches it on. What stays with the node is everything of an
+  protects a file at a hoster. This extension shares it: by default a link the user pasted is
+  passed on and published once the file is downloaded (§4.1), unless the user holds links back.
+  A client MUST say what sharing a link means where the hoster downloads are switched on, and
+  offer holding links back there. What stays with the node is everything of an
   account (§3).
 - **In Kad:** an `ALIAS` record of the scheme `url` holds a hash of the link, not the link.
   Whoever knows the link learns the root and the publisher.
