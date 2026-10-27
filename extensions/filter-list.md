@@ -69,7 +69,7 @@ enum Verdict {
 - A list file is at most 4 MiB *(initial)*, the 8 bytes included, which is about 260,000
   entries.
 - An `AUTHOR` is the node ID of a key: the publisher of keyword and note records
-  ([`Protocol.md`](../Protocol.md) §10.7), the author of a set, the key of a live channel.
+  ([`Protocol.md`](../Protocol.md) §10.7), the author of a set, the key of a live channel, the member key of a room ([`room.md`](room.md) §1.1).
 - **A list is complete.** An entry that the next version leaves out is no longer judged.
 
 ---

@@ -84,7 +84,7 @@ contract Regressions is HoldPayableScenario {
     // try/catch does not catch an ABI decoding failure of the return value.
     function test_F3_operatorsMalformedReturnRevertsBatch() public {
         MalformedOps bad = new MalformedOps();
-        L = new CreditLedger(IOperators(address(bad)), REWARD);
+        L = new CreditLedger(IOperators(address(bad)), REWARD, STAKE_RATE, STAKE_DELAY);
         CreditLedger.Receipt memory r = rc(alice, bob, today(), 4096, 0);
         bytes memory s = sign(alicePk, r);
         CreditLedger.Receipt[] memory rs = new CreditLedger.Receipt[](1);

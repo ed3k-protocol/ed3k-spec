@@ -7,7 +7,10 @@
 // with Foundry on 2026-10-18 (tests/contracts). The contract is immutable
 // and has no owner: a fault cannot be fixed after deployment. It needs an external audit first.
 // The numbers marked (initial) were not simulated.
+// Creates its stake token (StakeToken.sol, credit.md §6.7) at deployment.
 pragma solidity ^0.8.24;
+
+import {StakeToken} from "./StakeToken.sol";
 
 /// Native minter of Subnet-EVM (precompile/contracts/nativeminter).
 interface INativeMinter {
@@ -15,6 +18,7 @@ interface INativeMinter {
 }
 
 /// The operator contract of the chain (credit.md §7.2). Not specified yet.
+/// After a vote of two thirds it calls CreditLedger.setStakeParams (credit.md §6.7).
 interface IOperators {
     /// True for the one credit address of each operator.
     function isRoot(address account) external view returns (bool);
@@ -45,6 +49,7 @@ contract CreditLedger {
     uint256 public constant TRANSFER_BURN_PCT = 10; // (initial)
     uint256 public constant UPLOADER_SHARE_PCT = 10; // of spent credits; the rest is burned
     uint256 public constant CALLER_REWARD_PCT = 60;
+    uint256 public constant MAX_STAKE_DELAY = 365 days; // bound on what the operators can set (credit.md §6.7)
 
     INativeMinter public constant MINTER = INativeMinter(0x0200000000000000000000000000000000000001);
     /// Gas for one mintNativeCoin: an error of a precompile burns all gas it is given.
@@ -69,6 +74,8 @@ contract CreditLedger {
     IOperators public immutable operators;
     /// Native coin minted per (issuer, holder, day) for the first receipt that did useful work (credit.md §6.6).
     uint256 public immutable gasReward;
+    /// Minted for burned credits (credit.md §6.7). Created by this contract, which is its only minter.
+    StakeToken public immutable stakeToken;
 
     uint256 private immutable _chainId;
     bytes32 private immutable _domainSeparator;
@@ -141,12 +148,33 @@ contract CreditLedger {
     /// payer → payee → highest nonce used in holdFor
     mapping(address => mapping(address => uint256)) public holdNonces;
 
+    /// Stake token base units per whole credit (UNIT µ); 0 = burning is off. Set by the operators.
+    uint128 public stakeRate;
+    /// Time from a burn to its claim. Set by the operators, at most MAX_STAKE_DELAY.
+    uint64 public stakeDelay;
+
+    /// A burn waiting for its delay. Rate and delay are fixed at the burn.
+    struct StakeClaim {
+        address to;
+        uint64 readyAt;
+        uint256 amount; // stake token base units
+    }
+
+    mapping(uint256 => StakeClaim) public stakeClaims;
+    /// Id of the next burn; starts at 1, so 0 is never a claim.
+    uint256 public nextClaimId = 1;
+
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Registered(address indexed account);
     event Settle(address indexed issuer, address indexed holder, uint32 day, uint256 minted, uint256 taken);
     event Overdrawn(address indexed account, uint256 missing);
     event Held(address indexed payer, address indexed payee, uint256 amount, uint64 until);
+    event StakeBurned(
+        uint256 indexed id, address indexed from, address indexed to, uint256 credits, uint256 amount, uint64 readyAt
+    );
+    event StakeClaimed(uint256 indexed id, address indexed to, uint256 amount);
+    event StakeParams(uint256 rate, uint256 delay);
 
     error AmountTooLarge();
     error OutOfGas();
@@ -159,14 +187,23 @@ contract CreditLedger {
     error InsufficientAllowance();
     error LengthMismatch();
     error ZeroAddress();
+    error ZeroAmount();
+    error NotOperators();
+    error StakeOff();
+    error NotReady();
+    error NoClaim();
+    error BadParam();
 
     // ───────────────────────────── construction ──────────────────────────
 
-    constructor(IOperators operators_, uint256 gasReward_) {
+    /// `stakeRate_` and `stakeDelay_` are the initial stake parameters (credit.md §6.7: 1e18, 30 days).
+    constructor(IOperators operators_, uint256 gasReward_, uint256 stakeRate_, uint256 stakeDelay_) {
         operators = operators_;
         gasReward = gasReward_;
         _chainId = block.chainid;
         _domainSeparator = _buildDomainSeparator();
+        stakeToken = new StakeToken();
+        _setStakeParams(stakeRate_, stakeDelay_);
     }
 
     // ────────────────────────────── settlement ───────────────────────────
@@ -302,7 +339,56 @@ contract CreditLedger {
         return (h.amount, h.until);
     }
 
+    // ───────────────────────────── stake token ───────────────────────────
+
+    /// Burns `value` µ of the caller's credits for stake tokens, which `to` can claim after
+    /// `stakeDelay` (credit.md §6.7). Rate and delay are fixed now. Never dips into holds;
+    /// not activity, no maturity.
+    function burnForStake(uint256 value, address to) external returns (uint256 id) {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 rate = stakeRate;
+        if (rate == 0) revert StakeOff();
+        uint256 amount = value * rate / UNIT;
+        if (amount == 0) revert ZeroAmount();
+        Account storage a = _accounts[msg.sender];
+        if (a.overdrawn) revert IsOverdrawn();
+        _touch(a, msg.sender);
+        // as a transfer: what is held for bids stays, decay margin included (credit.md §6.5)
+        if (uint256(a.earned) + a.received < value + _reserve(_heldTotal[msg.sender])) revert InsufficientBalance();
+        if (_take(a, value) != value) revert InsufficientBalance();
+        totalSupply -= value;
+        emit Transfer(msg.sender, address(0), value);
+
+        id = nextClaimId++;
+        uint64 readyAt = uint64(block.timestamp + stakeDelay);
+        stakeClaims[id] = StakeClaim({to: to, readyAt: readyAt, amount: amount});
+        emit StakeBurned(id, msg.sender, to, value, amount, readyAt);
+    }
+
+    /// Mints the stake tokens of burn `id` to its `to`. Anyone may call, once the delay has passed.
+    function claimStake(uint256 id) external {
+        StakeClaim memory c = stakeClaims[id];
+        if (c.to == address(0)) revert NoClaim();
+        if (block.timestamp < c.readyAt) revert NotReady();
+        delete stakeClaims[id];
+        stakeToken.mint(c.to, c.amount);
+        emit StakeClaimed(id, c.to, c.amount);
+    }
+
+    /// Only the operator contract, after its vote. Applies to later burns only.
+    function setStakeParams(uint256 rate, uint256 delay) external {
+        if (msg.sender != address(operators)) revert NotOperators();
+        _setStakeParams(rate, delay);
+    }
+
     // ────────────────────────────── internals ────────────────────────────
+
+    function _setStakeParams(uint256 rate, uint256 delay) private {
+        if (rate > type(uint128).max || delay > MAX_STAKE_DELAY) revert BadParam();
+        stakeRate = uint128(rate);
+        stakeDelay = uint64(delay);
+        emit StakeParams(rate, delay);
+    }
 
     /// Returns whether the receipt earns the gas reward: it minted or took at least 1 credit,
     /// and no earlier receipt of its pair and day did.

@@ -55,11 +55,18 @@ statement of the rules, and a history anyone can re-check.
 | **Operators admitted by vote** (chosen) | no token with a price; no key of the project after genesis; stock software | permissioned; someone has to find the first operators |
 | Proof of stake in a token of the chain | anyone may validate | the token needs a market value to secure anything, which makes the project an issuer; a cheap token is a cheap takeover |
 | Stake in credits | no second token | credits decay and are farmable within limits; the ledger would secure itself with what it defines |
+| Stake in E3S, the stake token made from burned credits (§10) | the token exists; anyone who uploaded can get it | no staking contract yet; the token has a market price, so the con of the second row holds; farmed credits become stake |
+
+**The stake token** exists ([`credit.md`](../extensions/credit.md) §6.7): credits can be burned
+for E3S, a token without decay that is traded on exchanges. It is meant as stake for a staking
+contract that may come later. Until one exists, validators stay operators admitted by vote.
 
 **What the operators can do**
 
 - Two thirds of them can change the validator set and, by running other software, any rule.
   They can censor: leave transactions out.
+- Two thirds of them set the rate and the delay of the stake token (§10). A change applies to
+  later burns only.
 - **They cannot forge a receipt or a transfer.** Those need the signature of a credit key, and
   every node that follows the chain checks it. A chain with forged entries is rejected by
   honest nodes and by anyone who re-checks it.
@@ -151,6 +158,7 @@ Rules that follow from transfers ([`credit.md`](../extensions/credit.md) §6.5):
 | a pool at an exchange holds credits | every address decays, contracts too |
 | credits shown for a bid are moved away before the uploader settles | a hold (§6.5 there) locks one turn per uploader for six hours; a transfer cannot dip into it, the payer cannot lower it in that time, and the uploader settles before it runs out |
 | a holder settles late, against a balance that has decayed, and the issuer is flagged for good | a receipt older than one day takes what is there and sets no flag (§6.2 there) |
+| credits are kept from decay by turning them into a token and back | the stake token is made by a burn, not a wrap: the credit is gone, and nothing turns E3S back (§10) |
 
 The standard interface is kept so that wallets and explorers show a balance. Two things differ
 from a plain ERC-20 and have to be said to anyone who integrates it: the balance falls without
@@ -161,12 +169,15 @@ an event, and a transfer delivers less than was sent.
 A design in which a downloader pays the uploader in a stable coin is proof against fake
 identities: paying oneself gains nothing. It was not taken.
 
+Credits are still no payment from downloader to uploader. But since the stake token (§10) a
+credit converts into a token that is traded, so credits are no longer without a price.
+
 | | Credits (chosen) | Payments |
 |---|---|---|
-| Fake identities | bounded by maturity and limits | no gain at all |
+| Fake identities | bounded by maturity and limits; what they farm can be burned for E3S | no gain at all |
 | Setup for a user | none | a funded wallet |
 | What is public | who traded how much with whom | the same, and the wallet leads to a name at an exchange |
-| The uploader | earns priority | is paid for distributing files, which is a far worse position in law |
+| The uploader | earns priority, and through a burn a token with a price | is paid for distributing files, which is a far worse position in law |
 | The chain | own, gas without a price | one where the coin exists, gas with a price |
 
 ## 9. What happens to spent credits
@@ -196,10 +207,50 @@ whose payments would otherwise stay unsettled. The gain from a false bid is real
 and it is bounded by the bidder's own maximum. The row on law is the one that could change
 this. The share is a constant of the contract.
 
-## 10. Open points
+## 10. The stake token
+
+Credits can be burned for E3S, a plain ERC-20 without decay
+([`credit.md`](../extensions/credit.md) §6.7). It is meant as stake for validators, through a
+staking contract that is not part of the spec, and it is traded freely.
+
+| | Pro | Con |
+|---|---|---|
+| **Burn credits, mint E3S after a delay** (chosen) | the credit is gone; decay and the limits keep applying to every credit that is not burned | one way only; a credit that is burned buys no priority |
+| Wrap credits: lock, mint, unwrap | reversible | a wrapped credit does not decay, and unwrapping brings back credits that skipped their decay |
+| No second token | credits keep no lasting value | nothing to stake with; a staking contract later would need a token of its own |
+
+**Why a delay** *(initial 30 days, the age of maturity)*. A burn turns a credit, which can be
+farmed within the limits of [`credit.md`](../extensions/credit.md) §6.3, into a token with a
+price. The delay makes that slow: a farm has to run a month before it sells, and every burn is
+public at once (`StakeBurned`), so the market and the operators see the supply that is coming.
+Rate and delay are fixed at the burn, so a burner knows what it gets. Operators who find
+farming lower the rate for later burns, or set it to 0.
+
+**Why the operators set the values.** The ledger has no owner (§3), and a key of the project
+after genesis was rejected. The operator contract already admits and removes validators by a
+vote of two thirds; the same vote sets the rate and the delay. The delay is bounded at 365
+days, so a vote cannot lock claims away for longer.
+
+**Why a bridge.** Only the operator contract deploys on the L1, so the L1 has no exchange. The
+operators deploy the home contract of Avalanche Interchain Token Transfer (ICTT), and E3S is
+traded on the C-Chain, where exchanges and liquidity exist. An exchange on the L1 would have
+none of either.
+
+**What it changes.**
+
+- Credits have a price, through the rate. The bounds of [`credit.md`](../extensions/credit.md)
+  §6.3 now guard a token that is traded, and farming them is paid.
+- Two thirds of the operators set the price of conversion, run the chain and run the bridge.
+- **Not verified:** the interface of ICTT and the cost of its relayers, as with the validator
+  manager (§4).
+
+## 11. Open points
 
 - Who the first operators are, and how the operator contract and the validator manager are
   wired. Neither is specified.
-- Whether credits that can be sold are acceptable in law. Not checked.
+- Whether credits that can be sold, and E3S that is traded, are acceptable in law. Not checked.
+- A staking contract for E3S, and whether stake replaces the vote of operators or adds to it.
+- The bridge contracts, who deploys them, and who pays their relayers.
+- How the operators set the rate of E3S, and from what data.
 - A light check of a remote node by the validators' signatures.
 - Measurements: gas per receipt and per hold, state per year, disk of a node that follows the L1.

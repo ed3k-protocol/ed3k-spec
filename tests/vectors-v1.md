@@ -1242,3 +1242,83 @@ KeyAnswer   = { refusal = KEY_NO_PASS, pass, pass_proof, private_proof }
               40076f2b1c376b064a106aae22f04b9b9e987e0318b3a8f8282a
               (266 bytes)
 ```
+
+## Rooms (room.md §1.2, §2, §3 and §4)
+
+The room has the sample key as its room key, the `id` `sid1` and the sample secret. The
+joiner is the node of the second key, `017da93e9fc9e3079a462d8b461dfc9b`; the peer is the node of the sample key,
+`cf617f4479e97358c9d31741900a90ae`. The joiner's member key is the second key as well, so its member ID is its node ID.
+room.md §1.1 forbids a node key as a member key; the reuse is for the vectors only. The sample
+time lies in hour 497736 (`0000000000079848`) and minute 29864160.
+
+**Names** (room.md §1.2):
+
+```
+room (public) = H("ed3k v1 room", key ‖ "sid1")[0..16) = f31316d1f93aad31317a8a3ac9631937
+k             = H("ed3k v1 room private", secret ‖ key ‖ "sid1") = 440df090be41e4f7d7ce61dac6d037317b7c7cfa861f60e9b266c9f24a2de3c6
+room          = H("ed3k v1 room private name", k)[0..16) = d867a3bb17dd844da2d0a0a09594560f
+target        = H("ed3k v1 room private target", k ‖ 0000000000079848)[0..16) = f64d6f59d4c068b5a598d0b8a5f419c4
+next hour     = H("ed3k v1 room private target", k ‖ 0000000000079849)[0..16) = 62a3b6a4c073ab2916811c35fcdc823e
+k_data        = H("ed3k v1 room private data", k) = d591cc5d4c0ac7b0f5d28d2272a50a218b640531f75c3bd201d3942f3c768e19
+```
+
+`room` of the private room is the one every item of the private and the closed room is signed
+under below.
+
+**Secret proofs** (room.md §4.1). The joiner's node ID comes first:
+
+```
+RoomJoin.proof  = H("ed3k v1 room join",   k ‖ joiner ‖ peer)[0..16) = eb8739ecaf97a3fd76bb45338a7006d9
+RoomState.proof = H("ed3k v1 room answer", k ‖ joiner ‖ peer)[0..16) = 695cd277ce63d75d74a67f8ca54f5d2d
+```
+
+**Member proof** (room.md §4.2), sent by the joiner:
+
+```
+signed      = "ed3k v1 room proof" ‖ room ‖ joiner ‖ peer ‖ 0000000001c7b0e0      (74 bytes)
+signature   = cf8a50f90dcc21af08f96d9a3ea7ae7ff628f05d7fbe85e7ba4c167160967146
+              98be25ee36c6c13b31b48ebb7590011d833a6fb3552ba16eaf92810a66db6b0f
+RoomProof   = 08e0e19e0e1240cf8a50f90dcc21af08f96d9a3ea7ae7ff628f05d7fbe85e7ba4c16716096714698be25ee36c6c13b31
+              b48ebb7590011d833a6fb3552ba16eaf92810a66db6b0f
+              (71 bytes)
+```
+
+**Generation 1** (room.md §3.2). `g` is 32 bytes, byte *i* = `0x6b XOR i`. The moderator's
+X25519 pair for this `KeyDrop` is `(x, e)` of the sample inputs; the member's X25519 key is the
+second key converted (Protocol.md §6.4):
+
+```
+g           = 6b6a69686f6e6d6c63626160676665647b7a79787f7e7d7c7372717077767574
+key_id      = H("ed3k v1 room key id", k ‖ g)[0..8) = ffed21bf5081085b
+k_post      = H("ed3k v1 room generation", k ‖ g) = cfa0e7848bd39539f75281840668b6aa7210cbacd62eeeb2859e5993b321084d
+x member    = 25c704c594b88afc00a76b69d1ed2b984d7e22550f3ed0802d04fbcd07d38d47
+X25519      = X25519(x, x member) = a7d9a07bbadd1d7eca0e1b1bb7fb003f80ad4195bca2af0cad2eb93898538d36
+kw          = H("ed3k v1 room wrap", X25519 ‖ e ‖ member key ‖ 0000000000000001) = c46a57f293af1a975d7512c82498ebbeaf00cbc3b1d80e1dfec512e140c047c8
+wrap        = ChaCha20-Poly1305(kw, 000000000000000000000000, g) = 4a87ae909a215c5dbac2cc5d1b145f3e8005ed4f72c7dff8da82167f8a660350147896e5d08b03eaa8289c0729a90ae4
+KeyDrop     = { gen = 1, key_id, issued = time, e, wraps = member ID ‖ wrap }
+            = 08011208ffed21bf5081085b1880e9b5d60622208520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98e
+              aa9b4e6a2a40017da93e9fc9e3079a462d8b461dfc9b4a87ae909a215c5dbac2cc5d1b145f3e8005ed4f72c7dff8da82
+              167f8a660350147896e5d08b03eaa8289c0729a90ae4
+              (118 bytes)
+```
+
+**A sealed post** (room.md §2.5, §3). The text is the 10 ASCII bytes `hello room`, sealed with
+the sample nonce. A member signs the item with its member key:
+
+```
+RoomText    = 0a0a68656c6c6f20726f6f6d
+sealed      = 000102030405060708090a0b48a7a68735c996d7bd7546d6      closed room, under k_post
+sealed      = 000102030405060708090a0b2fb60c631a623f8d9780857d      private room, under k_data
+RoomPost    = { sent = time, sealed, gen = 1, key_id }
+            = 0880e9b5d6061a18000102030405060708090a0b48a7a68735c996d7bd7546d620012a08ffed21bf5081085b
+RoomBody    = { post } = 46 bytes
+signed      = "ed3k v1 room item" ‖ room ‖ RoomBody      (79 bytes)
+signature   = 01ece4c92da6c177f9c35104cc081fc559b82e97263b258a1331dd2f6fd8fb6f
+              eab359c18aa60de18a826e63897dd3593c1039ade317acee288b0c1b05448202
+RoomItem    = 0a2e2a2c0880e9b5d6061a18000102030405060708090a0b48a7a68735c996d7bd7546d620012a08ffed21bf5081085b
+              12203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1a440801124001ece4c92da6c177
+              f9c35104cc081fc559b82e97263b258a1331dd2f6fd8fb6feab359c18aa60de18a826e63897dd3593c1039ade317acee
+              288b0c1b05448202
+              (152 bytes)
+post id     = H("ed3k v1 room post", room ‖ RoomBody)[0..16) = 1d439ceaba84d68ffb34094e5fcc8458
+```

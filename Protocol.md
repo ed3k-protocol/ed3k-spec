@@ -108,6 +108,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 16 | `CREDIT` | Optional extension: signs receipts for what it downloads and understands bids for upload slots ([`extensions/credit.md`](extensions/credit.md)) |
 | 17 | `LINKS` | Optional extension: understands links at file hosters as sources ([`extensions/hoster.md`](extensions/hoster.md)) |
 | 18 | `PAID` | Optional extension: hands out epoch keys of paid channels and sets to pass holders ([`extensions/subscription.md`](extensions/subscription.md)) |
+| 19 | `ROOM` | Optional extension: takes part in rooms with many members ([`extensions/room.md`](extensions/room.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected. A bit or a policy that changes while a
@@ -530,6 +531,8 @@ Types 1–63 keep the tag at one byte.
 | 39 | `HopOk` | status frame after `HopStream`, `HopConnect`, `HopJoin` | optional, §13.1 |
 | 40 | `KeyRequest` | request | optional, §13.1 |
 | 41 | `KeyAnswer` | answer | optional, §13.1 |
+| 42 | `RoomJoin` | member → peer | optional, §13.1 |
+| 43 | `RoomState` | both | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -1375,7 +1378,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `ANON` | `root[0..16)`, as `SOURCE`: a source that is reached through other nodes and has no address ([`extensions/hops.md`](extensions/hops.md) §4.3) |
 | `GATE` | `H("ed3k v1 gate", node ID)[0..16)`, with the node ID of such a source (§4.3 there) |
 | `ALIAS` | `H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)`, with the kind of name and the name ([`extensions/alias.md`](extensions/alias.md) §1) |
-| `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1) |
+| `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1). A room stores `SUB` records under a target of its own ([`extensions/room.md`](extensions/room.md) §1.2) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
@@ -1650,7 +1653,8 @@ Rules:
   sets `LIVE` ([`extensions/live.md`](extensions/live.md) §5).
 - **`SUB`** is the record kind for the subscribers of a topic. It is stored and returned like
   `SOURCE`, with a shorter lifetime. Every `ROUTER` MUST store and return it, whether or not it
-  sets `PUBSUB` ([`extensions/pubsub.md`](extensions/pubsub.md) §5).
+  sets `PUBSUB` ([`extensions/pubsub.md`](extensions/pubsub.md) §5). Rooms use the same kind
+  for their members ([`extensions/room.md`](extensions/room.md) §5).
 - **`HIDDEN`** is the record kind for the head of a hidden set: a head that the storing node
   verifies but cannot read. Every `ROUTER` MUST store and return it, whether or not it sets
   `SETS`. Its content and checks are in [`extensions/hidden-set.md`](extensions/hidden-set.md) §3.
@@ -2650,7 +2654,7 @@ A layout of media made for playing, fragmented MP4 with its index at the start, 
 
 ### 13.1 Optional messages
 
-Browsing a peer's shared files, chat, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
+Browsing a peer's shared files, chat, rooms, HTTP sources, file sets, live streams, publish and subscribe, and finding nodes in the local network are optional extensions. A node announces
 each with a capability bit and need not implement any of them. Hidden sets, sets with
 several authors, other names of a file, torrents and Usenet posts as file sets, videos named on a chain, shared filter lists, first
 contact and finding a known node are optional too. They add file formats, links and four record
@@ -2671,6 +2675,7 @@ program of its own next to an ordinary node, and no further role (§11).
 |---|---|---|---|
 | Browse | bit 3, `BROWSE` | message types 14, 15 | [`extensions/browse.md`](extensions/browse.md) |
 | Chat | bit 4, `CHAT` | message types 16, 18 | [`extensions/chat.md`](extensions/chat.md) |
+| Rooms | bit 19, `ROOM` | message types 42, 43; `ed3k:room` links; uses record kind 7 | [`extensions/room.md`](extensions/room.md) |
 | HTTP sources | bit 9, `HTTP` | fields in `FileRequest`, `FileStatus`, `Store` and `KadAnswer`; `ws` and `wh` in links; `ed3k:cache` links | [`extensions/http-source.md`](extensions/http-source.md) |
 | File sets | bit 10, `SETS` | a manifest file format; record kinds 4 and 5; fields in `FileInfo`, `FileRequest`, `FileStatus`, `Record`, `Store` and `KadAnswer`; `path` in links; `ed3k:set` links | [`extensions/file-set.md`](extensions/file-set.md) |
 | Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; a channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
@@ -2744,7 +2749,8 @@ also defines `ed3k:cache`, a link to a cache server. The file set extension adds
 set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the extension for links at file hosters adds `hl` to `ed3k:file`, the first contact extension defines `ed3k:nodes`, and the
 extension for finding a known node defines `ed3k:friend`. The extension for videos named on a
 chain adds `b3`, `sz` and `ipfs` to `ed3k:set`, and `ipfs` to `ed3k:file`. The paid subscription
-extension adds `paid` to `ed3k:live` and `ed3k:set`, and defines `ed3k:pass`.
+extension adds `paid` to `ed3k:live` and `ed3k:set`, and defines `ed3k:pass`. The room
+extension defines `ed3k:room`.
 
 ### 13.3 Not carried over
 
@@ -3011,6 +3017,10 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: replay window for stream numbers of a path and of a session, PING on a path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most; senders remembered at most, of them per host address; resends after a lost connection at most, within | 10 min, 1,024; 256, 16; 3, 10 min |
+| Rooms: item at most (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban at most; lift kept for | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days |
+| Rooms: presence renewed every, `expires` at most after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys) | 5 min, 15 min, 1 h; 24 h, 1,000, 5 min, 1 h; 20, 1; 60 |
+| Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info; member proof clock tolerance; `SUB` target of a private room changes every, neighbour hours searched in the first / last | 3 / 2–4, 16, 24 h, 60 s; 10 min; 1 h, 10 min / 10 min |
+| Rooms, generations: started again after (with posts), post of an older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; key forgotten after a later generation (no post held / at the latest) | 24 h, 2 min, 64, 1,032; 1 h / 48 h |
 | HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed; a sealed source's `expires` ahead at least | 8, 3, 16; 3; 3; 120 s |
 | HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per hour, per host / site / block, counted per file and, over all files, per namer of the URL; over all files and namers together, per host; a host is exempt over all files after a verified block for | 2; 2 / 4 / 8; 8; 1 h |
 | File sets, a manifest at most: size, `files`, `dirs`, path component, components in a path, depth, files with all inner sets | 4 MiB, 65,536, 65,536, 1–255 B, 32, 8, 1,000,000 |
@@ -3067,7 +3077,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   post, the `canonical` of hoster links, the hash body, and of paid subscriptions the scopes,
   a season with its tip, an offer, a pass, a proof, a key exchange, the sealed forms and a
   share report, the node list tag, the keys of private channels, the hop session, the pair key
-  of friend records, and the credit signatures of a bid and a receipt, under a test domain:
+  of friend records, the names, proofs, keys and a sealed post of rooms, and the credit
+  signatures of a bid and a receipt, under a test domain:
   the chain ID and the contract of the public network are not assigned yet
   ([`extensions/credit.md`](extensions/credit.md) §7.1).
 - The zstd dictionary does not exist yet; it needs a message corpus. Until it is published

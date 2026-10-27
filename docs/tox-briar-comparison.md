@@ -208,7 +208,7 @@ by files on removable media.
 
 | System | Subject | Why |
 |---|---|---|
-| Tox | Audio and video calls, group chats | ed3k is not a messenger. Live streams are one-to-many ([`live.md`](../extensions/live.md)) |
+| Tox | Audio and video calls | ed3k is not a messenger. Live streams are one-to-many ([`live.md`](../extensions/live.md)); group chats are rooms ([`room.md`](../extensions/room.md)) |
 | Briar | Tor as the transport | a possible binding; not looked at here |
 | Briar | Key agreement in person, by scanning codes | a matter of the client. A friend link can be shown as a code |
 | Briar | A device of one's own that takes messages while one is offline | see [`gnunet-retroshare-comparison.md`](gnunet-retroshare-comparison.md) §4.8 |

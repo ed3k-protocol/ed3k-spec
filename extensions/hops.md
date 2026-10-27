@@ -595,7 +595,7 @@ is answered as one of kind `SOURCE` at that target: `ANON` records come in `anon
   gives the node ID, picks a gate at random, and opens a session through it. It makes at most
   4 *(initial)* failed `GATE` lookups or session attempts per file and hour, as
   [`ip-diversity.md`](ip-diversity.md) §2.5 limits failed source dials: `anon` is unsigned.
-  A topic and a live stream each count as a file for this limit, and a gate dialled counts
+  A topic, a live stream and a room ([`room.md`](room.md) §5) each count as a file for this limit, and a gate dialled counts
   there too, in the row per file and in the row over all files. One session attempt is one
   gate dialled. An attempt counts until the searcher, as A, has checked
   the key of B (§3.2); one still pending counts as failed.

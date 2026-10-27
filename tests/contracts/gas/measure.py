@@ -2,7 +2,8 @@
 """Gas of CreditLedger calls, one transaction each, on anvil (hardfork cancun).
 
 Run from the forge project root:  python3 -I gas/measure.py
-Starts anvil itself on port 8547 (ANVIL_PORT), deploys MockOperators + CreditLedger (gasReward 1e15),
+Starts anvil itself on port 8547 (ANVIL_PORT), deploys MockOperators + CreditLedger (gasReward 1e15,
+stake rate 1e18, stake delay 30 days),
 puts a no-op (STOP) at the native minter address (its gas cap is still checked), and prints receipt gasUsed (incl. 21,000
 and calldata, after refunds).
 """
@@ -102,7 +103,7 @@ def run():
     ops = json.loads(sh(FORGE, "create", "--rpc-url", RPC, "--private-key", dep, "--broadcast", "--json",
                         "test/Base.sol:MockOperators"))["deployedTo"]
     L = json.loads(sh(FORGE, "create", "--rpc-url", RPC, "--private-key", dep, "--broadcast", "--json",
-                      "../../contracts/CreditLedger.sol:CreditLedger", "--constructor-args", ops, str(10**15)))["deployedTo"]
+                      "../../contracts/CreditLedger.sol:CreditLedger", "--constructor-args", ops, str(10**15), str(10**18), str(30 * DAY)))["deployedTo"]
     rpc("anvil_setCode", MINTER, "0x00")  # no-op minter: measures the call overhead only
     ROOTK = K[19]
     ROOTA = A[19]
@@ -228,6 +229,21 @@ def run():
     rec("transferFrom: unlimited allowance", send(caller, L, "transferFrom(address,address,uint256)", T1, T2, str(10 * U)))
     rec("approve (new non-zero → non-zero)", send(T1K, L, "approve(address,uint256)", A[1], str(5 * U)))
 
+    # ───────── stake token (credit.md §6.7) ─────────
+    rec("burnForStake: first burn of the ledger", send(T1K, L, "burnForStake(uint256,address)", str(10 * U), T1))
+    rec("burnForStake: later burn, same account", send(T1K, L, "burnForStake(uint256,address)", str(10 * U), T1))
+    rec("setStakeParams (through the operator contract)",
+        send(dep, ops, "setStake(address,uint256,uint256)", L, str(10**18), "0"))
+    send(T1K, L, "burnForStake(uint256,address)", str(10 * U), T2)
+    rec("claimStake: first stake tokens of an address", send(caller, L, "claimStake(uint256)", "3"))
+    send(T1K, L, "burnForStake(uint256,address)", str(10 * U), T2)
+    rec("claimStake: to an address that holds stake tokens", send(caller, L, "claimStake(uint256)", "4"))
+    ST = call(L, "stakeToken()(address)")
+    rec("stake token: transfer to a new address", send(K[14], ST, "transfer(address,uint256)",
+                                                       "0x000000000000000000000000000000000000bEEF", str(10**18)))
+    rec("stake token: transfer to an existing holder", send(K[14], ST, "transfer(address,uint256)",
+                                                           "0x000000000000000000000000000000000000bEEF", str(10**18)))
+
     # sweep: P2's hold for A[10] runs out
     at(T[0] + 6 * 3600 + 60)
     rec("sweep (hold ran out)", send(caller, L, "sweep(address,address)", P2, A[10]))
@@ -282,7 +298,7 @@ def run():
     rec("settle: first receipt of pair+day, pair-week known, mints < 1 credit (no reward call)",
         settle([(ROOTK, H1, D8, 512, 0)]))
     L0 = json.loads(sh(FORGE, "create", "--rpc-url", RPC, "--private-key", dep, "--broadcast", "--json",
-                       "../../contracts/CreditLedger.sol:CreditLedger", "--constructor-args", ops, "0"))["deployedTo"]
+                       "../../contracts/CreditLedger.sol:CreditLedger", "--constructor-args", ops, "0", str(10**18), str(30 * DAY)))["deployedTo"]
     nonlocal_L[0] = L0
     settled.clear()
     rec("gasReward=0: first receipt of pair+day, 2 new accounts", settle([(ROOTK, H1, D8, 4 * CR, 0)]))

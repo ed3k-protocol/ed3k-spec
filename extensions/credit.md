@@ -1,6 +1,6 @@
 # Extension: credits (`credit`)
 
-**Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1. **The ledger contract ([`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol)) compiles with solc 0.8.37 and passes unit, fuzz and invariant tests ([`tests/contracts`](../tests/contracts/README.md), 2026-10-18). It is not audited. Its numbers were not simulated against an attack model, and no chain has been deployed.**
+**Status:** draft 0.2 (2026-10-12). Not implemented. Optional in wire version 1. **The ledger contract ([`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol)) compiles with solc 0.8.37 and passes unit, fuzz and invariant tests ([`tests/contracts`](../tests/contracts/README.md), 2026-10-18). The stake token of §6.7 ([`contracts/StakeToken.sol`](../contracts/StakeToken.sol)) and the burn in the ledger pass their own unit, fuzz and invariant tests (2026-10-27). Neither is audited. Their numbers were not simulated against an attack model, and no chain has been deployed.**
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §12.1 and §12.5. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 16, `CREDIT`. Message types 35 to 37. One field in `FileRequest`, one in `FileStatus`.
 **Needs:** JSON-RPC access to a node of the credit ledger (§7). The ledger is a chain of its own, outside ed3k.
@@ -15,8 +15,10 @@ it, and nobody else can use that. This extension adds credits that count at **ev
   price per MiB; the highest bid gets the slot and pays just above the next bid.
 - The ledger is a contract on an EVM chain, run as an **Avalanche L1** by a set of operators.
   It holds the balances and applies the rules, so that no client can skip them.
-- Credits **are not money**. Nothing here sells or buys them. They are transferable, lose
-  10 % a day when their holder stops uploading, and lose 10 % on every transfer.
+- Nothing here sells or buys credits. They are transferable, lose 10 % a day when their
+  holder stops uploading, and lose 10 % on every transfer.
+- Credits can be **burned for a stake token** (§6.7). That token does not decay and is traded
+  on exchanges, so **credits have a price** (§10).
 
 Why a chain, why this one, who has to run a node, and what was rejected is in
 [`docs/credit-ledger.md`](../docs/credit-ledger.md).
@@ -520,9 +522,11 @@ remaining = bytes left of that turn / its rate over the last 10 s (initial)
 
 ## 6. The ledger
 
-One contract holds every balance. It is immutable and has no owner. This section says what it
-does; the source is [`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol). Where the two
-differ, that is a fault to be reported, and this text is meant.
+One contract holds every balance. It is immutable and has no owner. The operator contract
+(§7.2) can set two values, the parameters of the stake token (§6.7), and nothing else. This
+section says what the ledger does; the source is
+[`contracts/CreditLedger.sol`](../contracts/CreditLedger.sol). Where the two differ, that is a
+fault to be reported, and this text is meant.
 
 ### 6.1 Accounts
 
@@ -732,6 +736,56 @@ A receipt that changes less, a failed call, a transfer and a hold (`hold`, `hold
 `release`, `sweep`) earn nothing and cost gas. A node that settles its own receipts thus gains
 a little coin with each, and one that sends other transactions uses it up.
 
+### 6.7 Stake token
+
+Credits can be burned for a second token, the **stake token** (`E3S`,
+[`contracts/StakeToken.sol`](../contracts/StakeToken.sol)). It is meant as stake for a staking
+contract that may come later and is not part of this spec. It is traded freely.
+
+```solidity
+function burnForStake(uint256 value, address to) external returns (uint256 id);
+function claimStake(uint256 id) external;
+function setStakeParams(uint256 rate, uint256 delay) external;   // the operator contract only
+function stakeClaims(uint256 id) external view returns (address to, uint64 readyAt, uint256 amount);
+function stakeRate() external view returns (uint128);
+function stakeDelay() external view returns (uint64);
+function stakeToken() external view returns (address);
+```
+
+- `burnForStake` burns `value` µ of the caller's balance, after decay and from `received`
+  first. It records a **claim** of `value × stakeRate / 10⁶` stake units for `to`, ready at
+  now + `stakeDelay`, and returns its `id`. Ids start at 1.
+- **Rate and delay are fixed at the burn.** A later change of either one does not touch a
+  claim that is waiting.
+- `claimStake` mints a claim to its `to` once `readyAt` has passed. Anyone may call it. A
+  claim is paid once.
+- A burn never dips into holds: like a transfer it leaves the holds ÷ 0.9 (§6.5). An account
+  that is `overdrawn` cannot burn. A burn that would come to 0 stake units is refused.
+- A burn is not activity, does not count for maturity, and earns no gas reward (§6.6).
+- A burn cannot be undone. Nothing turns stake tokens back into credits.
+
+| Parameter | Initial *(not simulated)* | Bound |
+|---|---|---|
+| `stakeRate` | 10¹⁸ stake units per credit: 1 E3S for 1 credit | at most 2¹²⁸ − 1; 0 turns burning off |
+| `stakeDelay` | 30 days | at most 365 days |
+
+**Who sets them.** The operator contract (§7.2), after a vote of two thirds, calls
+`setStakeParams`. No other account can. The values at deployment are constructor arguments.
+
+**The token.** E3S is a plain ERC-20 with `permit` of EIP-2612 and 18 decimals. It does not
+decay, a transfer burns nothing, and it has no owner. The ledger creates it at deployment and
+is the only account that mints it. Its EIP-712 domain is `{name: "ed3k stake", version: "1",
+chainId, verifyingContract}` of the token, not of the ledger.
+
+**Where it trades.** Only the operator contract deploys on the L1 (§7.2), so no exchange runs
+there. The token's home is the L1: the operators deploy the home contract of Avalanche
+Interchain Token Transfer (ICTT), which locks E3S on the L1 and mints a remote E3S on the
+C-Chain of Avalanche, where exchanges trade it. The bridge contracts are not part of this spec
+(§13).
+
+Why burning and not wrapping, why a delay, and why the operators set the values is in
+[`docs/credit-ledger.md`](../docs/credit-ledger.md) §10.
+
 ## 7. The chain and the RPC
 
 ### 7.1 Parameters of a network
@@ -757,8 +811,10 @@ use a test domain: chain ID 31337 and the contract address
   no project key after genesis. An operator runs a validator and SHOULD run a public RPC
   endpoint.
 - **Gas** has a static price of 1 wei, the lowest the chain accepts.
-- **Only the operator contract may deploy contracts**, so the chain carries the ledger and
-  nothing else.
+- **Only the operator contract may deploy contracts**, so the chain carries the ledger, its
+  stake token (§6.7), the operator contract and the home contract of the bridge, and nothing
+  else.
+- The operator contract sets the parameters of the stake token (§6.7).
 - The ledger contract is the one account allowed to mint the native coin (§6.6).
 - A block that is accepted is final. A client reads at the tag `latest`.
 
@@ -774,7 +830,7 @@ of the chain (`https://<host>/ext/bc/<blockchain ID>/rpc`).
 |---|---|
 | Is this the right chain | `eth_chainId` |
 | Balance, `overdrawn`, maturity, what is settled, holds (the views below); own coin | `eth_call`, `eth_getBalance` |
-| Send `settle`, `hold`, `holdFor`, `release`, `sweep`, `transfer`, `poke` | `eth_getTransactionCount`, `eth_estimateGas`, `eth_sendRawTransaction` |
+| Send `settle`, `hold`, `holdFor`, `release`, `sweep`, `transfer`, `poke`, `burnForStake`, `claimStake` | `eth_getTransactionCount`, `eth_estimateGas`, `eth_sendRawTransaction` |
 | Outcome | `eth_getTransactionReceipt` |
 
 The views this document relies on, as in the source:
@@ -843,6 +899,9 @@ call fails, no root is mature by that rule; the call does not fail and `settle` 
 | A relay drops a request | delay | the asker asks another |
 | A relay keeps a signed hold back and sends it later | credits locked for 6 h that the payer no longer wanted locked | the `deadline`, 10 min; a hold with a higher nonce that lands first |
 | An RPC node lies | §7.3 | one turn, or gas |
+| Farming credits to burn them for E3S | farming pays in a token that has a market price | the limits of §6.3, decay up to the burn, the delay of §6.7; **the limits now guard a token with a price** (§13) |
+| Burn, then move the credits away before the claim | none | the credits are gone at the burn |
+| Operators change the rate or the delay | later burns get more or less, or wait longer | never a claim that waits; delay at most 365 days (§6.7) |
 
 ## 9. What others learn
 
@@ -866,6 +925,9 @@ This is the price of a public ledger, and it is the main reason to leave the ext
 - **A hold is public at once.** It shows who bids at whom, how much and when, before a byte
   moves, and a receipt with a payment is settled within hours (§6.2).
 - A remote RPC node learns more than the ledger shows (§7.3).
+- **A burn is public** (§6.7). It ties the credit address to the address `to`, and through the
+  bridge to an address on the C-Chain, where an exchange may know a name. A node that does
+  not want that link burns to a new address and moves nothing back to the credit address.
 
 ### 9.1 Through an anonymous path
 
@@ -898,6 +960,8 @@ there, with a credit address of its own:
 - Gas coin that the reward (§6.6) sends to this address stays there unused: the address sends
   no transaction of its own, and the relay's part of the reward pays the relay. Gas coin MUST
   NOT be sent to it from the other address.
+- **No burn** (§6.7). A burn is a transaction of its own, and `CreditRelay` carries none. A
+  stake token claimed for the anonymous address would also be a public link, like a transfer.
 
 **A temporary address** is what a hidden node starts with, and what it can do is limited by
 the rules that keep credits honest:
@@ -921,12 +985,16 @@ node for which that is too much leaves credits off under its anonymous key.
 
 ## 10. Risks that are not technical
 
-- **Transferable credits can be sold.** Then uploading earns something with a price, and
-  farming receipts is paid. The decay and the transfer burn make a credit a poor thing to
-  hold; they do not make it worthless.
-- Whether such credits are a crypto-asset under the law of a country, and what being paid in
-  them means for a user who uploads, **was not checked by a lawyer**. An implementation SHOULD
-  say so where the feature is switched on.
+- **Credits have a price.** A credit buys E3S at the rate of §6.7, and E3S is traded on
+  exchanges. So uploading earns something with a price, and farming receipts is paid. The
+  decay and the transfer burn make a credit a poor thing to hold; they do not stop it being
+  burned for a token that keeps its value.
+- **The operators set the price of conversion** (§6.7). Two thirds of them decide how much E3S
+  a credit buys. They run the chain and the bridge as well.
+- Whether credits and E3S are crypto-assets under the law of a country, what being paid in
+  them means for a user who uploads, and what setting the rate and running the bridge means
+  for the operators, **was not checked by a lawyer**. An implementation SHOULD say so where
+  the feature is switched on.
 - The native coin of the chain is transferable like that of any EVM chain. It has no use but
   gas at 1 wei.
 
@@ -939,7 +1007,7 @@ node for which that is too much leaves credits off under its anonymous key.
 | RPC reads of an uploader | two calls per bidder per 10 min |
 | Transactions of an uploader | one `settle` per 48 h, with the receipts of that time; one more for receipts with a payment, before their hold runs out; a `holdFor` for each signed hold it relays |
 | Transactions of a bidder | one `hold` per uploader it bids at, every 3 h while it bids; none if it has its holds relayed |
-| Ledger state | one entry per (issuer, holder, day) that was settled, one per (issuer, week) and one per (issuer, holder, week) that minted, one per (payer, payee) that placed a hold and one per (payer, payee) that used `holdFor`, kept for good |
+| Ledger state | one entry per (issuer, holder, day) that was settled, one per (issuer, week) and one per (issuer, holder, week) that minted, one per (payer, payee) that placed a hold and one per (payer, payee) that used `holdFor`, kept for good; one per burn until it is claimed |
 
 Gas, **measured** on 2026-10-18: solc 0.8.37, optimizer on (200 runs), EVM cancun, one
 transaction per call, `gasUsed` of the receipt (21,000 and calldata included, after refunds), with
@@ -966,6 +1034,15 @@ holder. Where the precompile refuses (ledger not allowed to mint), each such cal
 | `transfer`, decay written back on one side / both | 63,300 / 71,000 |
 | `transferFrom`, finite / unlimited allowance | 60,800 / 57,600 |
 | `poke` | 29,900–43,800 |
+
+The stake token (§6.7), measured the same way on 2026-10-27 (Foundry 1.8.6):
+
+| Call | Gas |
+|---|---|
+| `burnForStake` | 96,500 |
+| `claimStake`, first E3S of the address / to a holder of E3S | 73,800 / 39,600 |
+| `setStakeParams`, through the operator contract | 31,900 |
+| E3S `transfer` to a new address / to a holder | 51,200 / 34,100 |
 
 No call for a hold earns a reward (§6.6). A bidder pays for its holds with coin it earned by
 settling receipts as a holder; a node that never uploaded has none and has its holds sent by
@@ -1000,6 +1077,18 @@ On the bounds against keys that sign for each other (§6.3):
 | A lower weekly limit and a dearer maturity (25 GiB; 4 GiB from 5 issuers) | each colluding key is worth less and costs more, with no new mechanism | heavy downloaders mint less for their uploaders; newcomers mature more slowly |
 | A weekly limit that follows what the issuer earned itself | a group that uploads to nobody outside mints a fifth | an uploader earns less from pure downloaders; the most complex in the contract |
 
+On the stake token (§6.7):
+
+| Alternative | Pro | Con |
+|---|---|---|
+| **Rate and delay fixed at the burn** (chosen) | the burner knows what it gets | operators cannot cut a claim that waits when they find farming |
+| Rate read at the claim | operators can react during the delay | the burner does not know what it gets |
+| **Set by the operator contract** (chosen) | no new key; the same vote that admits validators | two thirds of the operators set the price of conversion |
+| Fixed at deployment | nobody can change them | a wrong rate stays for good; the contract cannot be replaced without a new ledger |
+| An admin key | simplest | a project key after genesis, which [`docs/credit-ledger.md`](../docs/credit-ledger.md) §3 avoids |
+| **Bridge to the C-Chain** (chosen) | the exchanges and liquidity that exist | a bridge to deploy and to trust |
+| An exchange on the L1, deployed by the operators | no bridge | liquidity apart from every other market; operators run it |
+
 ## 13. Open points
 
 - **A group of colluding keys grows without a bound.** Three mature keys can sign the 1 GiB of
@@ -1031,3 +1120,11 @@ On the bounds against keys that sign for each other (§6.3):
 - **Checking a remote node** without trusting it, by the validators' signatures, was not
   looked at.
 - **eD2K transfers** earn nothing: there is no receipt in eD2K.
+- **Staking E3S** is not specified (§6.7): who may stake, for what (validator seats, §7.2), and
+  how it relates to the operator vote. It may come later, as a contract of its own.
+- **The bridge** (an ICTT home contract on the L1, a remote token on the C-Chain) is named and
+  not specified, nor who deploys it and who pays its relayers.
+- **Credits have a price now** (§10). Every number of §6.3 guards a token that is traded, and
+  the unbounded growth of colluding keys (above) is paid. The simulation is more urgent.
+- **The rate.** How the operators set it, from what data and how often, is not designed. 1:1
+  and 30 days are initial.

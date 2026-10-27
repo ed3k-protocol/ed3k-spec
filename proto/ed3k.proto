@@ -24,7 +24,7 @@
 //  29 HopGate         30 HopLookup       31 HopLookupAnswer 32 HopStream
 //  33 HopConnect      34 HopJoin         35 Receipt         36 CreditRelay
 //  37 CreditRelayAnswer 38 BadBlock      39 HopOk          40 KeyRequest
-//  41 KeyAnswer
+//  41 KeyAnswer      42 RoomJoin        43 RoomState
 //  48–63 reserved (Protocol.md §10.6)
 //
 // Messages without a type are file formats or sub-messages carried inside another message.
@@ -131,7 +131,7 @@ enum Kind {
   HEAD = 4;                   // file-set.md §5.2
   MEMBER = 5;                 // file-set.md §6
   LIVE = 6;                   // live.md §5
-  SUB = 7;                    // pubsub.md §5
+  SUB = 7;                    // pubsub.md §5; also the members of a room, room.md §5
   HIDDEN = 8;                 // hidden-set.md §3
   PART = 9;                   // multi-author-set.md §3.4
   FRIEND = 10;                // friend.md §4
@@ -695,6 +695,110 @@ message OnAir {
   uint64 start = 2;           // the broadcast (live.md §1.1)
   uint64 issued = 3;          // Unix time in seconds when this notice was signed
   bool   end = 4;             // the broadcast is over
+}
+
+// ---------------------------------------------------------------------------------------
+// Rooms (room.md)
+// ---------------------------------------------------------------------------------------
+
+message RoomItem {
+  bytes body = 1;             // a serialised RoomBody, verified over exactly these bytes   room.md §2
+  bytes key = 2;              // 32 B signer
+  repeated Signature sigs = 3;    // over "ed3k v1 room item" ‖ room(16) ‖ body
+}
+
+message RoomBody {            // exactly one field is set                      room.md §2
+  RoomInfo info = 1;          // signed by the room key
+  Admit    admit = 2;         // signed by the room key or a moderator
+  Ban      ban = 3;           // likewise
+  Presence presence = 4;      // signed by a member key
+  RoomPost post = 5;          // likewise
+  KeyDrop  key_drop = 6;      // signed by the room key or a moderator
+}
+
+message RoomInfo {
+  uint64 seq = 1;             // 1 or higher; a higher seq replaces a lower one   room.md §2.1
+  uint64 issued = 2;
+  string title = 3;           // at most 128 B of UTF-8
+  string about = 4;           // at most 1,024 B of UTF-8
+  repeated bytes mods = 5;    // 32 B member keys of the moderators; at most 8
+  bool   closed = 6;          // only admitted members join, read and post; a room with a secret only
+  bool   moderated = 7;       // only admitted members post
+  bytes  banned = 8;          // n × 16 B member IDs banned for good, ascending, each once; at most 4,096
+}
+
+message Admit {
+  bytes  member = 1;          // 32 B member key                               room.md §2.2
+  uint64 issued = 2;
+  uint64 until = 3;           // 0 = no end
+}
+
+message Ban {
+  bytes  member = 1;          // 32 B member key                               room.md §2.3
+  uint64 issued = 2;
+  uint64 until = 3;           // at most issued + 30 days; until ≤ issued lifts the ban
+}
+
+message Presence {
+  uint64 issued = 1;          // room.md §2.4
+  uint64 expires = 2;         // at most issued + 15 min
+  string nick = 3;            // at most 64 B of UTF-8
+  bool   left = 4;
+  uint64 gen = 5;             // closed room: the newest generation whose key I hold; 0 = none
+}
+
+message RoomPost {
+  uint64   sent = 1;          // Unix time in seconds, by the author's clock   room.md §2.5
+  RoomText text = 2;          // public room
+  bytes    sealed = 3;        // private and closed room: nonce(12) ‖ ChaCha20(k_post, nonce, serialised RoomText)   room.md §3
+  uint64   gen = 4;           // closed room: the generation of k_post; 0 otherwise
+  bytes    key_id = 5;        // closed room: 8 B
+}
+
+message RoomText {
+  string text = 1;            // 1 to 4,096 B of UTF-8                         room.md §2.5
+  bytes  reply_to = 2;        // 16 B post id; absent = none
+}
+
+message KeyDrop {
+  uint64 gen = 1;             // 1 or higher                                   room.md §3.2
+  bytes  key_id = 2;          // 8 B, H("ed3k v1 room key id", k ‖ g)[0..8)
+  uint64 issued = 3;
+  bytes  e = 4;               // 32 B X25519 public value, new for every KeyDrop
+  bytes  wraps = 5;           // n × 64 B: member ID(16) ‖ wrap(48); at most 1,032, ascending by member ID, each once
+}
+
+message RoomJoin {            // type 42
+  bytes  room = 1;            // 16 B                                          room.md §4
+  uint32 want_peers = 2;      // max number of peers wanted, 0 = none
+  bytes  relays4 = 3;         // n × 22 B compact nodes: my relays, if I am a leaf
+  bytes  relays6 = 4;         // n × 34 B
+  bytes  proof = 5;           // private and closed room: 16 B, H("ed3k v1 room join", k ‖ joiner's node ID ‖ peer's node ID)[0..16)
+  uint64 since = 6;           // `sent` of the newest post I hold; 0 = none   room.md §4.3
+  uint64 info_seq = 7;        // seq of the room info I hold; 0 = none
+}
+
+message RoomState {           // type 43
+  repeated RoomItem items = 1;    // room.md §4
+  repeated Peer peers = 2;    // other members of this room
+  RoomRefusal refusal = 3;    // set: I do not take you as a neighbour
+  bytes  proof = 4;           // private and closed room: 16 B, H("ed3k v1 room answer", k ‖ joiner's node ID ‖ peer's node ID)[0..16)
+  bytes  member = 5;          // closed room: 32 B, my member key             room.md §4.2
+  RoomProof member_proof = 6; // with `member`
+  bool   synced = 7;          // the last RoomState of my first answer        room.md §4.3
+}
+
+message RoomProof {
+  uint64 minute = 1;          // Unix time / 60, rounded down                  room.md §4.2
+  bytes  sig = 2;             // 64 B, by the member key over "ed3k v1 room proof" ‖ room(16) ‖ sender's node ID(16) ‖ receiver's node ID(16) ‖ minute(8)
+}
+
+enum RoomRefusal {
+  ROOM_OK = 0;                // room.md §4
+  ROOM_FULL = 1;
+  ROOM_LEFT = 2;
+  ROOM_BLOCKED = 3;           // refused for 24 h, or banned
+  ROOM_MEMBER = 4;            // closed room: no valid admit shown
 }
 
 // ---------------------------------------------------------------------------------------

@@ -292,7 +292,8 @@ A subscriber publishes a record of kind `SUB` (7) under the target `topic`.
 - An index node does not keep it past its lifetime ([`Protocol.md`](../Protocol.md) §11): a
   node that left the topic drops out of the list as on any other node.
 - Every `ROUTER` of wire version 1 MUST store and return this kind, whether or not it sets
-  `PUBSUB`. It needs to know nothing about topics for that.
+  `PUBSUB`. It needs to know nothing about topics for that. Rooms store the same kind for
+  their members ([`room.md`](room.md) §5).
 - **A node under its anonymous key** ([`hops.md`](hops.md) §1) cannot store a `SUB` record: a
   session has no observed address ([`hops.md`](hops.md) §3.3). It stores an `ANON` record
   under `topic` in its place, through a `HopLookup` ([`hops.md`](hops.md) §4), with `expires`

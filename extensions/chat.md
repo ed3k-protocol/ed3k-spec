@@ -4,7 +4,8 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §13.1. Section numbers (§) refer to that document.
 **Capability:** bit 4, `CHAT`. Message types 16 and 18.
 
-A node that sets `CHAT` accepts text messages from other nodes.
+A node that sets `CHAT` accepts text messages from other nodes. A message goes to one node;
+rooms with many members are [`room.md`](room.md).
 
 ## 1. Messages
 

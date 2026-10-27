@@ -136,7 +136,7 @@ contract SettleTest is Base {
     }
 
     function test_reward_zeroGasRewardNoCall() public {
-        L = new CreditLedger(IOperators(address(ops)), 0);
+        L = new CreditLedger(IOperators(address(ops)), 0, STAKE_RATE, STAKE_DELAY);
         settle1(rootPk, rc(root, alice, today(), 4096, 0));
         assertEq(minter.count(), 0);
         assertEq(L.balanceOf(alice), 4 * UNIT);

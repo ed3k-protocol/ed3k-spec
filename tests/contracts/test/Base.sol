@@ -33,12 +33,19 @@ contract MockOperators is IOperators {
     function isRoot(address a) external view returns (bool) {
         return roots[a];
     }
+
+    /// Stands in for a passed vote (credit.md §6.7).
+    function setStake(CreditLedger l, uint256 rate, uint256 delay) external {
+        l.setStakeParams(rate, delay);
+    }
 }
 
 abstract contract Base is Test {
     address constant MINTER_ADDR = 0x0200000000000000000000000000000000000001;
     uint256 constant UNIT = 1e6;
     uint256 constant REWARD = 1e15;
+    uint256 constant STAKE_RATE = 1e18; // 1 stake token per credit (initial)
+    uint256 constant STAKE_DELAY = 30 days; // (initial)
     uint256 constant T0 = 1_759_968_000 + 12 hours; // midday of day 20370 (a literal: constant division would be exact)
 
     CreditLedger L;
@@ -66,7 +73,7 @@ abstract contract Base is Test {
         MockMinter m = new MockMinter();
         vm.etch(MINTER_ADDR, address(m).code);
         minter = MockMinter(MINTER_ADDR);
-        L = new CreditLedger(IOperators(address(ops)), REWARD);
+        L = new CreditLedger(IOperators(address(ops)), REWARD, STAKE_RATE, STAKE_DELAY);
         root = vm.addr(rootPk);
         root2 = vm.addr(root2Pk);
         root3 = vm.addr(root3Pk);

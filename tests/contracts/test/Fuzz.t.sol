@@ -119,6 +119,9 @@ contract Handler is Test {
     uint256 public calls;
     uint256 public holdsOk;
     uint256 public transfersOk;
+    uint256 public burnsOk;
+    uint256 public claimedStake; // stake token base units paid by claimStake
+    uint256[] private _claimIds;
 
     struct Entry {
         address issuer;
@@ -229,6 +232,25 @@ contract Handler is Test {
         } catch {}
     }
 
+    function burn(uint256 pi, uint256 qi, uint256 v) external {
+        ++calls;
+        vm.prank(actors[pi % actors.length]);
+        try L.burnForStake(bound(v, 0, 100e6), actors[qi % actors.length]) returns (uint256 id) {
+            ++burnsOk;
+            _claimIds.push(id);
+        } catch {}
+    }
+
+    function claim(uint256 i) external {
+        ++calls;
+        if (_claimIds.length == 0) return;
+        uint256 id = _claimIds[i % _claimIds.length];
+        (,, uint256 amount) = L.stakeClaims(id);
+        try L.claimStake(id) {
+            claimedStake += amount;
+        } catch {}
+    }
+
     function warp(uint256 dt) external {
         ++calls;
         vm.warp(block.timestamp + bound(dt, 0, 9 hours));
@@ -252,6 +274,7 @@ contract LedgerInvariants is Base {
         pks[3] = davePk;
         h = new Handler(L, pks, [rootPk, root2Pk, root3Pk]);
         targetContract(address(h));
+        ops.setStake(L, STAKE_RATE, 1 days); // short, so that claims happen within a run
     }
 
     function invariant_storedSumEqualsSupply() public view {
@@ -277,9 +300,15 @@ contract LedgerInvariants is Base {
         }
     }
 
+    /// Stake tokens exist only for claims paid (credit.md §6.7).
+    function invariant_stakeSupplyIsClaimsPaid() public view {
+        assertEq(L.stakeToken().totalSupply(), h.claimedStake());
+    }
+
     function afterInvariant() public {
         emit log_named_uint("holds ok", h.holdsOk());
         emit log_named_uint("transfers ok", h.transfersOk());
+        emit log_named_uint("burns ok", h.burnsOk());
         emit log_named_uint("supply", L.totalSupply());
     }
 

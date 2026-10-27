@@ -1,12 +1,17 @@
 # Ledger tests
 
-Foundry tests of [`contracts/CreditLedger.sol`](../../contracts/CreditLedger.sol)
+Foundry tests of [`contracts/CreditLedger.sol`](../../contracts/CreditLedger.sol) and the stake
+token it creates, [`contracts/StakeToken.sol`](../../contracts/StakeToken.sol)
 ([`extensions/credit.md`](../../extensions/credit.md) §6): unit tests, fuzz tests, invariants,
-and the regression tests of the 2026-10-18 audit. The contract is tested in place, not copied.
+and the regression tests of the 2026-10-18 audit. The contracts are tested in place, not copied.
+The stake token's tests are in `test/Stake.t.sol`.
 
 ## Setup
 
-- Foundry (`forge`, `cast`, `anvil`), tested with 1.5.1.
+- Foundry (`forge`, `cast`, `anvil`), tested with 1.5.1 and 1.8.6. `foundry.toml` turns
+  `dynamic_test_linking` off: 1.8 rewrites `new` in tests and then sees two `IOperators`
+  types. Under 1.8.6 the two `test_reentrantMinter_*` tests fail, at the commit before the
+  stake token too: the mock minter runs out of its 60,000 gas before it re-enters.
 - solc 0.8.37. Foundry fetches it, or point `FOUNDRY_SOLC` at a local binary and add `--offline`.
 - forge-std in `lib/` (not tracked):
 

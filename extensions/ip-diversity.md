@@ -203,8 +203,8 @@ that **failed or are still pending**, per hour:
   when a last hop dials it.
 - An address that would exceed a limit is not dialled; it is kept and tried in a later hour.
   The other addresses of that source MAY be dialled within their own limits.
-- A live stream ([`live.md`](live.md) §5.2) and a topic ([`pubsub.md`](pubsub.md) §5) each
-  count as a file here. The limit over all files counts them together with files.
+- A live stream ([`live.md`](live.md) §5.2), a topic ([`pubsub.md`](pubsub.md) §5) and a room
+  ([`room.md`](room.md) §5) each count as a file here. The limit over all files counts them together with files.
 - Gates and addresses dialled for a node rather than a file (an uploader's slot offer, chat,
   browse, friends) count in the row over all files. Only attempts that fail or are pending
   count, so a node that is reached is dialled without limit, also for a long chat.
