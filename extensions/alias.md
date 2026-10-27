@@ -100,7 +100,8 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 
 - A node publishes an `ALIAS` record only for a root it shares, and only when it has seen
   itself that the name and the root belong together: it has the complete file under the root
-  and computed the name from those bytes, or it verified the same bytes under both
+  and computed the name from those bytes (a hash it computed over the file before counts
+  while the file's size and modification time are unchanged), or it verified the same bytes under both
   (`Protocol.md` §14.4). The documents of the schemes say what that means for a set and for an
   archive.
 - It publishes at most 4 *(initial)* records per root and scheme.

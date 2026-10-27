@@ -174,7 +174,8 @@ message Mount {
   values, count against `max_files` and `max_size`. Every entry of `files` counts, `set`
   members included, with its `size`, as for the total of `file-set.md` §2.5. `set_files` and `set_size` are for display
   (`file-set.md` §2.5) and are not used for this. A mount below counts with the version the
-  reader shows for it. A newer version of a mount is taken only when it and every mount above
+  reader shows for it: the one its outer manifest names until a newer one is taken, and none
+  while that one is not fetched yet (`file-set.md` §2.5). A newer version of a mount is taken only when it and every mount above
   it stay within their limits; else the one before is kept.
 - **The outer signature covers the mount, not what will be in it.** It says: this key may fill
   this directory, up to these limits.

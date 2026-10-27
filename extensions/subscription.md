@@ -387,7 +387,8 @@ message SignedPass {
 - A node MAY hold a pass under its anonymous key ([`hops.md`](hops.md) §1). Its holder key is
   then shown under that key only, never under the node key. Buying it and polling `pass_url`
   (§9.1) are not ed3k and show an address to the seller, who can tie it to the holder key; a
-  client MUST tell its user so before it buys for the anonymous key. Whether a client offers
+  client MUST tell its user so before it buys for the anonymous key. It does so once per
+  holder key: the polls of §9.1 step 3 and of §9.2 for that key need no new warning. Whether a client offers
   it is local policy. The `SUB` or `LIVE` record of the scope is then an `ANON` record at its
   target ([`pubsub.md`](pubsub.md) §5, [`live.md`](live.md) §5.1).
 - The client stores the private holder key like a password. Whoever has it uses the pass.
@@ -827,7 +828,9 @@ target = H("ed3k v1 paid topic", scope ‖ day(8))[0..16)       day = Unix time 
   looks under the target of the day before or after.
 - Order number of an item: `Sealed.seq` of the `HIDDEN` record. Of two items with the same
   `seq` the one with the lower `data`, compared as a byte string, wins, as in
-  [`hidden-set.md`](hidden-set.md) §3. A catalogue has no item in this topic; its heads travel
+  [`hidden-set.md`](hidden-set.md) §3. One with the same `seq` and `data` and a later
+  `expires` is not newer and is not passed on; the node replaces the bytes it holds with it,
+  as [`pubsub.md`](pubsub.md) §4.1 says for a head. A catalogue has no item in this topic; its heads travel
   on its `SET_HEAD` topic.
 
 | Check | |

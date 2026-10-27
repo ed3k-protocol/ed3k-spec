@@ -40,13 +40,14 @@ none.
 
 A **label** is 1 to 63 bytes of `a`–`z`, `0`–`9` and `-`. It does not begin or end with `-`, and
 it does not begin with `xn--`. A **name** is labels joined by `.`, at most 8 *(initial)* labels
-and 253 bytes, as DNS allows.
+and at most 253 bytes, the limit of DNS.
 
 - Names are in lower case on the wire and in every record; a storing node or a reader refuses a
   name with another byte. A client turns what the user types into lower case first.
 - Only ASCII. A label in another script, also in the `xn--` form of IDNA, would let two names
   look alike that are not (`pаypal` with a Cyrillic `а`). Names in any script are petnames
-  (§4.1), which only their user sees.
+  (§4.1), which only their user sees. This holds for domains and handles as well: a domain
+  with an `xn--` label has no ed3k name.
 - A **global label** (§4) is a label of 3 to 63 bytes.
 
 ### 1.2 Three kinds of name
@@ -78,7 +79,8 @@ ed3k:name?n=<global name ending in .ed3k, domain or handle>[&path=<url-encoded p
   `ed3k:set` does ([`file-set.md`](file-set.md) §5.4).
 - `dn` is shown while the name is being resolved; it decides nothing.
 - A link is invalid when `key` does not decode to 32 bytes, when `n` is not a name of §1.1 (a
-  handle: its local part as in §5.1 and its domain a name), when a link without `key` has no
+  handle: its local part as in §5.1 and its domain a domain of §1.2, not ending in `.ed3k`;
+  `n=` empty is not a name), when a link without `key` has no
   `n`, or when `key`, `n`, `path` or `dn` is repeated. Base32 is as `Protocol.md` §13.2 fixes.
   Unknown parameters are ignored.
 - A link without `key` is not a secure name. A client shows how it resolved it (§4.4) before it
@@ -200,7 +202,7 @@ the key of `delegation`.
 - **Links.** Each is an ed3k link of `Protocol.md` §13.2 or of an extension, beginning with
   `ed3k:`. At most one per kind of link (`ed3k:set`,
   `ed3k:friend`, …): a name can be a website and a person at once, and a client takes the link
-  that fits what the user does with it. A link of a kind the reader does not know is ignored,
+  that fits what the user does with it. Of two links of one kind, a reader takes the first. A link of a kind the reader does not know is ignored,
   and so is a link that carries a secret (see the introduction). A publisher MUST NOT put such a
   link into a record.
 - **`sub`.** The names below this one are in the zone of `sub`. A record can have links and
@@ -226,7 +228,7 @@ the key of `delegation`.
    the root key;
 2. then the higher `seq`;
 3. then, when both have the same `links`, `sub` and delegation, the later `expires` (a renewal);
-4. then the lower `body`, compared as bytes.
+4. then the lower `Signed.body`, compared as bytes as it was received and signed, not encoded again.
 
 An owner raises `seq` whenever it changes the content; a renewal keeps it.
 
@@ -251,16 +253,17 @@ until their `expires`.
 
 The labels are taken from the right, as DNS does:
 
-1. Search the apex of the zone, `H("ed3k v1 name", zone)`. The rank of the newest valid apex
+1. Search the apex of the zone, `H("ed3k v1 name", zone)[0..16)`. The rank of the newest valid apex
    record is the zone's **floor**; no apex record found: the floor is 0. A record of the zone
    whose rank is below the floor is refused (§2).
 2. For each suffix of the name, from the shortest (`blog` of `x.shop.blog`) to the whole name,
-   search `NAME` at `H("ed3k v1 name", zone ‖ suffix)`. The apex is not a suffix: a `sub` in
+   search `NAME` at `H("ed3k v1 name", zone ‖ suffix)[0..16)`. The apex is not a suffix: a `sub` in
    the apex record stands for the apex alone.
 3. The first suffix whose record has `sub`, and that is shorter than the name, hands the rest
    on: the client goes on with the labels in front of it in the zone of `sub`, from step 1.
 4. Otherwise the record of the whole name is the answer. A record of the whole name that has
-   `sub` and no links stands for the apex of that zone.
+   `sub` and no links stands for the apex of that zone: the client goes on in that zone with the
+   name `""` (step 1), which counts as one more zone and one more lookup.
 5. No record of the whole name: the name does not exist. The name `""` is answered by step 1
    alone.
 
@@ -287,7 +290,7 @@ holds is a count of the sites that make a claim, not a proof.
 
 | # | Source | What it is | Shown as |
 |---|---|---|---|
-| 1 | **Petnames** | names the user gave keys; any text, also in other scripts; never sent anywhere, unless the user marks one that is a global label as shareable (§4.3) | yours |
+| 1 | **Petnames** | the user's own zones, under the names it chose for them, and names the user gave keys; any text, also in other scripts; never sent anywhere, unless the user marks one that is a global label as shareable (§4.3) | yours |
 | 2 | **Pins** | the zone a name led to when the user first opened it (§4.4) | pinned, with the date |
 | 3 | **Name lists** the user follows | files of names and zones, published by their authors as signed sets (§4.5) | the title of the list |
 | 4 | **Friends** | the friends' own zones, the names they vouched for, their shareable petnames and their followed lists, asked by `NameQuery` (§4.3), and the lists they publish | *k* of *n* friends |
@@ -297,7 +300,9 @@ holds is a count of the sites that make a claim, not a proof.
   name also asks the sources after it, and shows a warning when one of them names another zone.
 - Two name lists the user follows that disagree: the one the user put first wins, and the
   client warns.
-- Friends that disagree: the zone that most of them name. Equal counts: no answer from this
+- Friends that disagree: the zone that most of them name. In *k of n*, *n* is the friends
+  that answered the `NameQuery` for the name, with a hit or without; an error or no answer is
+  not counted. Equal counts: no answer from this
   source; the client shows the zones and lets the user choose.
 - **Before a name that only the network knows is opened for the first time**, the client shows
   that no friend and no list knows it, and the number of sites. The user confirms.
@@ -348,10 +353,22 @@ root:
 | Count | one record per publisher, target and zone. At most 2 *(initial)* zones per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the limit of 64 zones per target. At most 64 *(initial)* zones per target (a full target, below). At most 3 *(initial)* records kept per zone, by the rule of `ALIAS` |
 
 - **A full target.** Unlike `ALIAS`, a record for a new zone at a target that holds 64 zones
-  takes the place of the zone with the fewest sites, of those the one first stored earliest,
-  when that zone has 1 site; it is `FULL` when every zone has more. A zone that publishers of
-  several sites name therefore always gets in, and a squatter that filled a name early holds
-  zones of 1 site, which give way.
+  takes the place of the zone with the fewest sites, of those the one first stored earliest
+  (the earliest time a record still held for it was first stored, renewals not counted; in one
+  second the lower zone as bytes), when that zone has at most 1 site; else it is `FULL`. A
+  `Store` with `signer` never takes the place of a zone; it is `REJECTED`, as in `Protocol.md`
+  §10.8.
+- **Refused zones.** Per target the node remembers up to 64 *(initial)* zones it answered
+  `FULL`, each with its site count: each site whose store for the zone was refused, until that
+  record would have expired. A `Store` with `signer` adds no site. When a 65th zone is refused,
+  the remembered zone with the fewest sites is forgotten, of those the one remembered earliest.
+  A store that makes a refused zone's count higher than that of the weakest held zone is
+  answered `STORED`: the zone takes that place and keeps its count, and the zone it displaces is
+  remembered as refused.
+- So a zone that more sites name than the weakest held zone gets in, whoever filled the target
+  first. A squatter that filled a name early holds zones of 1 site, which give way to any new
+  zone. To keep out a zone that *n* sites name, it must hold 64 zones of *n* sites or more,
+  from at least 8 × *n* sites.
 
 - Sites per zone are counted as `ALIAS` counts them per root: each site that stored a valid
   record for the zone, until that record would have expired, a `Store` with `signer` not
@@ -416,7 +433,8 @@ enum NameSource {
 
 - When the user opens a name for the first time, the client **pins** it: name, zone, how it was
   resolved and when. From then on the pin decides (§4.1). Pins are for global names and for
-  names from the web (§5), not for names under a key, whose key is in the link.
+  names from the web (§5), not for names under a key, whose key is in the link. A pin is kept
+  per global label, domain or handle; `x.alice.ed3k` uses the pin of `alice.ed3k`.
 - An answer that names another zone than the pin is a **warning**, with both zones, both
   sources and the date of the pin. Only the user changes a pin.
 - Wherever the client shows a name it shows how it was resolved: *yours*, *pinned*, the list,
@@ -456,6 +474,7 @@ message NameEntry {
   at most 64 MiB *(initial)* together, as for filter lists.
 - A reader refuses a list with more than 100,000 *(initial)* entries, a `name` that is not a
   global label, or a `zone` that is not 32 bytes. Of two entries for one name the first counts.
+  A `note` above 256 B does not refuse the list: the reader cuts it at a character boundary.
 - A client follows at most 32 *(initial)* sets of name lists, apart from the sets of filter
   lists, and only those its user chose, in an order the user sets and that is kept across
   restarts (§4.1: the first one wins). A list
@@ -487,7 +506,8 @@ alice._ed3k.example.com.  3600 IN TXT "v=ed3k1 ed3k:friend?key=hvabpq7iioevvevxb
 - The strings of one TXT record are joined without a separator, as SPF and DKIM do, and the
   result is read. It is `v=ed3k1`, one space and one link; anything else is not a record of
   this document and is ignored. The joined record is at most 1,024 B *(initial)*.
-- `<local>` is 1 to 63 bytes of `a`–`z`, `0`–`9`, `-` and `_`.
+- `<local>` is 1 to 63 bytes of `a`–`z`, `0`–`9`, `-` and `_`. It is not `_` alone, which
+  stands for the domain itself in `ed3k.json` (§5.2).
 - The link is one that names a key or a node ID: `ed3k:name` with `key`, `ed3k:set`, `ed3k:friend`,
   `ed3k:room`, `ed3k:live`, `ed3k:node`, or an `ed3k:file`. An `ed3k:name` without `key`, or a
   link that carries a secret, is ignored: a domain does not point at another name it cannot
@@ -495,10 +515,11 @@ alice._ed3k.example.com.  3600 IN TXT "v=ed3k1 ed3k:friend?key=hvabpq7iioevvevxb
   user that publishes it lets anyone who reads the record send it friend requests
   ([`friend.md`](friend.md)), which is what a public handle is for.
 - A domain may have several records, one per kind of link. A client uses at most 4
-  *(initial)*. Two records of one kind with different links make that kind unusable, and the
+  *(initial)*. Two records of one kind whose links differ in more than `dn` make that kind unusable, and the
   client says so.
 - The client asks DNS through the resolver the user configured, DNS over HTTPS included, and
-  keeps an answer for its TTL, at most 24 h *(initial)*.
+  keeps an answer for its TTL, at most 24 h *(initial)*. An answer that has not come within
+  10 s *(initial)* is no answer.
 
 ### 5.2 The file at the web server
 
@@ -529,6 +550,11 @@ A record in DNS can be forged on the path to the resolver unless DNSSEC protects
 why [`bootstrap.md`](bootstrap.md) does not take node lists from DNS. The file at the web server
 is protected by TLS. A client compares the **key** of the links (the key of a zone, a set, a
 friend, …; the root of an `ed3k:file`; the node ID of an `ed3k:node`), not the link text.
+Another `id` under the same key is another set of the same author; the client does not warn
+about it.
+
+Before a name from the web is opened for the first time, the client waits for both the TXT
+answer and `ed3k.json`, each up to 10 s *(initial)*, and then judges by the table below.
 
 | Evidence | Shown as |
 |---|---|
@@ -592,7 +618,8 @@ the browser there.
   set a loopback address of its own (`127.x.y.z`) where the system routes them, as Linux and
   Windows do. Elsewhere it gives each set a port of its own, and tells the user that sites then
   share cookies: browsers keep cookies per host, not per port.
-- **Only GET and HEAD**, else 405. A request whose `Host` is not a host the client serves on
+- **Only GET and HEAD**, else 405. The checks go in this order: `Host` (421), method (405),
+  `Sec-Fetch-*` (403). A request whose `Host` is not a host the client serves on
   that port is answered 421, so that a page on the web that makes a browser resolve its own
   name to the loopback address (DNS rebinding) reaches nothing. The port serves websites and
   nothing else: no part of the client's own interface is reachable on it, and no answer carries
@@ -603,7 +630,7 @@ the browser there.
   | Request | Answer |
   |---|---|
   | `Sec-Fetch-Site: none` (the user typed it, or the client opened it), or a navigation with `Sec-Fetch-User: ?1` (the user followed a link) | served; a readable host is resolved (§4, §5), a set not held is fetched |
-  | `same-origin`, or `same-site` (another set of the same key) | served; members not held are fetched |
+  | `same-origin`, or `same-site` on a host `<id>.<key>.localhost` (another set of the same key: the browser's site is `<key>.localhost`; under a fallback address or port per set, `same-site` is answered as anything else) | served; members not held are fetched |
   | anything else, or no `Sec-Fetch-Site` | 403, also for what the client holds |
 
   A page on the web, or a site in ed3k of another key, then cannot make the client ask DNS, a
@@ -613,7 +640,7 @@ the browser there.
 
 ### 6.3 Paths and bytes
 
-- A request path is percent-decoded and split at `/`; its components follow the rules of
+- A request path, up to the first `?` (the query is ignored), is percent-decoded and split at `/`; its components follow the rules of
   [`file-set.md`](file-set.md) §2.2, else 400. A path that names a directory, or ends in `/`,
   is `index.html` in it, then `index.htm`. A path the set does not hold is answered with the
   member `404.html` at the top level and status 404, or a plain 404.
@@ -681,8 +708,11 @@ open point (§11).
   who have no pin, no list and no friend that knows the name. They see *network only* and
   confirm before the first open (§4.1). Users with a pin get a warning, and the pin decides.
 - **Fill a `CLAIM` target** with 64 zones, from at least 8 sites. Each of those zones has one
-  site, and gives way to a new zone (§4.2); the order by publisher sites puts the zones that
-  honest nodes of many sites name first.
+  site, and gives way to a new zone (§4.2). After an eviction the squatter can store its zone
+  again and push out the next zone of 1 site, so zones of 1 site rotate. Zones of 2 sites or
+  more are safe from this. To keep out a zone that *n* sites name, the squatter needs 64 zones
+  of *n* sites or more, from at least 8 × *n* sites. The order by publisher sites puts the
+  zones that honest nodes of many sites name first.
 - **Hide a newer `NAME` record.** A storing node can withhold a record but cannot change one; a
   searcher asks R nodes (`Protocol.md` §10.4) and takes the newest. Old versions live until
   their `expires`.

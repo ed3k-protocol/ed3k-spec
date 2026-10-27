@@ -272,7 +272,7 @@ padding is encrypted and a record and a request have one length on the wire:
 **A friend learns the node ID.** The key in a link is the node key, and the handshake proves
 it (T1), so a friend or a holder of an open link knows the node ID, and with it the source
 records and every other trace of that node. *(Informative.)* A user who does not want this
-runs a **second node** for friends and chat: a key of its own, never `ROUTER`, so that it is in
+runs a **second node** for friends and chat: a key of its own, without `ROUTER` also while open (`Protocol.md` §2), so that it is in
 no routing table and does not compete with the first node for the one entry per host group
 ([`ip-diversity.md`](ip-diversity.md) §1). It publishes no source records and shares no credits
 with the first node. It names its relays in its records when it has no port of its own. To the network it is

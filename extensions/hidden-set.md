@@ -206,6 +206,7 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 | A secret that leaks later | opens every version that someone kept. There is no forward secrecy |
 | Open members | are as visible as any shared file. Only that they belong together is hidden |
 | The author | is not named by the `HIDDEN` record when it stores through `signer` like any follower. Its `SOURCE` records for the sealed manifest (§4.3) are bound to its node ID like any source record, so a storing node sees who first offers a new version |
+| An author who is away | can stay offline only until the `expires` of the record its followers hold, at most 7 days *(initial)* plus 1 h. Only the author can sign a later one (§3); after that the set is not found until it comes back |
 
 ---
 

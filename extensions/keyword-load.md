@@ -1,6 +1,6 @@
 # Extension: keyword levels and ranking (`keyword-load`)
 
-**Status:** draft 0.1 (2026-10-11). Not implemented. The wire fields and the level target are part of wire version 1; the rules of this document are reserved for a network upgrade.
+**Status:** draft 0.1 (2026-10-11). Not implemented. The wire fields and the level target are part of wire version 1. At an index node the rules of this document are part of version 1 too (`Protocol.md` §11); on Kad they are reserved for a network upgrade.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.8. Section numbers (§) refer to that document unless this one is named.
 **Capability:** bit 8, `LEVELS`.
 
@@ -24,7 +24,7 @@ A file is published under the keywords that `Protocol.md` §10.1 selects, as in 
 
 | Item | Where | Use |
 |---|---|---|
-| Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1 uses level 0 |
+| Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1 uses level 0 on Kad, and every level at an index node |
 | `KadRequest.level` | §10.3 | the level the sender computed the target for; the storing node checks that a keyword of the name gives the target at that level (§10.7) |
 | `KadAnswer.load` | §10.3 | files held under this target, in percent of the level size |
 | `KadAnswer.results` | §10.3 | one result per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER` |
@@ -122,8 +122,9 @@ admitted by outranking.
   of an entry it returns, one after the other, each with the entry's rank in `sites`. Entries
   of equal rank are in the order of **Paging** (`Protocol.md` §10.3) by their first record,
   and so are the records of one entry.
-- **An index node** (`Protocol.md` §11) follows this document as any storing node, with a
-  level size S that its operator chooses. Each level is a target of its own there. A target
+- **An index node** (`Protocol.md` §11) MAY follow this document already in version 1, as any
+  storing node, with a level size S that its operator chooses. It needs no `LEVELS` bit: its
+  `FULL` and `spill` tell clients what to do. Each level is a target of its own there. A target
   answers no `FULL` until it holds S entries, and spills to the next level from then on. A
   publisher that stores at one index node judges §3 by that node's answer.
 - `BUSY` means the node as a whole is out of room. How much a node stores in total is local
@@ -176,7 +177,9 @@ publisher that moved down on it would get a fresh quota on every level.
 
 ## 5. Deployment
 
-The rules are a network rule (§16) and come in two steps.
+On Kad the rules are a network rule (§16) and come in two steps. At an index node they apply
+from version 1 (§2.4 of this document), since one node decides alone and its clients follow
+its answers.
 
 1. **Announce.** Nodes that implement the extension set `LEVELS`. Storing nodes rank and keep
    leaving entries; publishers and searchers use levels among each other.

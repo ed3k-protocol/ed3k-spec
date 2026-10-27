@@ -754,7 +754,8 @@ function stakeToken() external view returns (address);
 
 - `burnForStake` burns `value` µ of the caller's balance, after decay and from `received`
   first. It records a **claim** of `value × stakeRate / 10⁶` stake units for `to`, ready at
-  now + `stakeDelay`, and returns its `id`. Ids start at 1.
+  now + `stakeDelay`, and returns its `id`. Ids start at 1; `nextClaimId` is the id of the
+  next burn. A burn to `to` = 0 is refused.
 - **Rate and delay are fixed at the burn.** A later change of either one does not touch a
   claim that is waiting.
 - `claimStake` mints a claim to its `to` once `readyAt` has passed. Anyone may call it. A
@@ -763,6 +764,10 @@ function stakeToken() external view returns (address);
   that is `overdrawn` cannot burn. A burn that would come to 0 stake units is refused.
 - A burn is not activity, does not count for maturity, and earns no gas reward (§6.6).
 - A burn cannot be undone. Nothing turns stake tokens back into credits.
+- The `id` of a burn is in its log `StakeBurned(uint256 indexed id, address indexed from,
+  address indexed to, uint256 credits, uint256 amount, uint64 readyAt)` in the receipt, from
+  the ledger's address. `claimStake` logs `StakeClaimed(uint256 indexed id, address indexed
+  to, uint256 amount)`. A paid claim reads in `stakeClaims` as `to` = 0.
 
 | Parameter | Initial *(not simulated)* | Bound |
 |---|---|---|
@@ -831,7 +836,7 @@ of the chain (`https://<host>/ext/bc/<blockchain ID>/rpc`).
 | Is this the right chain | `eth_chainId` |
 | Balance, `overdrawn`, maturity, what is settled, holds (the views below); own coin | `eth_call`, `eth_getBalance` |
 | Send `settle`, `hold`, `holdFor`, `release`, `sweep`, `transfer`, `poke`, `burnForStake`, `claimStake` | `eth_getTransactionCount`, `eth_estimateGas`, `eth_sendRawTransaction` |
-| Outcome | `eth_getTransactionReceipt` |
+| Outcome; the `id` of a burn, from its `StakeBurned` log | `eth_getTransactionReceipt` |
 
 The views this document relies on, as in the source:
 
@@ -845,6 +850,11 @@ function issuedKib(address issuer, uint32 week) external view returns (uint64); 
 function pairKib(address issuer, address holder, uint32 week) external view returns (uint64);
 function holdOf(address payer, address payee) external view returns (uint256 amount, uint64 until);
 function holdNonces(address payer, address payee) external view returns (uint256);  // highest nonce used in holdFor
+function stakeClaims(uint256 id) external view returns (address to, uint64 readyAt, uint256 amount);  // §6.7
+function stakeRate() external view returns (uint128);                                 // §6.7
+function stakeDelay() external view returns (uint64);                                 // §6.7
+function stakeToken() external view returns (address);                                // §6.7
+function nextClaimId() external view returns (uint256);                               // §6.7, id of the next burn
 
 struct AccountView {        // the account of §6.1 with decay applied as of now
     uint256 earned;
@@ -961,7 +971,9 @@ there, with a credit address of its own:
   no transaction of its own, and the relay's part of the reward pays the relay. Gas coin MUST
   NOT be sent to it from the other address.
 - **No burn** (§6.7). A burn is a transaction of its own, and `CreditRelay` carries none. A
-  stake token claimed for the anonymous address would also be a public link, like a transfer.
+  stake token claimed for the anonymous address would also be a public link, like a transfer:
+  no address the node controls names it as `to` of a burn, and the node calls no `claimStake`
+  for it. E3S that reaches it anyway stays unused, like gas coin.
 
 **A temporary address** is what a hidden node starts with, and what it can do is limited by
 the rules that keep credits honest:

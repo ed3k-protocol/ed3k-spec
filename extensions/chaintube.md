@@ -363,11 +363,12 @@ the user downloaded it.
 
 ### 4.1 Contracts
 
-Four contracts. The sources are part of the ChainTube backend.
+Four contracts, and a forwarder (`TubeForwarder`) for requests that a site sends (§10). The
+sources are part of the ChainTube backend.
 
 | Contract | Holds | Events |
 |---|---|---|
-| Content | per entry: author, kind, parent, reference, title, one list of pairs (`media`), tags, a text, `closed`, `blocked` | `ContentSet(uint256 contentId, address indexed author, uint256 indexed parentId, uint32 indexed kind, uint256 refId, string title, (string,string)[] media, string[] tags, string content, bool closed, bool blocked)` |
+| Content | per entry: author, kind, parent, reference, title, one list of pairs (`media`), tags, a text, `closed`, `blocked` | `ContentSet(uint256 contentId, address indexed author, uint256 indexed parentId, uint32 indexed kind, uint256 refId, string title, (string,string)[] media, string[] tags, string content, bool closed, bool blocked)`, `ModeratorSet(uint256 indexed contentId, address indexed moderator, bool enabled)` |
 | Comment | per comment: author, content contract, content ID, the comment it answers, text, a list of pairs (`media`), `blocked` | `CommentSet(uint256 commentId, address indexed author, address indexed contractHash, uint256 indexed contentId, uint256 replyId, string content, (string,string)[] media, bool blocked)` |
 | Vote | per vote: author, contract and ID of what is rated, type, value | `VoteSet(uint256 voteId, address indexed author, address indexed contractHash, uint256 indexed contentId, int256 voteType, uint256 voteValue)` |
 | Profile | per account: a unique name, an alias, an avatar, a text. Follows, as events only | `UserSet(address indexed userAddress, uint256 userId, string userName, string userAlias, string userAvatar, string userBio)`, `FollowSet(address indexed follower, address indexed target, uint256 indexed targetId, bool following)` |
@@ -386,7 +387,9 @@ Four contracts. The sources are part of the ChainTube backend.
   comment contract for a comment.
 - `voteType` above 0 is a vote up, below 0 a vote down, 0 a plain like: neither up nor down,
   its value counted all the same. `voteValue` is an amount of the chain's coin that the voter
-  paid, in all, after any `updateVote`. The contract divides it between the author, the
+  paid, in all, after any `updateVote`: `updateVote` adds its value and replaces `voteType`.
+  The contract refuses it once `voteUpdatePeriod` seconds have passed since the `castVote`
+  (0 = never). The contract divides it between the author, the
   creator of the video, the operator of the contract and a wallet that the sender of the
   transaction names.
 - A video cannot be deleted. Its author can change the title, the pairs, the tags and the
@@ -407,6 +410,9 @@ Four contracts. The sources are part of the ChainTube backend.
 | Read one video or other entry | `getContentById(uint256 contentId)` |
 | Read one comment | `getCommentById(uint256 commentId)` |
 | Read one vote | `getVoteById(uint256 voteId)` |
+| Count of items | `totalCount()`, `totalComments()`, `totalVotes()` |
+| Name a moderator | `setModerator(uint256 contentId, address moderator, bool enabled)`, by the author of the entry; the moderator counts for the entry and everything below it |
+| Forward a request a site sends | `execute` of the forwarder; `getNonce(address from)` reads the next nonce of an account |
 
 The ABI of the contracts is published with the ChainTube backend
 (`github.com/ChainTube/stream-daemon`, `chain/contracts/abi/`); the signatures above are taken
@@ -425,7 +431,7 @@ The addresses of the contracts are assigned with the parameters of §4.2.
 | Parameter | Public network |
 |---|---|
 | Chain ID | *to be assigned at deployment* |
-| Addresses of the four contracts | *to be assigned at deployment* |
+| Addresses of the four contracts and the forwarder | *to be assigned at deployment* |
 | RPC endpoints | a list in the client's configuration; none is built into the protocol |
 
 A network with a name (`Protocol.md` §4.3) has its own contracts or none.
@@ -471,7 +477,9 @@ credit extension does ([`credit.md`](credit.md) §7.3).
 - A video with `blocked` set is not shown unless the user asks. A video with `closed` set takes
   comments from its moderators only; the comment contract refuses the others.
 - The contracts refuse a comment or a vote on a video that does not exist, and an answer to a
-  comment of another video. A comment names the content contract; a vote names the content
+  comment of another video. The comment contract also refuses a comment on an entry that is
+  `blocked` or has a `blocked` parent, and, while `requireProfile` is set, a comment from an
+  account without a profile in the profile contract. A comment names the content contract; a vote names the content
   contract for an entry and the comment contract for a comment. A client ignores one that
   names another contract.
 - An account can vote on one thing many times. A client SHOULD count one vote per account and
@@ -491,13 +499,23 @@ credit extension does ([`credit.md`](credit.md) §7.3).
   log or show it in an error message.
 - **A write is done** when a read at a block that the chain treats as final shows it:
   `getContentById`, `getCommentById` or `getVoteById` returns the new state: the values
-  written, compared in full; `closed` and `blocked` are not compared. This holds alike for a
-  transaction of the client and for one that a site sent for it (§10).
+  written, compared in full; `closed` and `blocked` are not compared. `updateVote` adds to a
+  sum: the client reads `getVoteById` at the newest block before it sends, and the vote is
+  done when `voteType` is the one written and `voteValue` is at least that total plus the
+  added value. This holds alike for a transaction of the client and for one that a site sent
+  for it (§10).
+- **A write that fails.** A transaction whose receipt at a final block has status 0 reverted:
+  not done, reported once. A request a site sends through the forwarder (§10) leaves no trace
+  when it reverts; the forwarder keeps the nonce, and the request stays valid until its
+  `deadline`. When a final block is later than `deadline` and the write does not show, it is
+  not done; `getNonce(from)` still at the request's `nonce` shows it was never executed.
 - The ID of a new item is in its event (`ContentSet`, `CommentSet`, `VoteSet`): in the
   receipt of the client's transaction, or, for one a site sent, found by `eth_getLogs` at the
   contract with topic `author` (§4.3) from the block the request was handed over, as the
-  newest item that shows what was written. An ID a site gives is a shortcut, checked by the
-  getter.
+  newest item that shows what was written. An ID a site gives is a shortcut: it counts when
+  the getter shows what was written and, for a new item, the ID is above the contract's count
+  (`totalCount`, `totalComments`, `totalVotes`) at the block of hand-over. Else it is dropped
+  and the logs are searched.
 - A client sends a transaction only when the user asked for this one. It shows the amount and
   the receiver contract before.
 - `platformWallet` is the zero address unless the user chose a site to support.

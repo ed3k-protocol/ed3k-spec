@@ -53,10 +53,14 @@ proof and the target that moves every hour are those of private channels
   room it joins and SHOULD NOT use one key in two rooms, for the reason of
   [`subscription.md`](subscription.md) §5.1: neighbours of one room would learn the others.
 - The owner posts as any member does, with a member key of its own. It may list that key as a
-  moderator.
+  moderator. In a closed or `moderated` room a key not in `mods` needs an admit (§2.2), which
+  the owner signs with the room key.
 - The **member ID** of a member key is `H("ed3k v1 node id", member key)[0..16)`, computed as a
   node ID is. It names a member in a wrap (§3.2), in the permanent ban list (§2.1) and in a
   filter list ([`filter-list.md`](filter-list.md) §1, subject `AUTHOR`).
+- A member key is shown as text in base32, as [`Protocol.md`](../Protocol.md) §13.2 fixes:
+  52 characters, lower case, without padding. This is the form a newcomer of a closed room
+  sends a moderator, by any way it likes, to be admitted (§4.2).
 - The client stores a private member key like a password. Whoever has it posts as that
   member, and in a closed room reads what it reads.
 
@@ -135,7 +139,14 @@ message RoomBody {            // exactly one field is set
   is more than 1 h *(initial)* ahead of the node's clock fails a time check (§4.4).
 - **Who may sign.** The signer of `info` is the room key. The signer of `admit`, `ban` and
   `key_drop` is the room key or a moderator of the room info the node holds (§2.1). The
-  signer of `presence` and `post` is a member key: any key but the room key.
+  signer of `presence` and `post` is a member key: any key but the room key. A `RoomItem` that
+  breaks this for `info`, `presence` or `post` fails its signature check: every node checks it
+  alike. An `admit`, `ban` or `key_drop` whose signer is no moderator is dropped without fault
+  (§4.4), since the room info that decides may differ.
+- **Fields.** A `member` other than 32 B, a `key_id` other than 8 B, an `e` other than 32 B, a
+  `reply_to` that is present and not 16 B, a `seq` or `KeyDrop.gen` of 0, and a `title`,
+  `about` or `nick` over its limit fail the content check. In a sealed post a bad `reply_to`
+  is found only when the post opens, and §3 applies.
 
 ### 2.1 Room info
 
@@ -162,10 +173,13 @@ message RoomInfo {
 - A key in `mods` that is the room key, that is not 32 bytes, or that appears twice makes the
   room info fail its content check, and so does an unsorted or repeated `banned`.
 - **Changes take effect at once.** A key dropped from `mods` signs nothing more that counts,
-  and its admits and its `KeyDrop`s stop counting (§2.2, §3.2). An owner that drops a moderator re-admits the members
-  it wants to keep. A member ID added to `banned` is banned as by §2.3, with no end.
+  and its admits, bans, lifts and `KeyDrop`s stop counting (§2.2, §2.3, §3.2); a node that gets
+  one later drops it, as from any signer that is no moderator (§4.4). An owner that drops a
+  moderator re-admits the members it wants to keep, and bans again those it wants kept out.
+  A member ID added to `banned` is banned as by §2.3, with no end.
 - A room info can turn a room closed or back. When a room turns closed, a moderator starts a
-  generation (§3.2).
+  generation (§3.2). A node that takes a room info that turns the room closed closes every
+  exchange of the room that was opened without the steps of §4.2, and joins again.
 
 ### 2.2 Admit
 
@@ -180,12 +194,16 @@ message Admit {
 An admit lets a member key into a closed room, or lets it post in a moderated one.
 
 - **A member is admitted** while a node holds a valid admit for its key that is not yet over
-  (`until` 0 or in the future), and the key is not banned (§2.3). Of several admits of one
-  key the node keeps the one with the latest `issued`.
+  (`until` 0 or in the future), and the key is not banned (§2.3). A node keeps the admit with
+  the latest `issued` per key and signer; of two with the same `issued`, the one whose `body`
+  is lower as bytes. The one that counts is the latest of those whose signer counts (§2.1):
+  when a moderator is dropped, an admit of another takes its place. A node forgets an admit
+  30 days *(initial)* after its `until`. An older admit without end can then be shown again:
+  an admit without end ends only with a ban.
 - A moderator is admitted by the room info that lists it, and needs no admit.
 - In a public or private room that is not `moderated`, admits are kept and passed on and
   change nothing.
-- A node holds at most 1,024 *(initial)* admits per room, those of keys that are banned or
+- A node holds admits of at most 1,024 *(initial)* keys per room, those of keys that are banned or
   whose admits are over not counted. It drops and does not pass on a further one; a moderator
   that wants more members removes some first.
 - An admit ends with `until`, or with a ban. There is no other way to take one back. A room
@@ -207,13 +225,15 @@ message Ban {
 - **A member is banned** while a node holds a ban for its key whose `until` is in the future,
   or while the room info lists its member ID in `banned`. Of several bans of one key the one
   with the latest `issued` counts, so a later ban with `until` at or below its `issued` lifts
-  an earlier one. A lift does not lift a ban of `RoomInfo.banned`.
+  an earlier one. Of two with the same `issued`, the one whose `body` is lower as bytes
+  counts. A lift does not lift a ban of `RoomInfo.banned`.
 - A ban lasts 30 days *(initial)* at most. A moderator that wants it longer signs it again;
   the owner bans for good in the room info. A node drops a ban whose `until` is more than
   30 days after its `issued`, as a content failure.
 - **A moderator does not ban a moderator.** A ban of a key in `mods` counts only when the room
   key signed it. A key that is banned is no moderator while the ban lasts, whatever `mods`
-  says.
+  says. An admit, ban or `KeyDrop` it signed with an `issued` within the ban does not count,
+  also after the ban ends.
 - A node keeps a ban until its `until`, and a lift until 30 days *(initial)* after its
   `issued`. An older ban that arrives after that is over by then.
 - **What a ban does.** The node drops every post of that key, also those it holds and those
@@ -245,6 +265,8 @@ message Presence {
   4,096 *(initial)* per room, and drops the oldest beyond that.
 - A presence of a banned key, and in a closed or a `moderated` room of a key that is not
   admitted, is dropped and not passed on. A moderated room so lists only those who may post.
+- `gen` is 0 outside a closed room. A node ignores it there: the room info that turned the
+  room may not have reached every node yet.
 - `nick` is a claim. Two members can choose the same one (§6).
 
 ### 2.5 Post
@@ -273,8 +295,9 @@ post id = H("ed3k v1 room post", room ‖ body)[0..16)          body = RoomItem.
 - A post of the form of a private room in a closed one, or of a closed room in a private one,
   is dropped without fault and not passed on: the room info that turned the room may not have
   reached every node yet. A post that fits neither form (`text` in a room with a secret,
-  `sealed` in a public room, `gen` without `key_id`), a `sealed` shorter than 12 bytes, and a
-  `text` that is empty or above 4,096 bytes fail the content check.
+  `sealed` in a public room, both `text` and `sealed` or neither, `gen` without `key_id`,
+  `key_id` without `gen`, `gen` or `key_id` in a public room), a `sealed` shorter than 12
+  bytes, and a `text` that is empty or above 4,096 bytes fail the content check.
 - **Text longer than that** is several posts, as in [`chat.md`](chat.md) §2.
 - `sent` orders the posts for display. It is the author's claim, and the node checks only that
   it is not more than 1 h ahead (§2), and not older than the history (§4.3).
@@ -286,7 +309,8 @@ post id = H("ed3k v1 room post", room ‖ body)[0..16)          body = RoomItem.
   the rate of its author (§4.4). The neighbour that passed it on may not have known; the
   item still had a valid signature.
 - A node that cannot open `sealed`, because it lacks the key of that generation, keeps and
-  passes on the post all the same. It reads it once it has the key.
+  passes on the post all the same, once it holds a `KeyDrop` of it (§3.2). It reads it once it
+  has the key.
 - A `reply_to` that names no post the node holds is shown as an answer to a post it does not
   have.
 
@@ -360,7 +384,8 @@ wrap     = ChaCha20-Poly1305(kw, nonce = 12 zero bytes, g)                 RFC 8
   tell its user.
 - The members of `wraps` are the admitted members that the moderator knows, moderators and
   itself included. A `KeyDrop` that holds a member ID twice, or whose `wraps` is not a
-  multiple of 64 bytes, fails its content check. 1,032 is the 1,024 admits and 8 moderators.
+  multiple of 64 bytes, fails its content check. 1,032 is the admits of 1,024 keys and 8
+  moderators.
 - A node does not check whom a moderator wrapped for. It cannot: it can open only its own
   wrap. A moderator decides who reads.
 
@@ -373,11 +398,16 @@ wrap     = ChaCha20-Poly1305(kw, nonce = 12 zero bytes, g)                 RFC 8
   key always counts. A moderator that jumps `gen` far ahead, by mistake or on purpose, so
   holds the room only until the owner drops it. Two moderators can start a generation at once. Each node then takes the same one,
   and posts of the other stay readable to those that hold its key. A post under the other
-  `key_id` of the current `gen` is not behind: it is kept and passed on like any other.
+  `key_id` of the current `gen` is not behind: it is kept and passed on like any other, once
+  the node holds a `KeyDrop` of that `key_id` (below).
 - Several `KeyDrop`s can carry one generation: one that starts it, and later ones that add
   wraps for members admitted since. Each has its own `e`. A node holds every `KeyDrop` of a
   generation it holds a post of, and of the current one, at most 64 *(initial)* per room, and
-  drops those of the oldest generations first.
+  drops those of the oldest generations first. A `KeyDrop` of a generation below the current
+  one, of which the node holds no post, is dropped without fault and not passed on: a later
+  wrap of an earlier generation reaches the members that hold its posts.
+- A generation **began** at the earliest `issued` of its `KeyDrop`s that count and that the
+  node holds.
 - **A member posts under the current generation**, and only when it holds its key. A member
   that knows a current generation whose key it does not hold posts nothing, and waits for a
   wrap (below).
@@ -386,6 +416,11 @@ wrap     = ChaCha20-Poly1305(kw, nonce = 12 zero bytes, g)                 RFC 8
   node holds. `sent` is the author's claim, so this rule only ends the late posts of honest
   members. A removed member is stopped by its ban, or by the admit it no longer has (§2.5),
   whatever `sent` it writes.
+- **A post ahead of the node.** A post of the current `gen` or a higher one, whose `gen` and
+  `key_id` no `KeyDrop` carries that counts and that the node holds, is kept for 60 s
+  *(initial)* without being passed on, at most 64 *(initial)* per room, the oldest dropped
+  first. The node checks it again when a `KeyDrop` arrives: its `KeyDrop` may still be on the
+  way. After 60 s it is dropped without fault.
 
 **Starting a generation.** A moderator, or the owner with the room key, sends a `KeyDrop` with
 `gen` one above the current, a new `g`, and wraps for every admitted member it knows that is
@@ -395,7 +430,7 @@ not banned:
 |---|---|
 | It bans a member of a closed room | MUST, at once, without that member |
 | The owner removes a moderator, or turns the room closed (§2.1) | MUST, at once |
-| 24 h *(initial)* after the current generation began, when a post was made under it | SHOULD |
+| 24 h *(initial)* after the current generation began, when a post of that `gen` was made | SHOULD |
 | The room was made | the owner MUST, with `gen` 1, before the first post |
 
 A generation needs a moderator or the owner online. A room whose moderators are all away goes
@@ -404,8 +439,11 @@ on under the generation it has.
 **Wraps for members that lack the key.** A moderator that holds the key of the current
 generation and learns a presence of an admitted member whose `gen` is below the current one,
 when no `KeyDrop` it holds of the current generation has a wrap for that member, SHOULD send
-a `KeyDrop` of the same `gen`, `key_id` and `g` with a wrap for that member. This is how a
-member that was admitted, or offline when the generation began, gets the key. A moderator MAY
+a `KeyDrop` of the same `gen`, `key_id` and `g` with a wrap for that member, and for every
+other admitted member it knows that still lacks one. A moderator MAY do the same when it
+admits a member, so that the key waits for it in the room. This is how a member that was
+admitted, or offline when the generation began, gets the key. A moderator whose current
+generation already has 32 *(initial)* `KeyDrop`s starts a new generation instead. A moderator MAY
 add wraps of earlier generations it still holds in the same way, as `KeyDrop`s of those
 generations: that gives a new member the history (§4.3). Without them a new member reads only
 what is posted after it joined.
@@ -440,7 +478,7 @@ message RoomState {           // type 43
   bytes  proof = 4;           // private and closed room: 16 B, in the first answer to a valid proof
   bytes  member = 5;          // closed room: 32 B, my member key (§4.2)
   RoomProof member_proof = 6; // with `member`
-  bool   synced = 7;          // the last RoomState of my first answer (§4.3)
+  bool   synced = 7;          // the last RoomState of my first answer, or of my catch-up as joiner (§4.3)
 }
 
 message RoomProof {
@@ -498,7 +536,7 @@ RoomState.proof  = H("ed3k v1 room answer", k ‖ joiner's node ID ‖ peer's no
   and the node closes the exchange.
 - **Order of checks.** A node checks a `RoomJoin` in this order: `Error{UNSUPPORTED}` without
   the capability; `Error{MALFORMED}` for a `room` that is not 16 bytes or a `proof` that is
-  not empty or 16 bytes; `ROOM_LEFT` for a room it is not in or a proof that fails; then
+  not empty or 16 bytes, or relays over the limits above; `ROOM_LEFT` for a room it is not in or a proof that fails; then
   `ROOM_BLOCKED` for a node it refuses (§4.4); in a closed room the admit (§4.2); then
   `ROOM_FULL`.
 
@@ -521,9 +559,14 @@ RoomProof.sig = Ed25519 signature by the member key over
 3. The joiner checks the room info (valid under the room key, `closed` set), the peer's admit
    or its place in `mods`, that the key is not banned by what the joiner holds, and the
    proof. It closes the exchange if any of this fails. Else it sends one `RoomState` with its
-   own `member`, `member_proof` and, in `items`, its admit, and nothing else.
-4. The peer checks the same. It answers `ROOM_MEMBER`, or `ROOM_BLOCKED` for a banned key, and
-   closes; or it sends its first answer as §4.1 says.
+   own `member`, `member_proof` and, in `items`, its admit if it holds one, and nothing else.
+4. The peer checks the same, with the admit shown or one it holds for that key. It answers
+   `ROOM_MEMBER`, or `ROOM_BLOCKED` for a banned key, and closes; or it sends its first
+   answer as §4.1 says.
+
+- **A newcomer** needs only to send its member key to a moderator (§1.1). The moderator's
+  admit reaches the room as an item; a peer that holds it takes the newcomer at step 4, and
+  its first answer gives the newcomer the admit.
 
 - Both node IDs of the proof are those of the authenticated connection
   ([`Protocol.md`](../Protocol.md) §6.2). A proof is of no use on another connection, and an
@@ -537,6 +580,11 @@ RoomProof.sig = Ed25519 signature by the member key over
   answers a `RoomJoin` of that node ID with `ROOM_BLOCKED` while a ban lasts.
 - A node that holds the secret but no admit learns from a peer at most one member key and
   that member's admit. It learns no post, presence, peer or key.
+- A node that holds no admitted member key, or whose own admit is over, is not in the room:
+  it answers `ROOM_LEFT` and stores no `SUB` record (§5).
+- A joiner that holds a room info with `closed` and gets a first answer without the steps
+  above takes the room info of that answer, if it carries one. When the room is still
+  closed, it sends the peer its own room info alone and closes the exchange.
 
 ### 4.3 History
 
@@ -551,9 +599,11 @@ RoomProof.sig = Ed25519 signature by the member key over
   each at most 1 MiB; the last of them sets `synced`.
   Once `synced` has arrived, the joiner sends the peer the items other than posts that the
   first answer did not show, and the posts of the same window, `sent` at least `since` minus
-  1 h, that it did not show. From then on both sides only push (§4.1).
+  1 h, that it did not show. This is its **catch-up**, in as many `RoomState`s as it needs,
+  the last with `synced`; an empty `RoomState` with `synced` when it has nothing to send.
+  From then on both sides only push (§4.1).
 - `since` is the joiner's own clock, not a `sent`: the last time it had a neighbour of the
-  room, or 0 when it holds no post of the room. A joiner that comes back so gets what it missed and
+  room, or 0 when it holds no post of the room, also after a restart that kept none. A joiner that comes back so gets what it missed and
   the hour before, whatever the clocks of the authors, and sends back only that hour, not its
   whole history. A node with `since` 0 gets the whole history and sends no post.
 - A post of the history passes the checks of §2.5 and §4.4 like any other, apart from the rate.
@@ -563,7 +613,9 @@ RoomProof.sig = Ed25519 signature by the member key over
 
 ### 4.4 Receiving an item
 
-A node checks an item before it does anything else with it. Then:
+A node checks an item before it does anything else with it: size, signature and content
+first, then time, then the rules of §2 and §3. A content failure is a fault whatever those
+rules would say of the item; the form of a closed or a private room (§2.5) is a rule. Then:
 
 | Item | The node |
 |---|---|
@@ -576,13 +628,20 @@ A node checks an item before it does anything else with it. Then:
 - **Rate of an author.** A node passes on at most 20 *(initial)* posts per author key and
   minute, and drops the rest, without fault: the value of [`chat.md`](chat.md) §2. It passes
   on at most 1 presence per member key and minute *(initial)*, and at most 60 admits, bans and
-  `KeyDrop`s per signer and minute *(initial)*. A neighbour that passes on more than these
-  limits allow, measured over 10 s, is at fault only when it sends more than 10 times as
-  much; the node then closes the exchange.
+  `KeyDrop`s per signer and minute *(initial)*. A neighbour is at fault only when, in any 10 s,
+  it passes on more than 10 times a limit's share of 10 s, rounded up: more than 40 posts of
+  one author key, 10 presences of one member key, or 100 admits, bans and `KeyDrop`s of one
+  signer. An item sent again counts again. The node then closes the exchange.
 - **Rate of a neighbour.** Member keys cost nothing, so the rate of an author does not bound a
   node that signs with many. A node takes at most 600 *(initial)* items per neighbour and
-  minute, the first answer not counted, and drops the rest without fault. The rule of fault
-  above applies to this limit too.
+  minute, the first answer and the joiner's catch-up (§4.3) not counted, and drops the rest
+  without fault. The rule of fault above applies to this limit too: more than 1,000 items in
+  10 s.
+- **First answer and catch-up.** No rate of this section applies to the items of a first
+  answer or of a joiner's catch-up (§4.3), up to as many of each kind as a node holds (§2.2
+  to §4.3): 1,024 admits of one moderator come in one answer. Further items are rated. A
+  node passes on what it took from them within the rates; the rest it keeps and does not
+  pass on.
 - **Waiting for the room info.** A node that holds no room info, or holds one with a lower
   `seq` than a neighbour's `RoomJoin.info_seq` named, keeps an admit, ban or `KeyDrop` whose
   signer is not a moderator for 60 s *(initial)* without passing it on, and checks it again
@@ -664,7 +723,7 @@ one (§1.2).
 | **A member that passes nothing on** | Its neighbours have others; the mesh keeps 2 to 4 per node. The diversity limits raise the cost of surrounding a member |
 | **Send bad items** | One per attacker node; that node is then refused as a neighbour of every room for 24 h (§4.4) |
 | **Fill the room's Kad target** with records of nodes that are not members | Wasted dials, limited as for false sources ([`ip-diversity.md`](ip-diversity.md) §2.5) |
-| **A moderator turns against the room** | It can admit, ban other members and hand keys to whom it wants, until the owner drops it from `mods`; its admits and `KeyDrop`s then stop counting (§2.1, §3.2). It cannot ban the owner's other moderators. The owner key can change everything |
+| **A moderator turns against the room** | It can admit, ban other members and hand keys to whom it wants, until the owner drops it from `mods`; its admits, bans and `KeyDrop`s then stop counting (§2.1, §3.2). It cannot ban the owner's other moderators. The owner key can change everything |
 | **The owner key is taken** | Nothing helps. There is no successor key (§10) |
 | **Two moderators start a generation at once** | Every node takes the same one (§3.2); nothing is lost |
 
@@ -700,8 +759,8 @@ one (§1.2).
 | `SUB` record | one store per 30 min, on about 8 nodes |
 
 A room of 1,000 members that are all present sends each member about 0.5 KB/s of presences
-per neighbour. A room's size is not limited by the protocol, only by the 1,024 admits of a
-closed room (§2.2).
+per neighbour. A room's size is not limited by the protocol, only by the admits of 1,024 keys
+of a closed room (§2.2).
 
 ---
 

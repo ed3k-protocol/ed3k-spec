@@ -313,7 +313,8 @@ every volume, and the file that came out has the root in `id`.
 **Rules for unpacking**
 
 - A client unpacks by formats it chooses to support, and MAY refuse any. An archive it cannot
-  read is not a false claim: a format, a method or an encryption it does not support. An
+  read is not a false claim: a format, a method or an encryption it does not support, or a
+  failure it cannot name, such as a local fault. Whether it tries again is local policy. An
   archive of a format and method it supports whose directory, compressed data or checksum is
   broken gives no file, and the claim is false: the volumes are verified, so they are the
   bytes the publisher unpacked. So does an archive in an encryption the client supports that

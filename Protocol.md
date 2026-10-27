@@ -97,7 +97,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 5 | `KAD_DGRAM` | Reserved for the sessionless Kad binding (§10.6). MUST be 0 in version 1 |
 | 6 | `ED2K` | Also speaks eD2K (§14). Informational |
 | 7 | `PUZZLE` | Reserved for the key puzzle (§6.3). MUST be 0 in version 1 |
-| 8 | `LEVELS` | Reserved for keyword levels and ranking (§10.8). MUST be 0 in version 1 |
+| 8 | `LEVELS` | Reserved for keyword levels and ranking on Kad (§10.8). MUST be 0 in version 1; levels at an index node need no bit (§11) |
 | 9 | `HTTP` | Optional extension: understands HTTP sources ([`extensions/http-source.md`](extensions/http-source.md)) |
 | 10 | `SETS` | Optional extension: understands file sets ([`extensions/file-set.md`](extensions/file-set.md)) |
 | 11 | `LIVE` | Optional extension: takes part in live streams ([`extensions/live.md`](extensions/live.md)) |
@@ -120,8 +120,9 @@ off. A bit that was turned on is seen on the next connection.
 
 A node sets `ROUTER` while it is `open` in at least one family (§9.2), also when the operator
 declared it open there, and clears it on new connections when it no longer is. `ROUTER` alone
-does not say in which family; `Hello.nat` does (§10.2). An index node MAY leave `ROUTER` unset
-while it is open (§11).
+does not say in which family; `Hello.nat` does (§10.2). Two nodes MAY leave `ROUTER` unset
+while open: an index node (§11) and a second node for friends
+([`extensions/friend.md`](extensions/friend.md) §5).
 
 A node that is not `ROUTER` is a **leaf**: it uses Kad as a client, is never put in a routing
 table, and is reached through relays and hole punching.
@@ -1005,8 +1006,8 @@ from the address it advertises.
 ## 9. NAT traversal
 
 **NAT traversal is REQUIRED.** Every node MUST implement address observation (§9.2), act as punch
-initiator and punch target (§9.5), and, when it is a `ROUTER`, offer the relay service (§9.4).
-An index node SHOULD offer it also without `ROUTER` (§11).
+initiator and punch target (§9.5), act as A of a `ReachTest` (§9.3), and, when it is a
+`ROUTER`, offer the relay service (§9.4). An index node offers it as §11 says.
 A node behind a stateful IPv6 firewall is in the same position as a node behind an IPv4 NAT and
 uses the same procedure.
 
@@ -1205,8 +1206,7 @@ Why 2, with a comparison to one relay, to two per family and to libp2p (2 by def
 
 **Finding relays.** A leaf takes its relays from the `ROUTER` nodes it meets in its own Kad
 lookups, and from the index nodes it is connected to (§11), which it does not meet in a
-lookup when they leave `ROUTER` unset. An index node sets `RELAY` while it is open and offers
-the service.
+lookup when they leave `ROUTER` unset. An index node offers the service as §11 says.
 
 - It asks nodes whose `Hello` has `RELAY` set, with `Relay{reserve = true}`. A node that
   answers `Error{BUSY}` is skipped and not asked again for 30 min *(initial)*.
@@ -1384,7 +1384,7 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1). A room stores `SUB` records under a target of its own ([`extensions/room.md`](extensions/room.md) §1.2) |
 | `NAME` | `H("ed3k v1 name", zone ‖ label)[0..16)`, with the root key of a zone and a name in it ([`extensions/name.md`](extensions/name.md) §3.2) |
 | `CLAIM` | `H("ed3k v1 name claim", name)[0..16)`, with a global name ([`extensions/name.md`](extensions/name.md) §4.2) |
-| `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
+| `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 on Kad in version 1 and 0 to 15 at an index node (§10.8, §11) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
 128 bits, so they share one keyspace without conversion.
@@ -1507,7 +1507,7 @@ message KadRequest {
   Kind   kind = 3;            // NONE = find nodes only
   Query  search = 4;          // present, also when empty: search for records of `kind`
   Store  store = 5;           // present: store records of `kind`; never together with `search`
-  uint32 level = 6;           // KEYWORD: level the target was computed for (§10.1); 0 in version 1
+  uint32 level = 6;           // KEYWORD: level the target was computed for (§10.1); 0 on Kad in version 1, 0 to 15 at an index node (§11)
 }
 
 message Query {
@@ -1588,7 +1588,7 @@ Rules:
   not set `responsible`, unless it is an index node: an index node is responsible for every
   target whether or not it has adopted an endpoint (§11), and only its contacts need the
   routing ID.
-- Every node answers a `KadRequest` with the contacts it knows, a leaf too. Only a node that is
+- Every node answers a `KadRequest` with the contacts it knows, a leaf too. Only a `ROUTER` that is
   `open` in the family of the connection (§9.2), or an index node (§11), is responsible.
 - **The requester checks the answer.** It computes the routing ID of each returned contact from
   the contact's address and node ID (§6.3). It drops a contact that is not closer to the target
@@ -1630,7 +1630,9 @@ Rules:
   publisher cannot choose: records by `H("ed3k v1 page", secret ‖ root ‖ publisher key)`
   (a note by `H("ed3k v1 page", secret ‖ publisher key)`), sources by `H("ed3k v1 page", secret ‖ node ID)`,
   compared as bytes. `secret` is 32 random bytes that the node keeps to itself and replaces
-  every 24 h *(initial)*. A searcher MUST NOT expect two nodes to page alike. An answer holds at most 100 *(initial)*
+  every 24 h *(initial)*. It MAY move its targets to a new secret one at a time: a target pages in
+  its old order until its new one is complete, and all have moved before the next secret. A
+  searcher MUST NOT expect two nodes to page alike. An answer holds at most 100 *(initial)*
   `files`, 100 `notes`, or 100 `sources` and `anon` together; `offset` counts records in that
   order and `more` says that records remain. Where an answer carries records in several
   fields, they are paged as one sequence: the fields in the order of their field numbers, each
@@ -1692,8 +1694,7 @@ Rules:
   Every `ROUTER` MUST do all of this, whether or not it sets `ANON`
   ([`extensions/hops.md`](extensions/hops.md) §4).
 - A node that does not know the `kind` of a request answers as a node that is not responsible:
-  a kind added after version 1, or, at an index node without `ROUTER`, a kind it does not
-  store (§11).
+  a kind added after version 1, or a kind an index node without `ROUTER` does not store (§11).
 - A node that is not responsible ignores `search` and `store` and only returns contacts. It
   answers a `store` with contacts and `responsible = false`, never with stored data. A
   requester MUST ignore `sources`, `files`, `notes`, `results` and every record field of an
@@ -2090,8 +2091,9 @@ same few nodes. Version 1 bounds that as follows.
 - `load` and `spill` tell the searcher that the results are a part of what was published under
   that word.
 
-**Levels.** The keyword target includes a level (§10.1), and version 1 uses level 0 only: a node
-MUST send `level = 0` and MUST NOT publish or search at another level. A storing node treats a
+**Levels.** The keyword target includes a level (§10.1), and on Kad version 1 uses level 0
+only: a node MUST send `level = 0` to a Kad router and MUST NOT publish or search there at
+another level. At an index node levels are part of version 1 (§11). A storing node treats a
 target of level 1 to 15 like any other keyword target, so that upgraded publishers can use those
 levels on nodes that have not upgraded; it answers a record with `level` above 15 with
 `REJECTED`. A later network upgrade
@@ -2114,7 +2116,7 @@ protocol of its own:
 | Offer files | `KadRequest{kind=KEYWORD, store}` and `{kind=SOURCE, store}` |
 | Search | `KadRequest{kind=KEYWORD, search}` |
 | Get sources | `KadRequest{kind=SOURCE, search}` |
-| Callback request | `Punch` (an index node that offers the relay service is a relay, §9.4; it SHOULD offer it) |
+| Callback request | `Punch` (an index node that offers the relay service is a relay, §9.4; **Kad duty** below) |
 | Server list | none on the wire; a client keeps its own list of index nodes, found as said below and recognised by `Hello.caps` |
 
 Differences from a Kad node: an index node is `responsible` for **every** target, also before it
@@ -2133,6 +2135,13 @@ policy is stricter. The one exception is the level size (§10.8): an index node'
 chooses it. Until a keyword target holds that many files the node answers no `FULL` for it;
 from then on it answers `FULL` and sets `spill` as §10.8 says.
 
+**Keyword levels.** Levels are part of version 1 at an index node, with no capability bit. An
+index node MAY rank and keep leaving entries as
+[`extensions/keyword-load.md`](extensions/keyword-load.md) §2 says; one that does not refuses
+when full, as §10.8 says. A client that publishes or searches at an index node follows that
+document's §3 and §4 by that node's answers: it moves down on `FULL` and follows `spill`. Each
+level is a target of its own there. On Kad, levels wait for the network upgrade (§10.8).
+
 **Limits over all targets.** Those limits are per target, and an index node holds every target;
 keys, names and roots cost nothing, so a limit per target does not bound what one publisher
 can make it hold. An index node MUST therefore also bound the records it holds per publisher
@@ -2140,8 +2149,8 @@ host address and per publisher site ([`extensions/ip-diversity.md`](extensions/i
 §1), over all targets and kinds together. The bound is local policy. A record beyond it is
 `REJECTED`, not `BUSY`: the node has room.
 
-**Kad duty.** An index node is normally open, often by the operator's word (§9.2), and a node
-sets `ROUTER` while it is open (§2), but an index node MAY leave `ROUTER` unset. It is then no Kad router:
+**Kad duty.** An index node is normally open, often by the operator's word (§9.2), and MAY leave
+`ROUTER` unset (§2). It is then no Kad router:
 
 - It is not put in routing tables (§10.2), keeps none of its own and answers without
   contacts. It need not dial at all: on a connection it accepted every datagram is masked
@@ -2149,6 +2158,7 @@ sets `ROUTER` while it is open (§2), but an index node MAY leave `ROUTER` unset
 - It stores the record kinds it chooses and answers a request of any other kind as a node
   that is not responsible (§10.3). A client therefore falls back to Kad for those kinds.
 - It SHOULD still offer the relay service (§9.4), which is the callback of an eD2K server.
+  An index node that offers it sets `RELAY` while it is open and has a free slot.
 
 An index node that sets `ROUTER` has every duty of one, also storing every record kind.
 
@@ -3011,7 +3021,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Queue: entry kept after the time to come back, or after a lost connection | 30 min |
 | Queue: ping interval, answer time | 30 min, 30 s |
 | Queue: `have` update to a downloader with a slot | 1 per 5 min |
-| Queue: early return for an address or relay change, or for another file | 1 per 30 min, both together |
+| Queue: early return for an address or relay change, for another file, or for a changed bid | 1 per 30 min, all together |
 | Slot offer: wait, failures before offers stop; an entry told to stay connected kept after a failed offer | 30 s, 2; 30 min |
 | Upload slots, recommended minimum | 2 |
 | Slot: data per turn, longest turn | 16 MiB, 1 h |
@@ -3036,7 +3046,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Rooms: item at most (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban at most; lift kept for | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days |
 | Rooms: presence renewed every, `expires` at most after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1; 60; 600 |
 | Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info (time, items per room); member proof clock tolerance; `SUB` target of a private room changes every, neighbour hours searched in the first / last | 3 / 2–4, 16, 24 h, 60 s, 64; 10 min; 1 h, 10 min / 10 min |
-| Rooms, generations: started again after (with posts), post of an older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; key forgotten after a later generation (no post held / at the latest) | 24 h, 2 min, 64, 1,032; 1 h / 48 h |
+| Rooms, generations: started again after (with posts), post of an older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; post awaiting its `KeyDrop` (time, posts per room); a moderator starts a new generation once the current one has `KeyDrop`s; key forgotten after a later generation (no post held / at the latest) | 24 h, 2 min, 64, 1,032; 60 s, 64; 32; 1 h / 48 h |
 | HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed; a sealed source's `expires` ahead at least | 8, 3, 16; 3; 3; 120 s |
 | HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per hour, per host / site / block, counted per file and, over all files, per namer of the URL; over all files and namers together, per host; a host is exempt over all files after a verified block for | 2; 2 / 4 / 8; 8; 1 h |
 | File sets, a manifest at most: size, `files`, `dirs`, path component, components in a path, depth, files with all inner sets | 4 MiB, 65,536, 65,536, 1–255 B, 32, 8, 1,000,000 |
@@ -3054,9 +3064,9 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Local network: group IPv4 / IPv6, port, announce every, multicast announces per interface at most, announce datagram at most, reply wait up to, replies per node, replies per minute, LAN peer kept, LAN peers at most, new per minute | 239.255.101.51 / ff02::6533:6b, 6533, 5 min, 1 per minute, 512 B, 1 s, 1 per 5 min, 10, 15 min, 256, 10 |
 | Local network: `LanQuery` per peer, once more on a new download, roots per query | 1 per 10 min, 1 per minute, 256 |
 | Names: labels per name, label, name at most; zones followed, lookups per name; links per record, links of a record together at most; `NAME` `expires` ahead at most, stored again every; delegation from `issued` to `expires` at most, `issued` ahead at most | 8, 63 B, 253 B; 8, 24; 4, 512 B; 7 days (+1 h), 24 h; 90 days, 1 h |
-| Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at, a claim stored again every | 3–63 B; 2 / 8 / 64, 3, 16, 255, 20 h |
+| Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at, a claim stored again every; refused zones remembered per `CLAIM` target | 3–63 B; 2 / 8 / 64, 3, 16, 255, 20 h; 64 |
 | Names, friends and lists: names per `NameQuery`, queries answered per peer, a pinned name asked of friends again; sets of lists followed, list file at most, entries per list, `note` at most | 16, 1 per 10 s, 1 per 24 h; 32, 4 MiB, 100,000, 256 B |
-| Names from the web: TXT record at most, links used per domain, `ed3k.json` at most, its fetch, kept at most | 1,024 B, 4, 64 KiB, 10 s, 24 h |
+| Names from the web: TXT record at most, its query, links used per domain, `ed3k.json` at most, its fetch, kept at most | 1,024 B, 10 s, 4, 64 KiB, 10 s, 24 h |
 | Websites: member awaited, cache by default; short slots per uploader, member at most, short slots per downloader and minute | 60 s, 2 GiB; 4, 256 KiB, 32 |
 | Other names: records per root and scheme per publisher; roots per target (per key / per site / in all); records kept per root; records per answer; roots tried per name; `entry`, `password` at most; site count saturates at | 4; 2 / 8 / 64; 3; 16; 3; 255 B, 128 B; 255 |
 | Torrents: `info_size` at most, sets tried per torrent | 32 MiB, 3 |
@@ -3065,7 +3075,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Videos on a chain, shown at most: title, tag, tags, comment; avatar picture at most | 256 B, 64 B, 16, 8,192 B; 1 MiB |
 | Videos on a chain, attachments: `media` value at most, files per set, gateways per file; fetched unasked: manifest at most, picture at most, pictures per entry; picture refused above (side, pixels) | 512 B, 64, 3; 64 KiB, 1 MiB, 4; 16,384 px, 64 million |
 | Filter lists: list file at most, sets of lists followed, list files per set, list files read in all | 4 MiB, 32, 64, 64 MiB |
-| First contact: saved contacts, fetch lists when fewer than N answered / at most per first contact, list at most, redirects followed, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (at most half from one list, for at most), listed nodes reachable for; nodes taken per list from one site / block | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8 |
+| First contact: saved contacts, fetch lists when fewer than N answered / at most per first contact, list at most, redirects followed, `created` at most old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (at most half from one list, for at most), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after the first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
 | Finding a known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of a record or a request at most ahead, record stored every, lookup of a friend at most, sealed values opened per search at most | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of a set; results until a link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots at most, time for a payment (from the `FileStatus` with `price` or `due`), bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
@@ -3082,7 +3092,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Paid subscriptions, purchase: poll `pass_url` every / for, renewal polled in the last / every | 15 s / 30 min, 48 h / 6 h |
 | Flood protection: Retry token, return token valid for; per second: handshakes without token per host / site / block (Retry above), Retry packets per host (dropped above) | 10 s, 24 h; 4 / 16 / 64, 4 |
 | Flood protection: validated handshakes per minute per host / site / block while guarded; Kad datagrams per second: `CHALLENGE`s per host, key derivations per host / site / block | 30 / 120 / 480; 4, 8 / 32 / 128 |
-| Keyword levels (reserved): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |
+| Keyword levels (reserved on Kad, version 1 at an index node): records per entry, site count saturates at, candidate files per target, leaving entries per target | 3, 255, S/4, S/4 |
 | Kad datagrams (reserved): `INIT` at least, cookie secret replaced every, request timer, `CHALLENGE`s per second per host, key derivations per second per host, `REQUEST`s per second per host / site / block (host, site and block of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1; a private address in a named network exempt), exchanges outstanding (total / per responder), `INIT` fallback to QUIC after | 70 B, 1 h, 1 s, 4, 8, 16 / 64 / 256, 16 / 2, 300 ms |
 | Key puzzle (reserved): leading zero bits, memory, epoch, dialled-in contacts verified per host group (whatever the result), verification queue at most; another `puzzle` value of one node ID, family and site rechecked at most | 13, 64 MiB, 30 days, 1 per hour, 64; 1 per hour |
 

@@ -149,7 +149,7 @@ message KadRequest {          // type 3
   Kind   kind = 3;            // NONE = find nodes only
   Query  search = 4;          // present, also when empty: search for records of `kind`
   Store  store = 5;           // present: store records of `kind`; never together with `search`
-  uint32 level = 6;           // KEYWORD: level the target was computed for; 0 in version 1   Protocol.md §10.1
+  uint32 level = 6;           // KEYWORD: level the target was computed for; 0 on Kad in version 1, 0 to 15 at an index node   Protocol.md §10.1, §11
 }
 
 message Query {
@@ -581,7 +581,7 @@ message Name {
   bytes  zone = 1;            // 32 B root key of the zone                     name.md §3.2
   string label = 2;           // the name in the zone, lower-case labels joined by "."; empty = the apex
   uint64 seq = 3;             // version, higher = newer
-  repeated string links = 4;  // ed3k links the name stands for; at most 4, each at most 512 B, one per kind of link
+  repeated string links = 4;  // ed3k links the name stands for; at most 4, 512 B together at most, one per kind of link
   bytes  sub = 5;             // optional: 32 B root key of the zone that holds the names below this one
   Delegation delegation = 6;  // present when a signing key signed the record
 }
@@ -856,7 +856,7 @@ message RoomState {           // type 43
   bytes  proof = 4;           // private and closed room: 16 B, H("ed3k v1 room answer", k ‖ joiner's node ID ‖ peer's node ID)[0..16)
   bytes  member = 5;          // closed room: 32 B, my member key             room.md §4.2
   RoomProof member_proof = 6; // with `member`
-  bool   synced = 7;          // the last RoomState of my first answer        room.md §4.3
+  bool   synced = 7;          // the last RoomState of my first answer, or of my catch-up as joiner   room.md §4.3
 }
 
 message RoomProof {

@@ -132,7 +132,8 @@ A manifest with `usenet` is a **post set**. Its canonical form:
   followed by a `SetFile` that has `body` only.
 - Every file of the NZB is a member: archive volumes, repair files, text files.
 - **No canonical manifest exists** for a post
-  - with a file of which the client has no article, so that name and size are unknown,
+  - with a file of which the client has no article that passed its CRC-32, so that name and
+    size are unknown; a file rebuilt from the repair files alone has none (§10),
   - with a message ID that is not valid UTF-8 (§2),
   - whose article list would be larger than 32 MiB *(initial)*, the limit of `list_size`,
   - whose names break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2, two equal names
@@ -165,7 +166,9 @@ is a range of a member, at the place its `=ypart` line says.
 
 **An article is checked, not verified.** yEnc carries a CRC-32 per part. It finds damage and
 proves nothing. An article passes only when its decoded length is also `=yend size` and, with a
-`=ypart` line, `end` − `begin` + 1; else it failed as a failed CRC-32. A decoded article that
+`=ypart` line, `end` − `begin` + 1; else it failed as a failed CRC-32. An `=yend` line
+without `size`, and a `=ypart` line, glued (§2) or its own, without decimal `begin` and `end`
+with 1 ≤ `begin` ≤ `end`, fail it the same way. A decoded article that
 passes is *checked*: the client MUST NOT show its
 bytes in a `have` bitmap or send them to an ed3k node until they pass under the member's root
 ([`alias.md`](alias.md) §5 rule 5).
@@ -213,7 +216,11 @@ a claim.
    false for that member: the client drops the claim and what it took from ed3k sources for
    it, and ignores the publishers of the records that named that root.
 5. When the post is complete, the client computes the canonical manifest itself (§3). That
-   root is the post root, whatever the records said.
+   root is the post root, whatever the records said. Where it differs from the set fetched,
+   nobody is blamed: names are not part of the claim, and clients that compared other parts
+   of a post whose parts disagree can see other names (§2). The client publishes for its own
+   manifest as §6 says. It MAY go on sharing the fetched manifest and article list as files,
+   with `SOURCE` only, and publishes no `ALIAS` or `MEMBER` record for them.
 
 **What a true claim proves.** The bytes are the file with that root, block by block. That the
 file is the one the articles hold is proven for the articles that were compared, and for the
@@ -253,7 +260,11 @@ password.
 
 ## 6. Publishing
 
-A node publishes when it has the complete post and shares the files. Two kinds of rows have a
+A node publishes when it has the complete post and shares the files. The complete post is
+every member, repair files included: a client that fetched repair volumes only where a repair
+needed them makes no manifest, article list or `nzb` record until it has the rest. It MAY
+fetch them afterwards to publish, from ed3k sources first; whether it does is local policy.
+Its members and their `nzb-file` records are published meanwhile. Two kinds of rows have a
 further condition, as in [`torrent.md`](torrent.md) §5: the `ALIAS` rows and `PACKED` are
 published only by a node that decoded the articles itself and computed every member's root
 from them, with no byte taken from ed3k sources (bytes repaired by the post's repair files
@@ -265,7 +276,7 @@ not the post. Such a node, one that got the post over ed3k, still publishes the 
 | The members | as files: `SOURCE`, and `KEYWORD` by their names | every node that shares them |
 | The manifest and the article list | as files: `SOURCE` only | every node that shares them |
 | `ALIAS` of `nzb` | post id → manifest. Only for the canonical manifest | only a node that decoded the articles itself |
-| `ALIAS` of `nzb-file` | file id → member, for each member. At most 256 *(initial)* per post; a client that needs more members finds them through the set | only a node that decoded the articles of that member itself |
+| `ALIAS` of `nzb-file` | file id → member, for each member. At most 256 *(initial)* per post; a client that needs more members finds them through the set | only a node that decoded the articles of that member itself, at least one of them passing its CRC-32: a member rebuilt from the repair files alone has nothing that ties its file id to its bytes |
 | `MEMBER` | from each member to the post set ([`file-set.md`](file-set.md) §6), so that a download that started from one file finds the article list | every node that shares both |
 | `PACKED` | where the node unpacked the archive itself | only a node that decoded the articles itself |
 
