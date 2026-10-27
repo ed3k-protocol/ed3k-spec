@@ -195,6 +195,9 @@ user's zone, so names are paths through people one knows. There is no global nam
 |---|---|
 | readable names for sets, channels and friends, with no registry | a second system of records beside the file sharing; a mount ([`multi-author-set.md`](../extensions/multi-author-set.md) §2) already lets one set lead to another by key |
 
+Taken since in [`name.md`](../extensions/name.md): zones under a key with names handed on to other
+zones, as in GNS, without the key blinding (§10 there).
+
 ### 4.8 Messages for nodes that are offline (RetroShare)
 
 RetroShare passes mail from friend to friend and keeps it until the receiver appears.

@@ -5,22 +5,30 @@ pragma solidity ^0.8.24;
 import {Base, MockOperators} from "./Base.sol";
 import {CreditLedger, IOperators} from "ledger/CreditLedger.sol";
 
-/// Re-enters the ledger with stored calldata on its first call.
+/// Holds bytes as its code, so reading them costs one cold account, not a cold slot per word.
+contract Blob {
+    constructor(bytes memory d) {
+        assembly { return(add(d, 32), mload(d)) }
+    }
+}
+
+/// Re-enters the ledger with stored calldata on its first call. Kept cheap: the ledger caps the
+/// mint at 60,000 gas and storage is cold (each test call is its own transaction).
 contract ReentrantMinter {
-    address public target;
-    bytes public data;
+    address public target; // slot 0, packed with the flags
     bool public entered;
     bool public innerOk;
+    address public blob;
 
     function arm(address t, bytes calldata d) external {
         target = t;
-        data = d;
+        blob = address(new Blob(d));
     }
 
     function mintNativeCoin(address, uint256) external {
         if (entered || target == address(0)) return;
         entered = true;
-        (innerOk,) = target.call(data);
+        (innerOk,) = target.call(blob.code);
     }
 }
 

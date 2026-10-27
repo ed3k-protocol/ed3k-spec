@@ -109,6 +109,7 @@ Every participant is a **node**. A node announces what it does with capability b
 | 17 | `LINKS` | Optional extension: understands links at file hosters as sources ([`extensions/hoster.md`](extensions/hoster.md)) |
 | 18 | `PAID` | Optional extension: hands out epoch keys of paid channels and sets to pass holders ([`extensions/subscription.md`](extensions/subscription.md)) |
 | 19 | `ROOM` | Optional extension: takes part in rooms with many members ([`extensions/room.md`](extensions/room.md)) |
+| 20 | `NAMES` | Optional extension: answers friends that ask what a name stands for ([`extensions/name.md`](extensions/name.md)) |
 
 `caps` travels in `Hello` only (§5.5). Compact Kad contacts and source records do not carry it,
 so a node learns a peer's capabilities after it has connected. A bit or a policy that changes while a
@@ -533,6 +534,8 @@ Types 1–63 keep the tag at one byte.
 | 41 | `KeyAnswer` | answer | optional, §13.1 |
 | 42 | `RoomJoin` | member → peer | optional, §13.1 |
 | 43 | `RoomState` | both | optional, §13.1 |
+| 44 | `NameQuery` | request | optional, §13.1 |
+| 45 | `NameAnswer` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -1379,6 +1382,8 @@ The comparison is in [`docs/nat-traversal-comparison.md`](docs/nat-traversal-com
 | `GATE` | `H("ed3k v1 gate", node ID)[0..16)`, with the node ID of such a source (§4.3 there) |
 | `ALIAS` | `H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)`, with the kind of name and the name ([`extensions/alias.md`](extensions/alias.md) §1) |
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`, with the type, the key and the `id` of the topic ([`extensions/pubsub.md`](extensions/pubsub.md) §1). A room stores `SUB` records under a target of its own ([`extensions/room.md`](extensions/room.md) §1.2) |
+| `NAME` | `H("ed3k v1 name", zone ‖ label)[0..16)`, with the root key of a zone and a name in it ([`extensions/name.md`](extensions/name.md) §3.2) |
+| `CLAIM` | `H("ed3k v1 name claim", name)[0..16)`, with a global name ([`extensions/name.md`](extensions/name.md) §4.2) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`, `word` being one keyword of the file name in UTF-8, as defined below. `level` is one byte, 0 in version 1 (§10.8) |
 
 File hashes, node IDs and keyword keys all come from the same function and are cut to the same
@@ -1494,7 +1499,7 @@ There is a single Kad request. It always asks for closer nodes and optionally ca
 operation that the receiver performs if it is responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; ALIAS = 13; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; ALIAS = 13; NAME = 14; CLAIM = 15; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -1527,6 +1532,7 @@ message Store {
   // field 10 belongs to the optional extension for anonymous paths (§13.1)
   // field 11 belongs to the optional extension for other names of a file (§13.1)
   // field 12 belongs to the optional extension for links at file hosters (§13.1)
+  // field 13 belongs to the optional extension for readable names (§13.1)
 }
 
 message Note {
@@ -1546,13 +1552,14 @@ message KadAnswer {
   repeated bytes    keys = 9; // 32 B publisher keys, referenced by Signed.key
   repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored; entries missing from a shorter list read as STORED
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
-  repeated uint32   sites = 12;       // one per entry of `files`, of `sets` in a MEMBER answer, or of `aliases`: publisher sites counted; 0 = not counted
+  repeated uint32   sites = 12;       // one per entry of `files`, of `sets` in a MEMBER answer, of `aliases`, or of `names` in a CLAIM answer: publisher sites counted; 0 = not counted
   // field 13 belongs to the optional HTTP source extension (§13.1)
   // field 14 belongs to the optional file set extension (§13.1)
   // field 15 belongs to the optional extension for finding a known node (§13.1)
   // fields 16 and 17 belong to the optional extension for anonymous paths (§13.1)
   // field 18 belongs to the optional extension for other names of a file (§13.1)
   // field 19 belongs to the optional extension for links at file hosters (§13.1)
+  // field 20 belongs to the optional extension for readable names (§13.1)
 }
 
 enum StoreResult {
@@ -1671,6 +1678,11 @@ Rules:
   of name is a string in the record, so that a network joined later needs no new record kind.
   Every `ROUTER` MUST store and return it, for names of every kind
   ([`extensions/alias.md`](extensions/alias.md) §3).
+- **`NAME`** and **`CLAIM`** are the record kinds of readable names: `NAME` gives a name
+  under the root key of a zone, one record per name, which only that key or a key it delegated
+  to can sign; `CLAIM` says that its publisher calls a zone by a global name, and is held like
+  `ALIAS`. Every `ROUTER` MUST store and return both, whether or not it sets `NAMES`
+  ([`extensions/name.md`](extensions/name.md) §3.2, §4.2).
 - **`ANON`** and **`GATE`** are the record kinds of a node that hides its address behind other
   nodes: `ANON` names it as a source of a file, by its node ID alone, and `GATE` says through
   which nodes it is reached. Both are signed. A search of kind `SOURCE` also returns the node IDs
@@ -1720,8 +1732,8 @@ Rules:
   the dial limits of [`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.5.
 - **Keyword and note records are signed** by their publisher (§10.7). Their content is still a
   claim; the signature fixes who made it.
-- Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER` and `ALIAS` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN` and `PART` up to
-  7 days. Republish before expiry; how long before is local policy where the kind names no
+- Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER`, `ALIAS` and `CLAIM` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN`, `PART`
+  and `NAME` up to 7 days. Republish before expiry; how long before is local policy where the kind names no
   interval.
 - A `Store` holds at most 256 *(initial)* records, all its record fields together; every
   record after the 256th is `REJECTED`. Such a record still counts as held: a `Store` whose
@@ -1753,7 +1765,7 @@ Rules:
 - A `store` is answered per record in `results`: one entry per record, in the order of the
   fields of `Store` by field number and, within a repeated field, in its order, followed by one
   per target of `also`. The record fields are `source` (1), `files` (2), `note` (3), `head` (5),
-  `members` (7), `sealed` (9), `anon` (10) and `aliases` (11). `http` (4) and `links` (12)
+  `members` (7), `sealed` (9), `anon` (10), `aliases` (11) and `names` (13). `http` (4) and `links` (12)
   belong to the `source` record and get no entry, and neither do `signer` and `also`
   themselves. A list shorter than that reads as `STORED` for the entries it lacks, as
   an absent list does, and entries beyond it are ignored. A `sites` shorter than the list it
@@ -1906,6 +1918,7 @@ message Record {
   // fields 8 and 9 belong to the optional extension for sets with several authors (§13.1)
   // field 10 belongs to the optional extension for anonymous paths (§13.1)
   // field 11 belongs to the optional extension for other names of a file (§13.1)
+  // fields 12 and 13 belong to the optional extension for readable names (§13.1)
 }
 
 message Signature {
@@ -1981,10 +1994,10 @@ A record that fails a check on the storing node is answered `REJECTED` in `resul
 A `Store.signer` that is not 32 bytes makes a request of a kind that uses it `Error{MALFORMED}`
 (§0); for `SOURCE`, `LIVE`, `SUB` and `FRIEND` it is ignored whatever its length.
 **Newer.** Every signed kind keeps one record per publisher and file, target or root (of all
-publishers together a keyword file, a `MEMBER` set and an `ALIAS` root keep at most 3, §10.8
-and their documents), except `HEAD`, `HIDDEN` and `GATE`, which keep one record per target
+publishers together a keyword file, a `MEMBER` set, an `ALIAS` root and a `CLAIM` zone keep at most 3, §10.8
+and their documents), except `HEAD`, `HIDDEN`, `GATE` and `NAME`, which keep one record per target
 whichever key signed it, and a
-record replaces the one held only when it is newer: `HEAD`, `HIDDEN`, `PART` and `GATE` have
+record replaces the one held only when it is newer: `HEAD`, `HIDDEN`, `PART`, `GATE` and `NAME` have
 an order of their own, stated in their documents; for every other signed kind the record with
 the later `expires` is the newer one. A valid record that is not newer than the one held is
 answered `OLDER`, and nothing changes. This holds also for a record that a third party stores
@@ -2054,9 +2067,9 @@ same few nodes. Version 1 bounds that as follows.
 - `load` and `spill` MUST be set, as §10.3 defines them, in every answer of a responsible node
   to a request of kind `KEYWORD`, a store answer and a contacts-only answer included. For other kinds `load` is 0, and `spill` is set when the node
   answered `FULL` for that target within the last record lifetime of the kind. `sites` MAY be
-  left at 0 for `KEYWORD` in version 1; for `MEMBER` and `ALIAS` it carries the count the
+  left at 0 for `KEYWORD` in version 1; for `MEMBER`, `ALIAS` and `CLAIM` it carries the count the
   answer is ordered by ([`extensions/file-set.md`](extensions/file-set.md) §6,
-  [`extensions/alias.md`](extensions/alias.md) §3). That count covers the sites of the stores
+  [`extensions/alias.md`](extensions/alias.md) §3, [`extensions/name.md`](extensions/name.md) §4.2). That count covers the sites of the stores
   answered `STORED` for that root or set, each remembered until that record would have
   expired, also after it was displaced. A `Store` with `signer` adds no site to it. One site
   counts once, and the count saturates at 255 *(initial)*, as in
@@ -2658,7 +2671,8 @@ Browsing a peer's shared files, chat, rooms, HTTP sources, file sets, live strea
 each with a capability bit and need not implement any of them. Hidden sets, sets with
 several authors, other names of a file, torrents and Usenet posts as file sets, videos named on a chain, shared filter lists, first
 contact and finding a known node are optional too. They add file formats, links and four record
-kinds, and have no bit of their own. Links at file hosters are a further kind of source, with
+kinds, and have no bit of their own. Readable names for keys, websites among the things they
+name, are optional as well; they add two record kinds, a link and a bit. Links at file hosters are a further kind of source, with
 a bit of their own.
 
 **Other networks and data sources are joined under the root, never beside it.** A name from
@@ -2694,12 +2708,13 @@ program of its own next to an ordinary node, and no further role (§11).
 | Shared filter lists | none | a list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
 | First contact | none | a node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; a field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
+| Readable names | bit 20, `NAMES` | message types 44, 45; record kinds 14 and 15; two fields in `Record`, one in `Store` and `KadAnswer`; a name list file format; `ed3k:name` links; a DNS record and a file at a web server; a local web server for websites | [`extensions/name.md`](extensions/name.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16), with one exception that §10.3 states: a `ROUTER` stores, checks and
 returns the records of every kind in this table, and the fields of `Store` that belong to a
 source record (HTTP sources, links at hosters), whether or not it sets the bit. The record
-kinds of version 1 are therefore 1 to 13, and the documents above define their checks.
+kinds of version 1 are therefore 1 to 15, and the documents above define their checks.
 
 ### 13.2 Links
 
@@ -2750,7 +2765,7 @@ set extension adds `s` to `ed3k:set`, the torrent extension adds `bt` and the ex
 extension for finding a known node defines `ed3k:friend`. The extension for videos named on a
 chain adds `b3`, `sz` and `ipfs` to `ed3k:set`, and `ipfs` to `ed3k:file`. The paid subscription
 extension adds `paid` to `ed3k:live` and `ed3k:set`, and defines `ed3k:pass`. The room
-extension defines `ed3k:room`.
+extension defines `ed3k:room`. The extension for readable names defines `ed3k:name`.
 
 ### 13.3 Not carried over
 
@@ -2976,7 +2991,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Diversity: `SOURCE` records per file and `LIVE` and `SUB` records per target, `ANON` records per target, `KEYWORD` and `NOTE` publishers counted per entry, per host / site | 8 / 32, 4 / 8, 1 / 1 |
 | Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held | 1,024 / 4,096, 64 / 256 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families, relays and gates), per host / site / block; per host and hour over all files | 2 / 4 / 8; 8 |
-| Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias, live, subscriber, gate, head and hidden head and part | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
+| Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias and claim, live, subscriber, gate, head and hidden head and part and name | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
 | Search answer: keyword records, notes, sources and anonymous sources together at most; paging secret replaced every | 100, 100, 100; 24 h |
 | Keyword target: records kept per file, files per publisher key / per publisher site; notes per file target, in all / per publisher host / per publisher site | 3, 1,000 / 2,000; 64 / 4 / 8 |
 | Source record and `FileRequest`: relays per family at most (used); records per file target (and per `LIVE` or `SUB` target) at most; note text at most | 2; 10,000; 512 B |
@@ -3018,8 +3033,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Browse: entries per answer; pages and entries a requester takes from one node, at most | 1,000; 100 and 10,000 |
 | Chat: message ids of a sender remembered for, at most; senders remembered at most, of them per host address; resends after a lost connection at most, within | 10 min, 1,024; 256, 16; 3, 10 min |
 | Rooms: item at most (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban at most; lift kept for | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days |
-| Rooms: presence renewed every, `expires` at most after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys) | 5 min, 15 min, 1 h; 24 h, 1,000, 5 min, 1 h; 20, 1; 60 |
-| Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info; member proof clock tolerance; `SUB` target of a private room changes every, neighbour hours searched in the first / last | 3 / 2–4, 16, 24 h, 60 s; 10 min; 1 h, 10 min / 10 min |
+| Rooms: presence renewed every, `expires` at most after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1; 60; 600 |
+| Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info (time, items per room); member proof clock tolerance; `SUB` target of a private room changes every, neighbour hours searched in the first / last | 3 / 2–4, 16, 24 h, 60 s, 64; 10 min; 1 h, 10 min / 10 min |
 | Rooms, generations: started again after (with posts), post of an older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; key forgotten after a later generation (no post held / at the latest) | 24 h, 2 min, 64, 1,032; 1 h / 48 h |
 | HTTP sources: per `FileStatus`, per source record, per Kad answer; results until a source is dropped; redirects followed; a sealed source's `expires` ahead at least | 8, 3, 16; 3; 3; 120 s |
 | HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per hour, per host / site / block, counted per file and, over all files, per namer of the URL; over all files and namers together, per host; a host is exempt over all files after a verified block for | 2; 2 / 4 / 8; 8; 1 h |
@@ -3037,6 +3052,11 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Publish and subscribe: on-air notice `expires` after `issued` at most, sent every, highest `issued` remembered after `expires`; `SUB` record stored every | 15 min, 5 min, 1 h; 30 min |
 | Local network: group IPv4 / IPv6, port, announce every, multicast announces per interface at most, announce datagram at most, reply wait up to, replies per node, replies per minute, LAN peer kept, LAN peers at most, new per minute | 239.255.101.51 / ff02::6533:6b, 6533, 5 min, 1 per minute, 512 B, 1 s, 1 per 5 min, 10, 15 min, 256, 10 |
 | Local network: `LanQuery` per peer, once more on a new download, roots per query | 1 per 10 min, 1 per minute, 256 |
+| Names: labels per name, label, name at most; zones followed, lookups per name; links per record, link at most; `NAME` `expires` ahead at most, stored again every; delegation from `issued` to `expires` at most, `issued` ahead at most | 8, 63 B, 253 B; 8, 16; 4, 512 B; 7 days (+1 h), 24 h; 90 days, 1 h |
+| Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at | 3–63 B; 2 / 8 / 64, 3, 16, 255 |
+| Names, friends and lists: names per `NameQuery`, queries answered per peer, a pinned name asked of friends again; sets of lists followed, list file at most, entries per list, `note` at most | 16, 1 per 10 s, 1 per 24 h; 32, 4 MiB, 100,000, 256 B |
+| Names from the web: TXT record at most, links used per domain, `ed3k.json` at most, its fetch, kept at most | 1,024 B, 4, 64 KiB, 10 s, 24 h |
+| Websites: member awaited, cache by default; short slots per uploader, member at most, short slots per downloader and minute | 60 s, 2 GiB; 4, 256 KiB, 32 |
 | Other names: records per root and scheme per publisher; roots per target (per key / per site / in all); records kept per root; records per answer; roots tried per name; `entry`, `password` at most; site count saturates at | 4; 2 / 8 / 64; 3; 16; 3; 255 B, 128 B; 255 |
 | Torrents: `info_size` at most, sets tried per torrent | 32 MiB, 3 |
 | Usenet: article list at most, sets tried per NZB, `nzb-file` records per post, `nzb-file` lookups per NZB | 32 MiB, 3, 256, 256 |
@@ -3077,7 +3097,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   post, the `canonical` of hoster links, the hash body, and of paid subscriptions the scopes,
   a season with its tip, an offer, a pass, a proof, a key exchange, the sealed forms and a
   share report, the node list tag, the keys of private channels, the hop session, the pair key
-  of friend records, the names, proofs, keys and a sealed post of rooms, and the credit
+  of friend records, the names, proofs, keys and a sealed post of rooms, the targets, a delegation and a `NAME` and a `CLAIM` record of readable names, and the credit
   signatures of a bid and a receipt, under a test domain:
   the chain ID and the contract of the public network are not assigned yet
   ([`extensions/credit.md`](extensions/credit.md) §7.1).

@@ -134,15 +134,17 @@ source address of `Protocol.md` §10.3.
 | `FRIEND` records per target ([`friend.md`](friend.md) §4) | 8 | 16 | — |
 | `MEMBER` sets per file ([`file-set.md`](file-set.md) §6) | — | 16 | — |
 | `ALIAS` roots per target ([`alias.md`](alias.md) §3) | — | 8 | — |
+| `CLAIM` zones per target ([`name.md`](name.md) §4.2) | — | 8 | — |
 | `PART` records per target ([`multi-author-set.md`](multi-author-set.md) §3.4) | 8 | 32 | — |
 | `HEAD` and `HIDDEN` records held, over all targets ([`file-set.md`](file-set.md) §5.2, [`hidden-set.md`](hidden-set.md) §3) | 1,024 | 4,096 | — |
 | `GATE` records held, over all targets ([`hops.md`](hops.md) §4.3) | 64 | 256 | — |
+| `NAME` records held, over all targets ([`name.md`](name.md) §3.2) | 1,024 | 4,096 | — |
 
 - `SOURCE`: several nodes behind one carrier-grade NAT address are distinct, honest sources, so
   the host limit is above 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
 - `ANON`: the record names no address, so it is counted on the address the `Store` came from
   ([`hops.md`](hops.md) §4.2).
-- The `HEAD`/`HIDDEN` and `GATE` rows count over the node, not per target: each of these kinds
+- The `HEAD`/`HIDDEN`, `GATE` and `NAME` rows count over the node, not per target: each of these kinds
   holds one record per target, and its target follows from a key that costs nothing. A record
   counts at the host and site of the `Store` that last stored it, a renewal included, also one
   with `signer`. A record that replaces one held under the same target from the same host adds
@@ -165,7 +167,8 @@ source address of `Protocol.md` §10.3.
   target takes at most 1,000 *(initial)* files of one publisher key and 2,000 of one publisher
   site (`Protocol.md` §10.8); a `MEMBER` target at most 4 sets of one publisher key
   ([`file-set.md`](file-set.md) §6); an `ALIAS` target at most 2 roots of one publisher key
-  ([`alias.md`](alias.md) §3); a `PART` target one record per author key
+  ([`alias.md`](alias.md) §3); a `CLAIM` target at most 2 zones of one publisher key
+  ([`name.md`](name.md) §4.2); a `PART` target one record per author key
   ([`multi-author-set.md`](multi-author-set.md) §3.4).
 - `KEYWORD` and `NOTE`: beyond the limits per key, host and site of `Protocol.md` §10.8, records
   are accepted within the general flood limits; when an entry's publishers are counted (popularity, ranking, or a rating average), one

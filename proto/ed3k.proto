@@ -24,7 +24,8 @@
 //  29 HopGate         30 HopLookup       31 HopLookupAnswer 32 HopStream
 //  33 HopConnect      34 HopJoin         35 Receipt         36 CreditRelay
 //  37 CreditRelayAnswer 38 BadBlock      39 HopOk          40 KeyRequest
-//  41 KeyAnswer      42 RoomJoin        43 RoomState
+//  41 KeyAnswer      42 RoomJoin        43 RoomState       44 NameQuery
+//  45 NameAnswer
 //  48–63 reserved (Protocol.md §10.6)
 //
 // Messages without a type are file formats or sub-messages carried inside another message.
@@ -138,6 +139,8 @@ enum Kind {
   ANON = 11;                  // hops.md §4.3
   GATE = 12;                  // hops.md §4.3
   ALIAS = 13;                 // alias.md §1
+  NAME = 14;                  // name.md §3.2
+  CLAIM = 15;                 // name.md §4.2
 }
 
 message KadRequest {          // type 3
@@ -172,6 +175,7 @@ message Store {
   Signed   anon = 10;         // ANON or GATE; `signer` is always present      hops.md §4.3
   repeated Signed aliases = 11;   // ALIAS                                     alias.md §1
   repeated HttpSource links = 12; // SOURCE: links at file hosters; 3 per publisher and file   hoster.md §2
+  repeated Signed names = 13;     // NAME or CLAIM                             name.md §3.2, §4.2
 }
 
 message Note {
@@ -191,7 +195,7 @@ message KadAnswer {           // type 4
   repeated bytes  keys = 9;   // 32 B publisher keys, referenced by Signed.key
   repeated StoreResult results = 10;  // one per record of the Store, in order, then one per target of `also`; absent = all stored; entries missing from a shorter list read as STORED
   bool   spill = 11;          // this node answered FULL for this target within the last record lifetime
-  repeated uint32 sites = 12; // one per entry of `files`, of `sets` in a MEMBER answer, or of `aliases`: publisher sites counted; 0 = not counted
+  repeated uint32 sites = 12; // one per entry of `files`, of `sets` in a MEMBER answer, of `aliases`, or of `names` in a CLAIM answer: publisher sites counted; 0 = not counted
   repeated HttpSource http = 13;  // SOURCE search: HTTP sources; 16 per answer   http-source.md §2
   repeated Signed sets = 14;  // answer to a search of kind HEAD, HIDDEN, PART or MEMBER   file-set.md §5.2
   repeated bytes  friends = 15;   // answer to a search of kind FRIEND          friend.md §4
@@ -199,6 +203,7 @@ message KadAnswer {           // type 4
   Signed gate = 17;           // GATE search                                   hops.md §4.3
   repeated Signed aliases = 18;   // answer to a search of kind ALIAS          alias.md §1
   repeated HttpSource links = 19; // SOURCE search: links at file hosters; 16 per answer   hoster.md §2
+  repeated Signed names = 20;     // answer to a search of kind NAME or CLAIM  name.md §3.2, §4.2
 }
 
 enum StoreResult {
@@ -226,6 +231,8 @@ message Record {
   Part     part = 9;          // PART                                          multi-author-set.md §3.4
   Gates    gates = 10;        // GATE                                          hops.md §4.3
   Alias    alias = 11;        // ALIAS                                         alias.md §1
+  Name     name = 12;         // NAME                                          name.md §3.2
+  Claim    claim = 13;        // CLAIM                                         name.md §4.2
 }
 
 message Signature {
@@ -559,6 +566,70 @@ message Alias {
 }
 
 // ---------------------------------------------------------------------------------------
+// Readable names (name.md)
+// ---------------------------------------------------------------------------------------
+
+message Delegation {
+  bytes  key = 1;             // 32 B Ed25519 signing key                      name.md §2
+  uint64 issued = 2;          // Unix time in seconds
+  uint64 expires = 3;         // Unix time in seconds; at most 90 days after `issued`
+  uint64 scope = 4;           // bit 0: NAME records; every other bit is reserved
+  repeated Signature sigs = 5;    // by the root key, over "ed3k v1 delegation" ‖ root key(32) ‖ key(32) ‖ issued(8) ‖ expires(8) ‖ scope(8)
+}
+
+message Name {
+  bytes  zone = 1;            // 32 B root key of the zone                     name.md §3.2
+  string label = 2;           // the name in the zone, lower-case labels joined by "."; empty = the apex
+  uint64 seq = 3;             // version, higher = newer
+  repeated string links = 4;  // ed3k links the name stands for; at most 4, each at most 512 B, one per kind of link
+  bytes  sub = 5;             // optional: 32 B root key of the zone that holds the names below this one
+  Delegation delegation = 6;  // present when a signing key signed the record
+}
+
+message Claim {
+  string name = 1;            // a global label, without ".ed3k"               name.md §4.2
+  bytes  zone = 2;            // 32 B root key of the zone the publisher says it stands for
+}
+
+message NameQuery {           // type 44
+  repeated string names = 1;  // global labels, without ".ed3k"; at most 16    name.md §4.3
+}
+
+message NameAnswer {          // type 45
+  repeated NameHit hits = 1;  // at most one per name asked                    name.md §4.3
+  string list = 2;            // optional: ed3k:set link of the name list this node publishes
+}
+
+message NameHit {
+  string     name = 1;        // name.md §4.3
+  bytes      zone = 2;        // 32 B
+  NameSource source = 3;
+  uint64     since = 4;       // Unix time since when the node holds it; 0 = not told
+}
+
+enum NameSource {
+  NAME_NONE = 0;              // name.md §4.3
+  NAME_OWN = 1;               // the node's own zone
+  NAME_PETNAME = 2;           // a petname of its user that is a global label
+  NAME_PINNED = 3;
+  NAME_LISTED = 4;            // a name list its user follows
+}
+
+// The name list file is "ed3knam" ‖ 0x01 ‖ NameList (name.md §4.5).
+message NameList {
+  string title = 1;           // name.md §4.5
+  string comment = 2;
+  uint64 created = 3;         // Unix time in seconds; 0 = not told
+  repeated NameEntry entries = 4;
+}
+
+message NameEntry {
+  string name = 1;            // a global label, without ".ed3k"               name.md §4.5
+  bytes  zone = 2;            // 32 B
+  string note = 3;            // at most 256 B of UTF-8
+}
+
+// ---------------------------------------------------------------------------------------
 // Live streams (live.md)
 // ---------------------------------------------------------------------------------------
 
@@ -723,7 +794,7 @@ message RoomInfo {
   string about = 4;           // at most 1,024 B of UTF-8
   repeated bytes mods = 5;    // 32 B member keys of the moderators; at most 8
   bool   closed = 6;          // only admitted members join, read and post; a room with a secret only
-  bool   moderated = 7;       // only admitted members post
+  bool   moderated = 7;       // only admitted members post and are listed present
   bytes  banned = 8;          // n × 16 B member IDs banned for good, ascending, each once; at most 4,096
 }
 
@@ -774,7 +845,7 @@ message RoomJoin {            // type 42
   bytes  relays4 = 3;         // n × 22 B compact nodes: my relays, if I am a leaf
   bytes  relays6 = 4;         // n × 34 B
   bytes  proof = 5;           // private and closed room: 16 B, H("ed3k v1 room join", k ‖ joiner's node ID ‖ peer's node ID)[0..16)
-  uint64 since = 6;           // `sent` of the newest post I hold; 0 = none   room.md §4.3
+  uint64 since = 6;           // my clock when I last had a neighbour of this room; 0 = never   room.md §4.3
   uint64 info_seq = 7;        // seq of the room info I hold; 0 = none
 }
 

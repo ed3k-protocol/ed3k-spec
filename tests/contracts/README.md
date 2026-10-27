@@ -10,8 +10,8 @@ The stake token's tests are in `test/Stake.t.sol`.
 
 - Foundry (`forge`, `cast`, `anvil`), tested with 1.5.1 and 1.8.6. `foundry.toml` turns
   `dynamic_test_linking` off: 1.8 rewrites `new` in tests and then sees two `IOperators`
-  types. Under 1.8.6 the two `test_reentrantMinter_*` tests fail, at the commit before the
-  stake token too: the mock minter runs out of its 60,000 gas before it re-enters.
+  types. 1.8 also runs each call of a test as its own transaction, so storage is cold; the
+  re-entering mock minter keeps its calldata in code to fit the 60,000 gas of a mint.
 - solc 0.8.37. Foundry fetches it, or point `FOUNDRY_SOLC` at a local binary and add `--offline`.
 - forge-std in `lib/` (not tracked):
 

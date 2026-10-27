@@ -253,7 +253,8 @@ What ZeroNet adds is outside the transfer:
 
 - **A viewer.** The client serves the files to a browser from a local port and keeps sites
   apart from each other. In ed3k this would be a function of a client. It needs nothing on the
-  wire.
+  wire. [`name.md`](../extensions/name.md) §6 now says how a client hands a set to the
+  browser, with one origin per set.
 - **A database.** A site that ships a schema file gets an SQLite database on every visitor's
   machine. The client fills it from the site's JSON data files, and the site's scripts query
   it through the client. Only `SELECT` is accepted. The database is an index built locally; it
@@ -266,9 +267,9 @@ What ZeroNet adds is outside the transfer:
 |---|---|---|
 | I2P | Choosing peers by measured speed and capacity, kept in profiles | `hops` measures whole paths and replaces the slowest ([`hops.md`](../extensions/hops.md) §2.1); it keeps no profile per hop. Which source or relay a node prefers is its own policy |
 | I2P | Routers of one operator declare a family, so that no tunnel uses two of them | `hops` keeps the hops of a path in different sites and blocks (`hops.md` §2.1). A family is declared only by operators who are honest anyway |
-| I2P | Names for services: a local address book, fed by lists the user subscribes to | a name service is not part of ed3k. A link carries the key, and a client may let its user name a key |
+| I2P | Names for services: a local address book, fed by lists the user subscribes to | taken later: petnames and name lists that a user follows ([`name.md`](../extensions/name.md) §4) |
 | I2P | Updates of the router, signed and fetched through the network | outside the protocol. A client could follow a signed set for its releases |
-| ZeroNet | Names through a blockchain | as above; and a second network that every node would depend on |
+| ZeroNet | Names through a blockchain | a second network that every node would depend on; [`name.md`](../extensions/name.md) §10 |
 | ZeroNet | Site code and client updates delivered as sites | ed3k carries files. Nothing received from the network is run |
 | ZeroNet | Identity through certificate issuers, for every use | a key is an identity (§6.1). An issuer appears only where the owner of a set asks for one (section 2.4) |
 | ZeroNet | Sites merged into one view; cloning a site | a function of a client |

@@ -445,7 +445,7 @@ first stream has the number 0, and its records follow the three messages of §3.
   implementation sends for every hidden node; `caps` never holds `ROUTER`, `RELAY` or `HOP`
   (§1). An implementation that has an extension sets its bit there, also when the user turned
   it off: a node under its anonymous key that takes no part answers as a node that takes part
-  in nothing (`TOPIC_LEFT`, `LIVE_LEFT`, no `credit` field), not `Error{UNSUPPORTED}`. A `Peer` that names it carries its node ID alone, and its `FileRequest`s carry no
+  in nothing (`TOPIC_LEFT`, `LIVE_LEFT`, `ROOM_LEFT`, no `credit` field), not `Error{UNSUPPORTED}`. A `Peer` that names it carries its node ID alone, and its `FileRequest`s carry no
   `relays4` or `relays6`. Anything else would tie the two keys. A receiver that sets `ANON`
   treats a `Peer` with a node ID alone as an anonymous source and looks up its `GATE` record
   under the limits of §4.3; any other receiver drops it.
@@ -562,7 +562,7 @@ Signed gate = 17;             // GATE search
 
 | | `ANON`: an anonymous source of a file | `GATE`: where an anonymous node is reached |
 |---|---|---|
-| Target | `root[0..16)`, as for `SOURCE`; `topic` or `stream` in place of a `SUB` or `LIVE` record ([`pubsub.md`](pubsub.md) §5, [`live.md`](live.md) §5.1) | `H("ed3k v1 gate", node ID)[0..16)` |
+| Target | `root[0..16)`, as for `SOURCE`; `topic`, the target of a room or `stream` in place of a `SUB` or `LIVE` record ([`pubsub.md`](pubsub.md) §5, [`room.md`](room.md) §5, [`live.md`](live.md) §5.1) | `H("ed3k v1 gate", node ID)[0..16)` |
 | Signed by | the anonymous key | the anonymous key; the target of the request MUST follow from `signer` |
 | Content | `expires` and nothing else | `expires` and `gates` |
 | Lifetime | 5 h *(initial)*, as `SOURCE` | 1 h *(initial)* |

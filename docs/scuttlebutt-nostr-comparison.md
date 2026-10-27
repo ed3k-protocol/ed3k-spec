@@ -24,7 +24,7 @@ that ed3k has left open as well: neither can replace a key (section 4).
 | Signed things with versions, followed by key; push; lists; requests; networks | both | has it | 2 |
 | A hint in a link where the thing is found | Nostr | looked at, not taken now | 3.1 |
 | Each version names the one before | Scuttlebutt | looked at, not taken now | 3.2 |
-| Names through a web domain | Nostr | looked at, not taken now | 3.3 |
+| Names through a web domain | Nostr | taken later, in [`name.md`](../extensions/name.md) §5 | 3.3 |
 | A notice that withdraws something | Nostr | looked at, not taken now | 3.4 |
 | A key that stays on another device and signs on request | Nostr | looked at, not taken now | 3.5 |
 | Asking friends of friends for a file | Scuttlebutt | looked at, not taken now | 3.6 |
@@ -93,6 +93,9 @@ server, which maps names to keys, and shows the name when the key matches.
 |---|---|
 | readable names for authors and friends, checked by anyone, with no registry | a fetch over HTTPS outside ed3k, which a network operator sees |
 | the domain is something a user may already trust | whoever controls the domain or its server can put another key behind a name |
+
+Taken later in [`name.md`](../extensions/name.md) §5, with a DNS record beside the file at the
+web server, and pins that warn when a domain's key changes.
 
 A certificate issuer of a set with open parts
 ([`multi-author-set.md`](../extensions/multi-author-set.md) §3.2) is a narrower form: it

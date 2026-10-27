@@ -1,7 +1,7 @@
 // Generator of the values in ../vectors-v1.md that were added on 2026-10-13: routing ID,
 // whole datagrams, trees, tokeniser targets, sets, torrent manifest, hidden set, friend
 // records, LAN announce, key conversion, hop keys, live segment; ext.rs, paid.rs, reject.rs, pair.rs
-// (hop session, friend pair), credit.rs (credit signatures) and room.rs (rooms) print
+// (hop session, friend pair), credit.rs (credit signatures), room.rs (rooms) and name.rs (names) print
 // the later batches as markdown. The older values of that
 // file (targets, obfuscation keys, user hash, the signed KEYWORD record) are only asserted
 // here where a new value builds on them.
@@ -23,6 +23,7 @@ mod ext;
 mod paid;
 mod pair;
 mod reject;
+mod name;
 mod room;
 
 fn hx(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }
@@ -255,4 +256,5 @@ fn main() {
     pair::run(&pk1, &seed1, &pk2, &seed2);
     credit::run();
     room::run(&pk1, &pk2, &seed2);
+    name::run(&pk1, &seed1, &pk2, &seed2);
 }
