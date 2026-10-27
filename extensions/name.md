@@ -1,6 +1,6 @@
 # Extension: readable names (`name`)
 
-**Status:** draft 0.1 (2026-10-27). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-10-27, after the audit of that day). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §10.1, §10.3, §10.7 and §13.2, and [`file-set.md`](file-set.md) §5. Section numbers (§) refer to this document unless a document is named.
 **Capability:** bit 20, `NAMES`: answers `NameQuery` (§4.3). Message types 44 and 45; record kinds 14 `NAME` and 15 `CLAIM`; two fields in `Record`, one in `Store`, one in `KadAnswer`; a name list file format; `ed3k:name` links; a DNS record and a file at a web server.
 **Required of every `ROUTER`:** storing and returning the record kinds `NAME` and `CLAIM` (§3.2, §4.2). The rest is optional.
@@ -452,14 +452,17 @@ message NameEntry {
 
 - A member of a followed set is a name list when it is at the top level of the set, is not an
   inner set, has a name ending in `.ed3knam`, starts with the 8 bytes above and is at most 4 MiB
-  *(initial)*.
+  *(initial)*. Of a set, the first 64 *(initial)* such members in the order of `files` are read,
+  at most 64 MiB *(initial)* together, as for filter lists.
 - A reader refuses a list with more than 100,000 *(initial)* entries, a `name` that is not a
   global label, or a `zone` that is not 32 bytes. Of two entries for one name the first counts.
-- A client follows at most 32 *(initial)* sets of lists, and only those its user chose. A list
+- A client follows at most 32 *(initial)* sets of name lists, apart from the sets of filter
+  lists, and only those its user chose, in an order the user sets and that is kept across
+  restarts (§4.1: the first one wins). A list
   a friend names in `NameAnswer.list` is a list of that friend: it counts for source 4, and the
   client follows it as source 3 only when the user chooses so.
-- A user's petnames that are global labels and the names it vouched for can be published as a
-  list of its own, which is what `NameAnswer.list` points to.
+- A user's shareable petnames and the names it vouched for can be published as a list of its
+  own, which is what `NameAnswer.list` points to.
 
 ---
 
@@ -485,10 +488,12 @@ alice._ed3k.example.com.  3600 IN TXT "v=ed3k1 ed3k:friend?key=hvabpq7iioevvevxb
   result is read. It is `v=ed3k1`, one space and one link; anything else is not a record of
   this document and is ignored. The joined record is at most 1,024 B *(initial)*.
 - `<local>` is 1 to 63 bytes of `a`–`z`, `0`–`9`, `-` and `_`.
-- The link is one that names a key: `ed3k:name` with `key`, `ed3k:set`, `ed3k:friend`,
+- The link is one that names a key or a node ID: `ed3k:name` with `key`, `ed3k:set`, `ed3k:friend`,
   `ed3k:room`, `ed3k:live`, `ed3k:node`, or an `ed3k:file`. An `ed3k:name` without `key`, or a
   link that carries a secret, is ignored: a domain does not point at another name it cannot
-  vouch for, and what DNS holds is public.
+  vouch for, and what DNS holds is public. The `r` of an `ed3k:friend` link is not refused: a
+  user that publishes it lets anyone who reads the record send it friend requests
+  ([`friend.md`](friend.md)), which is what a public handle is for.
 - A domain may have several records, one per kind of link. A client uses at most 4
   *(initial)*. Two records of one kind with different links make that kind unusable, and the
   client says so.
@@ -523,7 +528,7 @@ GET https://<domain>/.well-known/ed3k.json
 A record in DNS can be forged on the path to the resolver unless DNSSEC protects it; that is
 why [`bootstrap.md`](bootstrap.md) does not take node lists from DNS. The file at the web server
 is protected by TLS. A client compares the **key** of the links (the key of a zone, a set, a
-friend, …; the root of an `ed3k:file`), not the link text.
+friend, …; the root of an `ed3k:file`; the node ID of an `ed3k:node`), not the link text.
 
 | Evidence | Shown as |
 |---|---|
@@ -578,16 +583,33 @@ the browser there.
   for an `id`). Browsers keep cookies, storage and permissions per origin, so one site cannot
   read another's. The origin follows the key and not the name: a name that comes to lead to
   another key does not hand the new site what the old one stored.
+- The port is part of the origin. The client picks it once and keeps it across restarts, else
+  every site loses what it stored.
 - A client MAY also answer a readable host, `<name>.ed3k.localhost` or `<domain>.web.localhost`,
   with nothing but a redirect (302) to the origin of the set the name leads to. It serves no
   content under such a host.
 - Where `*.localhost` does not reach the loopback address in a browser, the client gives each
-  set a port of its own instead.
+  set a loopback address of its own (`127.x.y.z`) where the system routes them, as Linux and
+  Windows do. Elsewhere it gives each set a port of its own, and tells the user that sites then
+  share cookies: browsers keep cookies per host, not per port.
 - **Only GET and HEAD**, else 405. A request whose `Host` is not a host the client serves on
   that port is answered 421, so that a page on the web that makes a browser resolve its own
   name to the loopback address (DNS rebinding) reaches nothing. The port serves websites and
   nothing else: no part of the client's own interface is reachable on it, and no answer carries
   a CORS header.
+- **Who may make it work.** Resolving a name and downloading a set happen only for the user. The
+  client reads `Sec-Fetch-Site`, `Sec-Fetch-Mode` and `Sec-Fetch-User`:
+
+  | Request | Answer |
+  |---|---|
+  | `Sec-Fetch-Site: none` (the user typed it, or the client opened it), or a navigation with `Sec-Fetch-User: ?1` (the user followed a link) | served; a readable host is resolved (§4, §5), a set not held is fetched |
+  | `same-origin`, or `same-site` (another set of the same key) | served; members not held are fetched |
+  | anything else, or no `Sec-Fetch-Site` | 403, also for what the client holds |
+
+  A page on the web, or a site in ed3k of another key, then cannot make the client ask DNS, a
+  web server or friends for a name (§5.3), fetch a set, or tell from an answer which sets the
+  client holds. A browser that sends no `Sec-Fetch-Site` gets nothing; the client tells the user
+  that websites need a browser that sends it.
 
 ### 6.3 Paths and bytes
 
@@ -596,17 +618,21 @@ the browser there.
   is `index.html` in it, then `index.htm`. A path the set does not hold is answered with the
   member `404.html` at the top level and status 404, or a plain 404.
 - **Only verified bytes are sent.** A member the client does not have yet is downloaded at
-  once, before other downloads, and sent as its blocks pass under the root, in the order of
-  `Protocol.md` §12.6. Range requests are answered from verified blocks. A member that is not
+  once, before other downloads, and sent as its blocks pass under the root, in file order, as
+  the window of `Protocol.md` §12.6 does for media. Range requests are answered from verified blocks. A member that is not
   there within 60 s *(initial)* is answered 504.
 - Headers: `Content-Type` by the extension of the member's name from a fixed table, and
   `application/octet-stream` for any other; `X-Content-Type-Options: nosniff`;
   `Referrer-Policy: no-referrer`; `ETag` with the member's root in base32; `Cache-Control:
   no-cache`.
 - **Content-Security-Policy** `default-src 'self' data: blob:; form-action 'self';
-  frame-ancestors 'self'` by default. A page then loads nothing from the internet, which would
-  tell a server of the page's choice that this user is reading it, and from which address. The
-  user MAY relax this per site.
+  frame-ancestors 'self'; webrtc 'block'` by default. A page then loads no images, scripts,
+  styles or frames from the internet, which would tell a server of the page's choice that this
+  user is reading it, and from which address. The user MAY relax this per site, and MAY turn
+  scripts off per site (`script-src 'none'`).
+- What the policy does not stop, while scripts run: a script that navigates the page or opens a
+  window to an address on the web, and WebRTC in browsers that do not know `webrtc 'block'`.
+  Both reveal the reader's address to that server (§8).
 - A new version of the set is served from the first request after its manifest is complete.
 
 **Code.** The client runs nothing it received ([`alias.md`](alias.md) §5, rule 10). A page may
@@ -620,12 +646,16 @@ it runs the scripts of any web page. The client's part is the bytes and the head
   records for each member is its normal policy; the sources of the manifest are asked first.
 - The space this takes is the user's choice, 2 GiB by default. The sites viewed longest ago go
   first; a set the user follows goes only when the user removes it.
-- **Short slots.** A website is many small files, and an upload queue makes each one wait.
-  Queueing is local policy (`Protocol.md` §12.1, §12.5), so an uploader SHOULD keep up to 4
-  *(initial)* short slots beside its regular ones: a `FileRequest` for a member of at most one
-  block (256 KiB) of a set it shares gets `rank` = 0 at once when a short slot is free, and the
-  short slot ends with that file. A downloader gets at most 32 *(initial)* short slots per
-  minute from one uploader.
+- **Short slots.** A website is many small files, and an upload queue makes each one wait. The
+  order of the queue and the number of slots are local policy (`Protocol.md` §12.1, §12.5), so
+  an uploader SHOULD keep up to 4 *(initial)* short slots beside its regular ones: a
+  `FileRequest` for a member of at most one block (256 KiB) of a set it shares is answered with
+  a `FileStatus` of `rank` = 0 at once when a short slot is free.
+- A short slot is the exception to the rule of `Protocol.md` §12.5 that a slot belongs to the
+  downloader: it belongs to that one file, ends when its stream closes, without the hold of
+  §12.5, and is not kept for a `FileRequest` of another file, which goes into the queue (or
+  takes another short slot). A downloader gets at most 32 *(initial)* short slots per minute from
+  one uploader.
 
 ---
 
@@ -650,12 +680,16 @@ open point (§11).
 - **Claim a global name** from many sites. The network then shows the attacker's zone to users
   who have no pin, no list and no friend that knows the name. They see *network only* and
   confirm before the first open (§4.1). Users with a pin get a warning, and the pin decides.
-- **Fill a `CLAIM` target** with 64 zones, from at least 8 sites. The order by publisher sites
-  puts the zones that honest nodes of many sites name first.
+- **Fill a `CLAIM` target** with 64 zones, from at least 8 sites. Each of those zones has one
+  site, and gives way to a new zone (§4.2); the order by publisher sites puts the zones that
+  honest nodes of many sites name first.
 - **Hide a newer `NAME` record.** A storing node can withhold a record but cannot change one; a
   searcher asks R nodes (`Protocol.md` §10.4) and takes the newest. Old versions live until
   their `expires`.
-- **Take a signing key.** The owner signs a new delegation, and every record under it wins (§2).
+- **Take a signing key.** The thief signs records for any name of the zone, also names it never
+  used. The owner signs a new delegation and stores the apex under it; searchers then refuse
+  every record under the old one (§2, §3.3). Until then the thief's records count. Withholding
+  the new apex from a searcher needs every node it asks.
 - **Take a root key.** The zone is the thief's. Nothing in the protocol can tell users; a zone
   that keeps its root key offline makes this hard.
 - **Lie as a friend.** One friend is one voice of *k of n*. A friend's answer is never passed
@@ -665,8 +699,12 @@ open point (§11).
 - **Imitate a site**: a site that looks like another one, at a name that looks alike. Names are
   ASCII (§1.1), and the client shows how it resolved each name, but the browser shows only the
   origin.
-- **Abuse the local server.** A page on the web cannot read it (no CORS, a check of `Host`); a
-  site in ed3k cannot read another (one origin per set) or reach the client's interface (§6.2).
+- **Abuse the local server.** A page on the web cannot read it (no CORS, a check of `Host`), nor
+  make it resolve names or fetch sets (`Sec-Fetch-*`); a site in ed3k cannot read another (one
+  origin per set) or reach the client's interface (§6.2).
+- **Learn who reads a site**, as its author: a script that navigates to the web, or WebRTC in a
+  browser without `webrtc 'block'`, reveals the reader's address (§6.3). A user that turns
+  scripts off for the site closes both.
 
 ---
 
@@ -674,11 +712,11 @@ open point (§11).
 
 | | |
 |---|---|
-| A name under a key | one Kad lookup per label; one record of about 200 B per name, 320 B with a delegation |
+| A name under a key | one round of Kad lookups (the apex and each suffix, at once); one record of about 200 B per name, 320 B with a delegation, 1 KiB at most |
 | A global name | nothing when pinned; else a `NameQuery` to online friends and one lookup of claims |
 | A name from the web | one DNS query and one HTTPS fetch, outside ed3k |
-| Records per zone | one per name, stored by the owner and by those who pinned it once per 24 h |
-| Claims | one per vouched name and publisher, about 150 B, once per 24 h |
+| Records per zone | one per name and the apex, stored by the owner and by those who opened it once per 24 h |
+| Claims | one per vouched name and publisher, about 120 B, once per 20 h |
 | Trust added | none that a user did not choose: own names, lists, friends, a domain. The network's count is shown as such |
 
 ---

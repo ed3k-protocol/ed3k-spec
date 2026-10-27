@@ -2606,7 +2606,8 @@ not, or the connection is lost, the uploader closes the stream. The entry is the
 
 - A downloader that holds a slot (`rank` = 0) MAY open a file stream for another file. It
   replaces the open one, and the uploader MUST keep the slot: the bytes and the time of the
-  turn go on counting across files.
+  turn go on counting across files. A short slot for a member of a website is the one
+  exception ([`extensions/name.md`](extensions/name.md) §6.4).
 - The uploader answers the new `FileRequest` with `rank` = 0, or with `Error{NOT_FOUND}`;
   after `NOT_FOUND` the slot stays on the old stream, or is held as above when there is none.
 - The downloader SHOULD set `brief` when it knows size and name.
@@ -2989,7 +2990,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Diversity, per host / site / block: whole routing table | 1 / 10 / 20 |
 | Diversity: a host group whose contact was removed is not admitted under another node ID for; removed host groups remembered for | 1 h; 1 h |
 | Diversity: `SOURCE` records per file and `LIVE` and `SUB` records per target, `ANON` records per target, `KEYWORD` and `NOTE` publishers counted per entry, per host / site | 8 / 32, 4 / 8, 1 / 1 |
-| Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held | 1,024 / 4,096, 64 / 256 |
+| Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held, `NAME` records held | 1,024 / 4,096, 64 / 256, 1,024 / 4,096 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families, relays and gates), per host / site / block; per host and hour over all files | 2 / 4 / 8; 8 |
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias and claim, live, subscriber, gate, head and hidden head and part and name | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
 | Search answer: keyword records, notes, sources and anonymous sources together at most; paging secret replaced every | 100, 100, 100; 24 h |
@@ -3052,8 +3053,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Publish and subscribe: on-air notice `expires` after `issued` at most, sent every, highest `issued` remembered after `expires`; `SUB` record stored every | 15 min, 5 min, 1 h; 30 min |
 | Local network: group IPv4 / IPv6, port, announce every, multicast announces per interface at most, announce datagram at most, reply wait up to, replies per node, replies per minute, LAN peer kept, LAN peers at most, new per minute | 239.255.101.51 / ff02::6533:6b, 6533, 5 min, 1 per minute, 512 B, 1 s, 1 per 5 min, 10, 15 min, 256, 10 |
 | Local network: `LanQuery` per peer, once more on a new download, roots per query | 1 per 10 min, 1 per minute, 256 |
-| Names: labels per name, label, name at most; zones followed, lookups per name; links per record, link at most; `NAME` `expires` ahead at most, stored again every; delegation from `issued` to `expires` at most, `issued` ahead at most | 8, 63 B, 253 B; 8, 16; 4, 512 B; 7 days (+1 h), 24 h; 90 days, 1 h |
-| Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at | 3–63 B; 2 / 8 / 64, 3, 16, 255 |
+| Names: labels per name, label, name at most; zones followed, lookups per name; links per record, links of a record together at most; `NAME` `expires` ahead at most, stored again every; delegation from `issued` to `expires` at most, `issued` ahead at most | 8, 63 B, 253 B; 8, 24; 4, 512 B; 7 days (+1 h), 24 h; 90 days, 1 h |
+| Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at, a claim stored again every | 3–63 B; 2 / 8 / 64, 3, 16, 255, 20 h |
 | Names, friends and lists: names per `NameQuery`, queries answered per peer, a pinned name asked of friends again; sets of lists followed, list file at most, entries per list, `note` at most | 16, 1 per 10 s, 1 per 24 h; 32, 4 MiB, 100,000, 256 B |
 | Names from the web: TXT record at most, links used per domain, `ed3k.json` at most, its fetch, kept at most | 1,024 B, 4, 64 KiB, 10 s, 24 h |
 | Websites: member awaited, cache by default; short slots per uploader, member at most, short slots per downloader and minute | 60 s, 2 GiB; 4, 256 KiB, 32 |
