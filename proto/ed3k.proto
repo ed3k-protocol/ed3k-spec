@@ -610,8 +610,8 @@ message NameHit {
 enum NameSource {
   NAME_NONE = 0;              // name.md §4.3
   NAME_OWN = 1;               // the node's own zone
-  NAME_PETNAME = 2;           // a petname of its user that is a global label
-  NAME_PINNED = 3;
+  NAME_PETNAME = 2;           // a petname its user marked as shareable, a global label
+  NAME_PINNED = 3;            // a pin its user vouched for
   NAME_LISTED = 4;            // a name list its user follows
 }
 
