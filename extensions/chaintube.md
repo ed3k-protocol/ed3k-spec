@@ -376,7 +376,7 @@ of the ChainTube backend. The profile contract is the one the comment contract n
 | May this account comment here | content contract `canPost(uint256 contentId, address account)`: entry exists, not `blocked`, no `blocked` entry above, not `closed` unless account is moderator |
 | Is a profile needed | comment contract `requireProfile()`, `profileContract()`; then that profile contract's `getUserByAddress(address)`, `userId` 0 = no profile |
 | How long a vote can be changed | vote contract `voteUpdatePeriod()`, seconds; 0 = always |
-| Forward a site's request | forwarder `execute`; `getNonce(address from)` reads an account's next nonce |
+| Forward a site's request | forwarder `execute`; `getNonce(address from)` reads an account's next nonce; `verify(ForwardRequest, bytes signature)` returns true when signed by `from`, `nonce` is the next and `deadline` not passed. `ForwardRequest` = `(address from, address to, uint256 value, uint256 gas, uint256 nonce, uint256 deadline, bytes data)`, signed as EIP-712 typed data, domain `TubeForwarder`, version `1` |
 
 ABI published with the ChainTube backend (`github.com/ChainTube/stream-daemon`,
 `chain/contracts/abi/`); signatures above taken from it. Getters return values flat, not as a
@@ -473,8 +473,11 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
   - `from` = the sending account. A client not knowing it (wallet elsewhere) runs no estimate.
   - A site-sent request (§10, *Who pays the fee*) is estimated as the call it carries: `from` =
     the account, at `to`, with `data` and `value`. Plus `verify` (`eth_call` at the forwarder)
-    over the signed request: false → client does not hand it to the site.
-  - Several providers asked: highest gas, highest `timestamp`; a revert at any refuses the write.
+    over the signed request: false → client does not hand it to the site. Nor when the request's
+    `gas` is below the estimate (the inner call would run out and revert).
+  - Several providers asked: highest gas, the newest block's highest `timestamp`; a revert, a
+    `verify` false or another JSON-RPC error at any refuses the write. Only a transport failure
+    or timeout is asked again.
 - **`setModerator`** has no own getter: `isModerator` is true via parents too. Done when its
   `ModeratorSet` log, `contentId`, `moderator`, `enabled` as written, is in the receipt at a final
   block; for a site-sent request (§10, *Who pays the fee*), when the newest `ModeratorSet` log of that `contentId` and

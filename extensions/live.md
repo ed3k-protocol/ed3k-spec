@@ -306,6 +306,8 @@ Data is never pushed. Node asks a neighbour whose `have` shows the segment.
   *(initial)*, and serve longest-standing ones first, so each segment leaves it several times
   before late joiners are served. Rate measurement: local policy.
 - Segment SHOULD be 1 to 4 s long. Shorter = less delay, more records and exchanges.
+- A segment over 4 MiB or init data over 256 KiB (§2.1) is not sent: nodes would drop it. The
+  next segment sent carries `gap`. A changed init is sent with `gap` too.
 - Broadcast ends with an `end` record (§2.2). Broadcaster cut off and returning within 10 min
   *(initial)*, before viewers leave (§3.4), MAY continue with the next `seq` of the same
   `start`, and sets `gap`.

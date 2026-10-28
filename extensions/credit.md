@@ -220,10 +220,12 @@ message CreditOffer {
 - A bid stays with the queue entry (`Protocol.md` §12.5), over all its streams. `max_price`
   absent = unchanged; in the queue entry's first `FileRequest` that is no bid. `max_price` = 0
   withdraws it.
-- Bid change = `FileRequest` with another `max_price`, at most once per 30 min *(initial)*; counts as an
-  early return of `Protocol.md` §12.5. Same value or none = no change, not counted. Over the
-  limit: on an open stream ignored (an `Error` would end it); as a new stream's first
-  `FileRequest` answered per `Protocol.md` §12.5.
+- Bid change = `FileRequest` with another `max_price`. A **raise** at most once per 10 min
+  *(initial)*, counted from the last raise. A **lower** `max_price`, `0` included, any time, not
+  counted, so a bidder can stop paying at once. Same value or none = no change, not counted. Over
+  the limit: on an open stream ignored (an `Error` would end it). On a new stream's first
+  `FileRequest` a raise counts as an early return of `Protocol.md` §12.5 and is answered per
+  §12.5; a lower bid is no reason to return early (an entry away pays nothing).
 - A `FileRequest` for another file inside a turn (`Protocol.md` §12.5) keeps the bid; a priority
   turn goes on at the same `price`, `due` keeps counting.
 - A `payer` other than the queue entry's **voids the bid** (§5.2): entry keeps its normal-queue

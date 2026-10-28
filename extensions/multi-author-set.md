@@ -165,7 +165,7 @@ message Mount {
   shows: the one its outer manifest names until a newer is taken. Newer mount version taken
   only once every manifest below it is fetched or refused (a refused one counts nothing), and
   only if it and every mount above stay within limits; else previous kept. A manifest below
-  not fetched yet holds the newer version back; `file-set.md` §2.5 "nothing counted until it
+  not fetched yet holds the newer version back; one the reader holds, verified, counts as fetched; `file-set.md` §2.5 "nothing counted until it
   is" is for display only here.
 - **The outer signature covers the mount, not what will be in it:** this key may fill this
   directory, up to these limits.

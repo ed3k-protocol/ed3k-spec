@@ -349,7 +349,8 @@ message SignedPass {
   learns no joiner's or requester's holder key. It can't tell which other scopes the node pays for, and an
   issuer can't tell which node watches.
 - A multi-scope pass shows all its scopes to every node it's shown to; a client SHOULD tell the
-  user before buying one.
+  user before it first shows one. The offer names one scope, so a client can't know before the
+  pass arrives; a user declining keeps the pass unused.
 - Renewal (§9.2) keeps the holder key. A client MAY make a new one per purchase.
 - A node MAY hold a pass under its anonymous key ([`hops.md`](hops.md) §1); holder key then shown
   under that key only, never the node key. Buying and polling `pass_url` (§9.1) aren't ed3k and

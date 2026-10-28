@@ -148,8 +148,8 @@ one user can help another cut off from every source.
   [`ip-diversity.md`](ip-diversity.md). A list gives no better place in the table.
 - ≤ half the candidates of a first contact from one list, while a second list was received.
   Here and below, a list counts as received only if it gave ≥ 1 candidate. A node in two lists
-  is a candidate of each, dialled once; toward the half of the 4 it counts for the one with
-  fewer nodes counted so far.
+  is a candidate of each, dialled once; toward the half of the 4 it counts for only one of
+  those lists: the one with fewer nodes counted so far.
 - Once 4 *(initial)* nodes completed a handshake, client looks up its own routing ID (§6.3,
   §10.3), once per public address. With > 1 list received, ≤ half of the 4 from one list:
   further nodes of it don't count toward the 4, client waits for nodes from elsewhere ≤ 30 s

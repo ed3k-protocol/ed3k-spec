@@ -91,9 +91,7 @@ enum Verdict {
   not downloaded again, so an author of a large list MAY split it into several files and change
   only some.
 - A client follows at most 32 *(initial)* sets of lists and reads at most 64 *(initial)* list
-  files per set, the first ones as above. List files read total at most 64 MiB
-
- *(initial)*,
+  files per set, the first ones as above. List files read total at most 64 MiB *(initial)*,
   counted by manifest `size`, and a list opened by hand by its file length. Lists count in the
   order the user followed/opened them, kept across restarts; one that would go beyond is not
   read. A list opened by hand is not one of the 32. A new version that would go beyond is not
@@ -101,7 +99,8 @@ enum Verdict {
 - A list file opened by hand, without a set, MAY be used; it has no author and no updates, and
   the client says so.
 - A user's own verdicts are their own list, kept by the client. A client MAY let the user
-  publish it as a set; that is how lists come into being.
+  publish it as a set; that is how lists come into being. Its author key SHOULD be its own key,
+  not the node key, so the list does not name the node.
 
 ---
 

@@ -544,7 +544,8 @@ so the web server serves it as is ([`chaintube.md`](chaintube.md) §2).
 ### 6.1 What is a website
 
 A name or `ed3k:set` link leads to a website when its set's manifest has top-level member
-`index.html`, else `index.htm`. Client follows its head ([`file-set.md`](file-set.md) §5.3). Any
+`index.html`, else `index.htm`. Client follows its head ([`file-set.md`](file-set.md) §5.3) while
+the site is shown or held (§6.4); that is not a set the user follows. Any
 other set is shown as a set, for download ([`file-set.md`](file-set.md) §2.3).
 
 ### 6.2 The local server
@@ -624,8 +625,8 @@ Client's part: bytes and headers above.
 - Client keeps and shares members it fetched for a website, and the manifest, as any download
   ([`file-set.md`](file-set.md) §3). Publishing source records per member is its normal policy;
   manifest sources asked first.
-- Space: user's choice, 2 GiB default. Longest-ago viewed sites go first; a followed set only when
-  the user removes it.
+- Space: user's choice, 2 GiB default. Longest-ago viewed sites go first; a set the user chose to
+  follow only when the user removes it.
 - **Short slots.** A website is many small files; an upload queue makes each wait. Queue order
   and slot count are local policy (`Protocol.md` §12.1, §12.5), so an uploader SHOULD keep ≤ 4
   *(initial)* short slots beside regular ones: a `FileRequest` for a member of ≤ one block (256

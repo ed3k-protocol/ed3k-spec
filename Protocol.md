@@ -2335,8 +2335,9 @@ closes the old stream only after answering the new one's first `FileRequest` wit
 `FileStatus`, first finishing the `Block` it is sending on the old one. Old stream's outstanding
 ranges are then void; ranges count from 0 on the new one. A `Block` cut short on a replaced
 stream isn't a protocol fault (§12.3). If uploader answers the new stream with an `Error`
-(`NOT_FOUND`, or `MALFORMED` for a bad bid), the entry stays as it was, with the old file and
-its stream.
+(`NOT_FOUND`, `BUSY`, or `MALFORMED` for a bad bid), the entry stays as it was, with the old file
+and its stream. While queued, a switch counts in the 30 min budget of an early return (below),
+connected or not; a slot holder switches freely.
 
 **Stay or come back.** The first `FileStatus` to a queued downloader carries `recheck`; a later
 one carries it when it changes:
@@ -2792,7 +2793,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Kad: bucket refreshed after, contact verified again after, second attempt after failed one | 60 min, 60 min, 5 min |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
 | Kad: records in one `Store` max; terms in `all` and `none` of `Query` together max | 256; 64 |
-| Source records: targets in `also` per request and per batch, stored again after last successful store, max, nodes that must store before target needs its own lookup | 256, 4 h, 4 |
+| Source records: targets in `also`, max per request and per batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 4 h; 4 |
 | Diversity, per host / site / block: bucket, answer | 1 / 2 / 4 |
 | Diversity, per host / site / block: lookup, counted over its closest set | 1 / 2 / half of R (2 for a search, 4 for a store) |
 | Diversity, closest set | as the lookup ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.3) |
@@ -2877,7 +2878,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | First contact: saved contacts, fetch lists when fewer than N answered / max per first contact, list max, redirects followed, `created` max old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (max half from one list, for max), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
 | Finding known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of record or request max ahead, record stored every, lookup of friend max, sealed values opened per search max | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of set; results until link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
-| Credits: tranche, priority slots max, time for payment (from `FileStatus` with `price` or `due`), bid change, ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 30 min, 10 min |
+| Credits: tranche, priority slots max, time for payment (from `FileStatus` with `price` or `due`), bid raise (a lower bid any time), ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 10 min, 10 min |
 | Credits: void bids before priority is withheld (per node ID), withheld for | 2, 24 h |
 | Credits: bid ends turn that has more left than, rate measured over; uploader's share of payment | 60 s, 10 s; 10 % |
 | Credits, ledger: grace, decay, floor, burned on transfer, settle within (no payment / with payment) | 3 days, 10 % per day, 10 credits, 10 %, 48 h / before the hold's `until` |
