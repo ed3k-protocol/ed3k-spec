@@ -901,6 +901,8 @@ with a credit address of its own:
 - **No burn** (§6.7): a burn is its own transaction; `CreditRelay` carries none. A stake token
   claimed for the anonymous address would be a public link like a transfer: no address the node
   controls names it as `to` of a burn, and the node calls no `claimStake` for it. E3S reaching it anyway stays unused, like gas coin.
+  A node claims the ids of its own burns, `to` known from their `StakeBurned` log; another id (one
+  the user typed) only after reading `stakeClaims(id)`, and not when `to` is the anonymous address.
 
 **A temporary address** is what a hidden node starts with; the rules keeping credits honest
 limit it:
@@ -931,7 +933,7 @@ credits off under its anonymous key.
   buys. They also run chain and bridge.
 - Whether credits and E3S are crypto-assets under a country's law, what payment in them means for
   uploading users, and what setting the rate and running the bridge means for operators **was
-  not checked by a lawyer**. An implementation SHOULD say so where the feature is switched
+  not checked by a lawyer**. An implementation MAY say so where the feature is switched
   on.
 - The chain's native coin is transferable like any EVM chain's; no use but gas at 1 wei.
 

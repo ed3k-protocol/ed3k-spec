@@ -224,10 +224,10 @@ A code not in this table reads as `PROTOCOL`.
 ### 4.2 Why obfuscation is required
 
 QUIC encrypts payload, not shape: the Initial's key derives from a public salt (any observer can
-decrypt it), it is padded to 1200 bytes, short-header packets repeat a connection ID. The Great
+decrypt it), it is padded to 1,200 bytes, short-header packets repeat a connection ID. The Great
 Firewall has decrypted and filtered QUIC Initials since April 2024 and blocks the flow ~180 s on a
 match. Random-byte UDP datagrams don't trigger its fully-encrypted-traffic heuristic (TCP only).
-So the layer's two jobs: remove every fixed byte, blur the 1200-byte handshake size.
+So the layer's two jobs: remove every fixed byte, blur the 1,200-byte handshake size.
 
 Obfuscation, not secrecy: the key derives from the receiver's node ID, public to anyone in the
 network. Confidentiality comes from TLS. Unmasking only demultiplexes: that a datagram unmasks
@@ -305,8 +305,8 @@ datagram holds one packet (above); a multi-packet datagram is a `HANDSHAKE`, mas
   randomly padded, and MAY send it whole with random padding instead. Receivers MUST support
   both.
 - Layer adds 13 bytes plus padding: `13 + pad_len + QUIC datagram` MUST NOT exceed the UDP
-  payload the path carries. So an unsplit `HANDSHAKE` carrying an Initial (1200 bytes) uses
-  `pad_len` of at most 19 while path MTU is unknown (1232 − 13 − 1200).
+  payload the path carries. So an unsplit `HANDSHAKE` carrying an Initial (1,200 bytes) uses
+  `pad_len` of at most 19 while path MTU is unknown (1,232 − 13 − 1,200).
 - **Fragments.** A message's pieces, joined in `idx` order, are one QUIC datagram; receiver hands
   it to QUIC as if it arrived in a `HANDSHAKE` from that source address.
   - Sender picks `msg_id` at random per message, no reuse towards one address within 3 s
@@ -341,7 +341,7 @@ datagram holds one packet (above); a multi-packet datagram is a `HANDSHAKE`, mas
   next Initial.
 - QUIC maximum datagram size MUST be set 13 bytes below the path limit. QUIC starts at 1,200
   bytes (Initials are 1,200 bytes), raising it only by path MTU discovery. Unsplit unpadded
-  Initial = 1213 bytes, fitting the IPv6 minimum MTU (1232 bytes UDP payload); padded fits up to
+  Initial = 1,213 bytes, fitting the IPv6 minimum MTU (1,232 bytes UDP payload); padded fits up to
   `pad_len = 19`.
 - Binding needs a path carrying 1,213 bytes of UDP payload. A fragmented handshake never puts
   such a datagram on the path, so QUIC's padded-Initial test (RFC 9000 §14.1) is missing. Each
@@ -1726,7 +1726,7 @@ set members a client asks the manifest's sources first
 
 ### 10.5 What a lookup costs over QUIC, and what bounds it
 
-New QUIC connection ≈ 2.5 KB (both Initial flights padded to 1200 bytes) and one round trip; an
+New QUIC connection ≈ 2.5 KB (both Initial flights padded to 1,200 bytes) and one round trip; an
 eMule Kad exchange is a few hundred bytes. Iterative walk can't be skipped: payload lives only
 on the closest nodes, found via not-yet-close ones. Connections per lookup = distinct nodes on
 the walk + responsible set; no protocol trick removes that. Design keeps every other cost off it:
@@ -2327,8 +2327,9 @@ created. `HashRequest` → `Error{MALFORMED}` when `count` is 0, `first + count`
 An uploader's queue can hold thousands of downloaders; a connection and update stream each
 would cost far more than eMule's reask, so uploader sets how each waits.
 
-**One entry per downloader.** One queue entry per node ID, for one file. A downloader has at
-most one file stream open to an uploader. A file stream for another file replaces the request,
+**One entry per downloader.** One queue entry per node ID, for one file, across all of the
+downloader's downloads. A downloader has at most one file stream open to an uploader; several
+files wanted from one uploader are asked for in turn, within that one entry. A file stream for another file replaces the request,
 keeping the position, or the slot if granted ("Several files in one turn" below). Uploader
 closes the old stream only after answering the new one's first `FileRequest` with a
 `FileStatus`, first finishing the `Block` it is sending on the old one. Old stream's outstanding
@@ -2343,9 +2344,9 @@ one carries it when it changes:
 | `recheck` | Meaning |
 |---|---|
 | 0 | Stay connected. Uploader expects to serve this downloader soon |
-| 1800 to 14400 | Close the file stream and open a new one after this many seconds |
+| 1,800 to 14,400 | Close the file stream and open a new one after this many seconds |
 
-A value from 1 to 1799 reads as 1800, above 14400 as 14400.
+A value from 1 to 1,799 reads as 1,800, above 14,400 as 14,400.
 
 - Uploader chooses the value per downloader, shorter near the queue front. How many downloaders
   it keeps connected is local policy.
@@ -2842,7 +2843,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Browse: entries per answer; pages and entries requester takes from one node, max | 1,000; 100 and 10,000 |
 | Chat: message ids of sender remembered for, max; senders remembered max, of them per host address; resends after lost connection max, within | 10 min, 1,024; 256, 16; 3, 10 min |
 | Rooms: item max (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban max; lift kept for; ban window of moderator kept after ban (when no longer in `mods`), windows per key | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days; 30 days, 64 |
-| Rooms: presence renewed every, `expires` max after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1; 60; 600 |
+| Rooms: presence renewed every, own presences at least apart, `expires` max after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 60 s, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1 (+1 `left`); 60; 600 |
 | Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info (time, items per room); member proof clock tolerance; `SUB` target of private room changes every, neighbour hours searched in first / last | 3 / 2–4, 16, 24 h, 60 s, 64; 10 min; 1 h, 10 min / 10 min |
 | Rooms, generations: started again after (with posts), post of older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; post awaiting its `KeyDrop` (time, posts per room); moderator starts new generation once current one has `KeyDrop`s; key forgotten after later generation (no post held / at latest) | 24 h, 2 min, 64, 1,032; 60 s, 64; 32; 1 h / 48 h |
 | HTTP sources: per `FileStatus`, per source record, per Kad answer; results until source is dropped; redirects followed; sealed source's `expires` ahead min | 8, 3, 16; 3; 3; 120 s |

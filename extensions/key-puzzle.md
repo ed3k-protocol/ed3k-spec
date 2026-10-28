@@ -2,7 +2,7 @@
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Not part of wire version 1; reserved for a network upgrade.
 **Extends:** [`Protocol.md`](../Protocol.md) §6.3. § = this document unless a document is named.
-**Capability:** bit 7, `PUZZLE`.
+**Capability:** bit 7, `PUZZLE`. Field 9 of `Hello`.
 
 Routing ID (`Protocol.md` §6.3) limits *where* a node may sit; diversity limits
 ([`ip-diversity.md`](ip-diversity.md)) limit how many nodes of one network count. Neither prices

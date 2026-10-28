@@ -162,9 +162,11 @@ message Mount {
   version and inner sets below, and their `size` sum, count against `max_files` and `max_size`. Every `files` entry counts, `set` members included,
   with its `size`, as for the total of `file-set.md` §2.5. `set_files` and `set_size` are for display
   (`file-set.md` §2.5), unused here. A mount below counts with the version the reader
-  shows: the one its outer manifest names until a newer is taken, none while that isn't fetched
-  yet (`file-set.md` §2.5). Newer mount version taken only if it and every mount above stay
-  within limits; else previous kept.
+  shows: the one its outer manifest names until a newer is taken. Newer mount version taken
+  only once every manifest below it is fetched or refused (a refused one counts nothing), and
+  only if it and every mount above stay within limits; else previous kept. A manifest below
+  not fetched yet holds the newer version back; `file-set.md` §2.5 "nothing counted until it
+  is" is for display only here.
 - **The outer signature covers the mount, not what will be in it:** this key may fill this
   directory, up to these limits.
 - Mounted set may have co-owners (§1) and own mounts; `file-set.md` §2.5 depth and total

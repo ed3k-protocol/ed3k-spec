@@ -248,6 +248,9 @@ message Presence {
 
 - Member signs a presence on join, every 5 min *(initial)* while in room, and one with
   `left` on leaving; each with later `issued` than the previous.
+- **≥ 60 s *(initial)* between a member's presences**, as receivers pass on 1 per minute (§4.4).
+  A change (nick, `gen`) within that time waits, sent once at its end with the newest state.
+  `left` waits for nothing.
 - Node holds the presence with latest `issued` per member key. Doesn't give out one whose
   `expires` passed; remembers its `issued` until 1 h *(initial)* after that `expires`, so an
   older one can't be shown again (on-air notice rule, [`pubsub.md`](pubsub.md) §4.2).
@@ -593,7 +596,7 @@ private room form (§2.5) is a rule. Then:
 
 - **Rate of an author.** Node passes on ≤ 20 *(initial)* posts per author key and minute, drops
   the rest without fault (value of [`chat.md`](chat.md) §2); ≤ 1 presence per member key and
-  minute *(initial)*; ≤ 60 admits, bans and `KeyDrop`s per signer and minute *(initial)*. A
+  minute *(initial)*, plus one with `left`; ≤ 60 admits, bans and `KeyDrop`s per signer and minute *(initial)*. A
   neighbour is at fault only when, in any 10 s, it passes on more than 10× a limit's 10 s share,
   rounded up: > 40 posts of one author key, 10 presences of one member key, or 100 admits, bans
   and `KeyDrop`s of one signer. Resent items count again. Node then closes exchange.
@@ -683,7 +686,7 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 | **Send bad items** | One per attacker node; that node is then refused as neighbour of every room for 24 h (§4.4) |
 | **Fill the room's Kad target** with records of non-member nodes | Wasted dials, limited as for false sources ([`ip-diversity.md`](ip-diversity.md) §2.5) |
 | **A moderator turns against room** | Can admit, ban other members and hand keys to whom it wants, until owner drops it from `mods`; its admits, bans and `KeyDrop`s then stop counting (§2.1, §3.2). Can't ban owner's other moderators. Owner key can change everything |
-| **Owner key is taken** | Nothing helps; no successor key (§10) |
+| **Owner key is taken** | Nothing helps; no successor key (§11) |
 | **Two moderators start a generation at once** | Every node takes the same one (§3.2); nothing lost |
 
 ---

@@ -3,6 +3,7 @@
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12.1, §12.5 and §13.2. § = this document unless a document is named.
 **Capability:** bit 9, `HTTP`. No message types; fields in existing messages.
+**Required of every `ROUTER`:** keeping and returning `Store.http` (§2), whether or not it sets the bit. The rest is optional.
 **Compatible with:** eMuleQt's HTTP Cache for eD2K (`docs/protocol/http-cache-spec.md` in the eMuleQt repo), below *HTTP Cache*.
 
 A file or range can be fetched over HTTP as well as from peers; nodes tell each other where. One

@@ -534,7 +534,7 @@ KeyAnswer.private_proof  = H("ed3k v1 paid private answer", k ‖ requester's no
   newest held key of that season (§4.2), plus 1, and that key isn't its chain's last,
   `base + length − 1`. A held season with no key, followed by a held season, lacks its tip too.
   Newest held season has no tip yet. A tip counts as lacking only if obtainable: pass covers an
-  epoch of a later season not above the current epoch (counting the last-10 % lead, §4.2), or the
+  epoch of a later season not above the current epoch (counting the last-10 % lead above; seasons: §4.2), or the
   tip is released (§4.3). Then asks with `tips_have` = that season's `base`, `have` = 0, at most
   once per day *(initial)* per scope.
 - `chains` holds the `SignedChain` of each season a key in the answer belongs to. Requester

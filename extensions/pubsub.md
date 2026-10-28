@@ -2,7 +2,7 @@
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.3, §13, [`file-set.md`](file-set.md) §5; [`live.md`](live.md). § = this document unless a document is named.
-**Capability:** bit 12, `PUBSUB`. Message types 22 and 23. Record kind 7.
+**Capability:** bit 12, `PUBSUB`. Message types 22 and 23. Record kind 7. One field in `Record`.
 **Required of every `ROUTER`:** storing and returning the record kind `SUB` (§5). The rest is optional.
 
 Changing sets are followed by polling the head record every few hours

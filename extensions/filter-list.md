@@ -67,7 +67,9 @@ enum Verdict {
 - A list file is at most 4 MiB *(initial)* including the 8 bytes, about 260,000 entries.
 - An `AUTHOR` is a key's node ID: publisher of keyword and note records
   ([`Protocol.md`](../Protocol.md) §10.7), author of a set, key of a live channel, member key of
-  a room ([`room.md`](room.md) §1.1).
+  a room ([`room.md`](room.md) §1.1). A search result is judged by its record's publisher and,
+  for a signed manifest, also by the set's author key once the manifest is known; either one
+  marks it.
 - **A list is complete.** An entry the next version leaves out is no longer judged.
 
 ---

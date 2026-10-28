@@ -2,7 +2,7 @@
 
 **Status:** draft 0.1 (2026-10-10). Not implemented. Not part of wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.6. § = that document; "§n here" = this document.
-**Capability:** bit 5, `KAD_DGRAM`.
+**Capability:** bit 5, `KAD_DGRAM`. Message types 48 to 51 (of the reserved 48–63), a second `magic`, field 8 of `Hello`.
 
 v1 Kad exchange = a QUIC connection per node: ~2.5 KB, two round trips, for a 20-byte request
 and an answer of a few hundred. Here the same `KadRequest`/`KadAnswer` go in one UDP datagram

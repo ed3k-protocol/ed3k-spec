@@ -3,6 +3,7 @@
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
 **Extends:** [`http-source.md`](http-source.md) §1, §2 and §5, [`alias.md`](alias.md) §2 and §4, [`file-set.md`](file-set.md) §1, [`Protocol.md`](../Protocol.md) §12.1 and §13.2. § = this document unless a document is named.
 **Capability:** bit 17, `LINKS`. No message types; fields in existing messages, one manifest field, one `ed3k:file` link parameter, two `ALIAS` record schemes.
+**Required of every `ROUTER`:** keeping and returning `Store.links` (§2), whether or not it sets the bit. The rest is optional.
 
 A file hoster links to a page, not bytes; between them a form, a timer, sometimes a puzzle for a
 human or login, and an address valid for minutes. This extension lets nodes exchange such links
@@ -248,7 +249,7 @@ with names as the archive format needs. May list other files too, left aside whe
 Nothing in the manifest marks it as an archive.
 
 **What it unpacks to** is a signed claim, an `ALIAS` record of scheme `b3`
-([`alias.md`](alias.md) §1):
+([`alias.md`](alias.md) §1, §2):
 
 | Field | Value |
 |---|---|

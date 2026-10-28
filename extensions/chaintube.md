@@ -327,8 +327,8 @@ attachment is a line with name and size, and a file once the user downloaded it.
 
 ### 4.1 Contracts
 
-Four contracts, plus a forwarder (`TubeForwarder`) for site-sent requests (§10). Sources are part
-of the ChainTube backend.
+Four contracts, plus a forwarder (`TubeForwarder`) for site-sent requests (§10, *Who pays the fee*). Sources are part
+of the ChainTube backend. The profile contract is the one the comment contract names (§4.2).
 
 | Contract | Holds | Events |
 |---|---|---|
@@ -342,7 +342,7 @@ of the ChainTube backend.
   entry of kind 0.** For other kinds this extension only says how attachments are named (§3.4);
   meaning in backend's `docs/protocol.md`.
 - **Author** of an entry = account the contract holds: call's sender, or signer of a site-sent
-  request (§10).
+  request (§10, *Who pays the fee*).
 - **Every event carries the item's whole state**, new or changed. Newest event of an ID = the
   item; within a block the later log is newer.
 - IDs count from 1 per contract. A video = chain ID, content contract and content ID.
@@ -396,8 +396,11 @@ Contract addresses are assigned with the parameters of §4.2.
 | Parameter | Public network |
 |---|---|
 | Chain ID | *to be assigned at deployment* |
-| Addresses of the four contracts and the forwarder | *to be assigned at deployment* |
+| Addresses of the content, comment and vote contracts and the forwarder | *to be assigned at deployment* |
 | RPC endpoints | list in client config; none built into the protocol |
+
+- **Profile contract** = comment contract's `profileContract()`, read from chain, not configured. 0 = none:
+  no profiles shown, avatar and name unread.
 
 A named network (`Protocol.md` §4.3) has its own contracts or none.
 
@@ -454,7 +457,7 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
 ### 4.4 Writing
 
 - Transactions signed by a user account: in a wallet, or a client-held key. Account pays gas,
-  unless a site pays for it (§10).
+  unless a site pays for it (§10, *Who pays the fee*).
 - **The key SHOULD NOT be the credit key** ([`credit.md`](credit.md) §2). An uploading, commenting
   account is a public person; a node's credit address is meant not to be.
 - Client-held key is as private as the node key. A client MUST NOT write it to a log or show it
@@ -463,16 +466,22 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
   `getVoteById` returns the new state, written values compared in full (`closed`, `blocked` not
   compared). `updateVote` adds to a sum: client reads `getVoteById` at the newest block before
   sending; vote done when `voteType` = the one written and `voteValue` ≥ that total + added value.
-  No `updateVote` sent when `created` + `voteUpdatePeriod` (unless 0) has passed by the newest
-  block's `timestamp`. A client SHOULD also run a transaction through `eth_estimateGas` at the
+  No `updateVote` sent when the newest block's `timestamp` > `created` + `voteUpdatePeriod`
+  (unless 0), as the contract checks. Best effort: the transaction lands in a later block.
+- **Estimate.** A client SHOULD also run a transaction through `eth_estimateGas` at the
   newest block before showing the amount (below), and sends none that reverts there.
+  - `from` = the sending account. A client not knowing it (wallet elsewhere) runs no estimate.
+  - A site-sent request (§10, *Who pays the fee*) is estimated as the call it carries: `from` =
+    the account, at `to`, with `data` and `value`. Plus `verify` (`eth_call` at the forwarder)
+    over the signed request: false → client does not hand it to the site.
+  - Several providers asked: highest gas, highest `timestamp`; a revert at any refuses the write.
 - **`setModerator`** has no own getter: `isModerator` is true via parents too. Done when its
   `ModeratorSet` log, `contentId`, `moderator`, `enabled` as written, is in the receipt at a final
-  block; for a site-sent request (§10), when the newest `ModeratorSet` log of that `contentId` and
+  block; for a site-sent request (§10, *Who pays the fee*), when the newest `ModeratorSet` log of that `contentId` and
   `moderator` from the hand-over block has `enabled` as written. Same for the client's own
-  transaction and one a site sent for it (§10).
+  transaction and one a site sent for it (§10, *Who pays the fee*).
 - **Failed write.** Receipt at a final block with status 0 = reverted: not done, reported once. A
-  site request via the forwarder (§10) leaves no trace on revert; forwarder keeps the nonce, request
+  site request via the forwarder (§10, *Who pays the fee*) leaves no trace on revert; forwarder keeps the nonce, request
   stays valid until its `deadline`. When a final block with `timestamp` later than `deadline` does
   not show the write, it is not done; `getNonce(from)` still at the request's `nonce` at that block
   shows it never executed. `from` = author.
