@@ -1,145 +1,127 @@
 # Extension: keyword levels and ranking (`keyword-load`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. The wire fields and the level target are part of wire version 1. At an index node the rules of this document are part of version 1 too (`Protocol.md` §11); on Kad they are reserved for a network upgrade.
-**Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.8. Section numbers (§) refer to that document unless this one is named.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.8. § = that document unless this one is named.
 **Capability:** bit 8, `LEVELS`.
 
-Keyword frequency is very uneven. A few words occur in a large share of all file names, and a
-DHT puts every record of one word on the same few nodes. Version 1 handles that as eMule does: a
-storing node holds a fixed number of files per keyword and refuses the rest (§10.8).
+Keyword frequency very uneven: a few words occur in a large share of file names; a DHT puts
+all records of one word on the same few nodes. Version 1 does as eMule: storing node holds
+a fixed number of files per keyword, refuses the rest (§10.8). This extension gives a crowded
+keyword more room and an order:
 
-This extension gives a crowded keyword more room and an order:
+- **Levels.** Up to 16 targets per keyword, level 0 to 15, each on different nodes. A file
+  finding one level full is published one level down.
+- **Ranking.** Full node keeps the files with most publisher sites. Popular files rise to level
+  0, rest sink, so a search's first lookup returns the most widely shared files.
+- **No early deletion.** File losing its place isn't deleted; record stays until expiry, by
+  when its publishers have stored it one level down.
 
-- **Levels.** A keyword has up to 16 targets, level 0 to 15, each on different nodes. A file that
-  finds one level full is published one level down.
-- **Ranking.** A full node keeps the files with the most publisher sites. Popular files rise to
-  level 0 and the rest sink, so the first lookup of a search returns the most widely shared
-  files.
-- **No early deletion.** A file that loses its place is not deleted. Its record stays until it
-  expires, and by then its publishers have stored it one level down.
-
-A file is published under the keywords that `Protocol.md` §10.1 selects, as in version 1.
+A file is published under the keywords `Protocol.md` §10.1 selects, as in version 1.
 
 ## 1. What version 1 already carries
 
 | Item | Where | Use |
 |---|---|---|
-| Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1 uses level 0 on Kad, and every level at an index node |
-| `KadRequest.level` | §10.3 | the level the sender computed the target for; the storing node checks that a keyword of the name gives the target at that level (§10.7) |
-| `KadAnswer.load` | §10.3 | files held under this target, in percent of the level size |
-| `KadAnswer.results` | §10.3 | one result per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER` |
-| `KadAnswer.spill` | §10.3 | the node answered `FULL` for this target within the last record lifetime |
-| `KadAnswer.sites` | §10.3 | per returned file, the publisher sites the node counted; 0 = not counted |
+| Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1: level 0 on Kad, every level at an index node |
+| `KadRequest.level` | §10.3 | level sender computed the target for; storing node checks a keyword of the name gives the target at that level (§10.7) |
+| `KadAnswer.load` | §10.3 | files held under this target, % of level size |
+| `KadAnswer.results` | §10.3 | one per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER` |
+| `KadAnswer.spill` | §10.3 | node answered `FULL` for this target within last record lifetime |
+| `KadAnswer.sites` | §10.3 | per returned file, publisher sites node counted; 0 = not counted |
 
-Nothing on the wire changes when the rules below are switched on.
+Switching on the rules below changes nothing on the wire.
 
 ## 2. Storing node
 
 ### 2.1 Entries
 
-A storing node keeps one **entry** per file (root) and target. An entry holds:
+One **entry** per file (root) and target, holding:
 
 - up to 3 *(initial)* signed records of different publishers, kept by the rule of §10.8, one
-  place per site. The site of a kept record is the site of the address of the `Store` that
-  last stored it, a renewal included.
-  - A record of a publisher already kept takes the place of that publisher's record, whatever
-    site it comes from; the kept record then has the site of this `Store`.
-  - Otherwise a record from a site that holds one of the places takes the place of that
-    site's record (of the least fresh one, should a renewal have left two of one site).
-  - A record from another site is added while fewer than 3 are kept, else it takes the place
-    of the least fresh record kept.
+  place per site. Kept record's site = site of the address of the `Store` that last stored it,
+  renewal included.
+  - Record of an already-kept publisher takes that publisher's place, whatever its site; kept
+    record then has this `Store`'s site.
+  - Else record from a site holding a place takes that site's record's place (least fresh one,
+    should a renewal have left two of one site).
+  - Record from another site: added while fewer than 3 kept, else replaces least fresh kept.
   - A `Store` with `signer` never takes the place of another publisher's record of another
-    site; it is answered `REJECTED`.
-- the **sites** of the publishers that stored the file, and on admission those of its
-  candidates (§2.2 of this document), each remembered until the
-  record that publisher sent expires. A site is the group of
-  [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. One site counts once. The count
-  saturates at 255 *(initial)*. Of the stores, only those answered `STORED` add a site; an
-  offer answered `FULL` adds its site to the candidates (§2.2 of this document). A `Store` with
-  `signer` adds no site, neither to `sites` and the rank nor to the candidate sites (§2.2 of
-  this document): its site is that of the last hop, which an anonymous key borrows for free
-  ([`hops.md`](hops.md) §4.2)
+    site; answered `REJECTED`.
+- **sites** of publishers that stored the file, and on admission those of its candidates (§2.2
+  of this document), each remembered until that publisher's record expires. Site = group of
+  [`ip-diversity.md`](ip-diversity.md) §1: IPv4 /24, IPv6 /48. A site counts once; the count saturates at
+  255 *(initial)*. Only stores answered `STORED` add a site; offer answered `FULL` adds its site
+  to candidates (§2.2 of this document). `Store` with `signer` adds no site, neither to `sites`
+  and rank nor to candidate sites (§2.2 of this document): its site is the last hop's, which an
+  anonymous key borrows for free ([`hops.md`](hops.md) §4.2).
 
-The **rank** of an entry is its number of sites. The node verifies every record it is sent
-(§10.7), also those it does not keep.
+**Rank** = entry's number of sites. Node verifies every record sent (§10.7), also unkept ones.
 
-A target holds at most S = 100,000 *(initial)* entries: the **level size**.
+Target holds at most S = 100,000 *(initial)* entries: the **level size**.
 
 ### 2.2 Storing a record
 
-A record for file F arrives under target T:
-
-Rows are tried in order; the first that applies decides.
+Record for file F arrives under target T. Rows tried in order; first match decides.
 
 | Situation | Action | Result |
 |---|---|---|
-| F is held under T with a record from the same publisher that is not older than this one (§10.7) | nothing | `OLDER` |
-| F is held under T and not leaving | renew the entry, add the site | `STORED` |
-| F is held but **leaving** (§2.3 of this document) | add the site to the candidates | `FULL` |
-| F is not held, and the node has no room at all | nothing | `BUSY` |
-| F is not held, T has fewer than S entries | create the entry with the candidate's sites, if any | `STORED` |
-| F is not held, T is full, F does not outrank the weakest entry | add the site to the candidates | `FULL` |
-| F is not held, T is full, F outranks the weakest entry | create the entry with the candidate's sites; the weakest entry becomes leaving | `STORED` |
+| F held under T with a record from same publisher not older than this one (§10.7) | nothing | `OLDER` |
+| F held under T, not leaving | renew entry, add site | `STORED` |
+| F held but **leaving** (§2.3 of this document) | add site to candidates | `FULL` |
+| F not held, node has no room at all | nothing | `BUSY` |
+| F not held, T has fewer than S entries | create entry with candidate's sites, if any | `STORED` |
+| F not held, T full, F doesn't outrank weakest | add site to candidates | `FULL` |
+| F not held, T full, F outranks weakest | create entry with candidate's sites; weakest becomes leaving | `STORED` |
 
-- A `Store` with `signer` that §2.1 of this document refuses is answered `REJECTED` where a
-  record would take a place (row 2). A leaving entry takes none, so row 3 answers `FULL` also
-  to such a `Store`, which adds no candidate site.
-- **Candidates.** For files it refused, the node keeps the sites that offered them, for one
-  record lifetime. The table holds at most S/4 *(initial)* files per target; when it is full, the
-  file with the fewest sites is forgotten, and among files of equally few sites the one whose
-  last offer is oldest; of offers in the same second, the lower root as bytes. The file at
-  hand is among them.
-- **Outranks** means: more candidate sites than the rank of the weakest entry. The site of the
-  offer at hand counts among them, once; that of a `Store` with `signer` does not (§2.1 of
-  this document). Equal rank never
-  displaces, so files that came first stay.
-- **Weakest** is the entry with the lowest rank that is not leaving; among equals, the one
-  created last.
+- `Store` with `signer` refused by §2.1 of this document is answered `REJECTED` where a record
+  would take a place (row 2). Leaving entry takes none, so row 3 answers `FULL` also to such a
+  `Store`, which adds no candidate site.
+- **Candidates.** For refused files, node keeps offering sites for one record lifetime. At most
+  S/4 *(initial)* files per target; when full, forget the file with fewest sites; tie → oldest
+  last offer; same second → lower root as bytes. The file at hand is among them.
+- **Outranks** = more candidate sites than weakest entry's rank. Site of offer at hand counts,
+  once; a `Store` with `signer`'s doesn't (§2.1 of this document). Equal rank never displaces:
+  first-come files stay.
+- **Weakest** = lowest-rank non-leaving entry; tie → created last.
 
 ### 2.3 Leaving entries
 
-A displaced entry is **leaving**. The node:
+Displaced entry is **leaving**. Node:
 
-- keeps it and returns it in searches until its last record expires
-- does not renew it; its publishers get `FULL` and move one level down (§3 of this document)
-- does not count it towards S
+- keeps it, returns it in searches until its last record expires
+- doesn't renew it; publishers get `FULL`, move one level down (§3 of this document)
+- doesn't count it towards S
 
-A file therefore exists at its old level until its publishers have placed it at the next one.
-Publishers of one file refresh at different times, and each stores below before its own record
-above runs out.
+So a file exists at its old level until its publishers have placed it at the next; they refresh at
+different times, each storing below before its own record above runs out.
 
-A target holds at most S/4 *(initial)* leaving entries. While that limit is reached, no file is
-admitted by outranking.
+At most S/4 *(initial)* leaving entries per target; while that limit is reached, no file admitted by
+outranking.
 
 ### 2.4 Answers
 
-- `load` = entries that are not leaving × 100 / S.
-- `spill` is set while the node has answered `FULL` for this target within the last record
-  lifetime. It stays set for that long after the target stopped being full, which covers records
-  that still live one level down.
-- Search results are returned in descending rank, leaving entries last. `offset` pages along
-  that order. `sites` carries the rank of each returned file. An answer carries every record
-  of an entry it returns, one after the other, each with the entry's rank in `sites`. Entries
-  of equal rank are in the order of **Paging** (`Protocol.md` §10.3) by their first record,
-  and so are the records of one entry.
-- **An index node** (`Protocol.md` §11) MAY follow this document already in version 1, as any
-  storing node, with a level size S that its operator chooses. It needs no `LEVELS` bit: its
-  `FULL` and `spill` tell clients what to do. Each level is a target of its own there. A target
-  answers no `FULL` until it holds S entries, and spills to the next level from then on. A
-  publisher that stores at one index node judges §3 by that node's answer.
-- `BUSY` means the node as a whole is out of room. How much a node stores in total is local
-  policy; it SHOULD have room for at least 2 S entries, and no target takes more than S plus
-  its leaving entries (§2.3 of this document).
+- `load` = non-leaving entries × 100 / S.
+- `spill` set while node answered `FULL` for this target within last record lifetime; so it stays
+  set that long after target stopped being full, covering records still living one level down.
+- Results in descending rank, leaving entries last; `offset` pages along that order. `sites`
+  carries each returned file's rank. Answer carries every record of a returned entry,
+  consecutively, each with entry's rank in `sites`. Equal-rank entries in **Paging** order
+  (`Protocol.md` §10.3) by first record; likewise records of one entry.
+- **An index node** (`Protocol.md` §11) MAY follow this document already in version 1, like any
+  storing node, with operator-chosen level size S. No `LEVELS` bit needed: its `FULL` and
+  `spill` tell clients what to do. Each level is its own target there. Target answers no `FULL`
+  until it holds S entries, spills to next level from then on. Publisher storing at one index
+  node judges §3 of this document by that node's answer.
+- `BUSY` = node as a whole out of room. Total storage is local policy; SHOULD have room for at
+  least 2 S entries; no target takes more than S plus its leaving entries (§2.3 of this
+  document).
 
 ## 3. Publisher
 
-A publisher remembers one level L per (file, keyword), starting at 0.
+Publisher remembers one level L per (file, keyword), starting at 0. Outcome of a store at one
+level is taken over storing nodes that answered `responsible`, ignoring `BUSY` and `REJECTED`:
 
-The outcome of a store at one level is taken over the storing nodes that answered
-`responsible`, ignoring `BUSY` and `REJECTED`:
-
-- **placed:** at least half of them answered `STORED` or `OLDER`: both say that the node
-  holds the file
+- **placed:** at least half answered `STORED` or `OLDER` (both = node holds the file)
 - **full:** otherwise
 
 A refresh:
@@ -149,49 +131,46 @@ A refresh:
 3. If full, set L to L + 1 and repeat step 2, up to level 15.
 4. If level 15 is full, give up until the next refresh.
 
-When every responsible node answered `REJECTED`, the publisher stays at L and stores again at
-the next refresh. `REJECTED` is a limit per address or publisher (§10.8), not a full level: a
-publisher that moved down on it would get a fresh quota on every level.
+All responsible nodes answered `REJECTED` → publisher stays at L, stores again next refresh.
+`REJECTED` is a per-address/per-publisher limit (§10.8), not a full level: moving down on it
+would give a fresh quota on every level.
 
-- Step 1 is how a file rises: the nodes one level up count the sites that offer it and admit it
-  once it outranks their weakest file. A file rises at most one level per refresh.
-- A record that was stored on fewer than half of the nodes stays there. The publisher still
-  moves down, and step 1 of the next refresh renews it.
-- A minority of nodes answering `FULL` cannot push a file down.
-- Cost: one lookup per refresh at level 0, two below it, and one per level on the way down.
+- Step 1 is how a file rises: nodes one level up count sites offering it, admit it once it
+  outranks their weakest file. A file rises at most one level per refresh.
+- Record stored on fewer than half of the nodes stays there; publisher still moves down, step 1
+  of next refresh renews it.
+- Minority answering `FULL` can't push a file down.
+- Cost: one lookup per refresh at level 0, two below, one per level on the way down.
 
 ## 4. Searcher
 
 1. Search at level 0.
-2. Go on to the next level when more results are wanted and any responsible node of the current
-   level answered with `spill`. Stop at level 15. How many results a searcher wants is local
-   policy.
+2. Go to next level when more results wanted and any responsible node of current level answered
+   with `spill`. Stop at level 15. How many results wanted is local policy.
 
-- A searcher MAY remember how deep a keyword went and query those levels in parallel next time.
-- Results are merged by root across nodes and levels. The popularity of a file is the lower median of
-  the non-zero `sites` values reported for it within one level, and 0 when all are 0; a file
-  found at several levels has the highest of its values per level; it is the storing nodes' claim, not a
-  signed fact.
-- A false `spill` costs one lookup. Following it on the word of a single node is therefore
-  acceptable, and the level limit bounds the total.
+- Searcher MAY remember how deep a keyword went and query those levels in parallel next time.
+- Results merged by root across nodes and levels. Popularity = lower median of non-zero `sites`
+  values reported for the file within one level, 0 when all 0; file at several levels takes the
+  highest per-level value; storing nodes' claim, not a signed fact.
+- False `spill` costs one lookup, so following it on one node's word is acceptable; level limit
+  bounds the total.
 
 ## 5. Deployment
 
-On Kad the rules are a network rule (§16) and come in two steps. At an index node they apply
-from version 1 (§2.4 of this document), since one node decides alone and its clients follow
-its answers.
+On Kad: a network rule (§16), in two steps. At an index node: from version 1 (§2.4 of this
+document), since one node decides alone and clients follow its answers.
 
-1. **Announce.** Nodes that implement the extension set `LEVELS`. Storing nodes rank and keep
-   leaving entries; publishers and searchers use levels among each other.
+1. **Announce.** Implementing nodes set `LEVELS`. Storing nodes rank and keep leaving entries;
+   publishers and searchers use levels among each other.
 2. **Enforce.** From a date fixed in the specification, every node follows §2 to §4 of this document.
 
-What happens in between:
+In between:
 
 | Old node as | Effect |
 |---|---|
-| Storing node | refuses when full without ranking (§10.8). It sets `spill` and `results` correctly, so publishers and searchers still move on |
-| Publisher | never goes below level 0. Its files are missing from full keywords, as in eMule today |
-| Searcher | sees level 0 only, which holds the highest-ranked files |
+| Storing node | refuses when full w/o ranking (§10.8). Sets `spill` and `results` correctly, so publishers and searchers still move on |
+| Publisher | never below level 0; its files missing from full keywords, as in eMule today |
+| Searcher | sees level 0 only, which holds highest-ranked files |
 
 ## 6. What it costs and what it gives
 
@@ -199,80 +178,76 @@ What happens in between:
 |---|---|
 | Files per keyword on one node | 100,000, plus up to 25,000 leaving |
 | Files per keyword in the network | 1.6 million over 16 levels |
-| Memory for one full target | about 30 MB at 300 B per entry (estimate) |
-| Lookups for a search that is content with the top results | 1 |
+| Memory for one full target | ~30 MB at 300 B per entry (estimate) |
+| Lookups for a search content with top results | 1 |
 | Lookups to see all of a keyword | one per level in use |
 | Lookups per refresh and keyword | 1 at level 0, 2 below |
 
-- **A search with a common word and other words** is filtered on the storing node (§10.3), but
-  the file may be at any level. Finding it for certain means walking all levels in use. Pair
-  targets (§8 of this document, row 7) would answer that in one lookup.
-- **Deep levels are searched rarely.** A file with one publisher under a very common word is
-  stored but seldom seen through that word. It is still found through its other words.
-- **Junk no longer blocks real files.** A flood of one-publisher records fills levels from the
+- **Common word and other words**: filtered on storing node (§10.3), but file may be at any
+  level; finding it for certain means walking all levels in use. Pair targets (§8 of this document,
+  row 7) would answer in one lookup.
+- **Deep levels searched rarely.** One-publisher file under a very common word is stored but
+  seldom seen via that word; still found via its other words.
+- **Junk no longer blocks real files.** Flood of one-publisher records fills levels from the
   top in arrival order, but any file with more sites displaces it.
 
 ## 7. What an attacker can still do
 
-- **Buy rank with addresses.** Rank counts the sites of direct stores; stores through a last
-  hop add none (§2.1 of this document). 256 /24 networks give rank 255, the maximum. An
-  attacker with a /16 can put its files at the top of a keyword. Honest popular
-  files keep the same rank and are not displaced by equal rank.
-- **Lie as a storing node.** A node among the closest can report any `sites` value, withhold
-  records or answer `FULL`. The median over a level, the "at least half" rule and the diversity
-  limits on the closest set bound what one node achieves.
-- **Fill the candidate table.** Offers for many different files push real candidates out of the
-  table of a full target. The table drops the file with the fewest sites first, so a file with
-  several sites survives.
-- **Exhaust the last level.** Beyond level 15 a file is refused, as in version 1.
+- **Buy rank with addresses.** Rank counts sites of direct stores; stores via a last hop add
+  none (§2.1 of this document). 256 /24 networks give rank 255, the max: attacker with a /16
+  can put its files atop a keyword. Honest popular files keep same rank, not displaced by equal
+  rank.
+- **Lie as storing node.** One of the closest can report any `sites` value, withhold records or
+  answer `FULL`. Median over a level, "at least half" rule and diversity limits on the closest
+  set bound what one node achieves.
+- **Fill candidate table.** Offers for many files push real candidates out of a full target's
+  table. Fewest-sites file dropped first, so a file with several sites survives.
+- **Exhaust last level.** Beyond level 15 a file is refused, as in version 1.
 
 ## 8. Alternatives considered
 
-Measures discussed for crowded keywords, and what became of each. The ones marked "later" can
-be added without a change to the messages.
+Measures discussed for crowded keywords; "later" ones can be added w/o message changes.
 
 | # | Measure | Status |
 |---|---|---|
 | 1 | Define `load`; publishers decide over all answers, not the average; no back-off longer than a record lifetime | in version 1 (§10.8) and here (§3 of this document) |
 | 2 | Tell "this keyword is full" from "this node is full" | in version 1: `FULL` and `BUSY` |
-| 3 | Publish a file only under its rarer words; searchers target the rarest word of a query | not done; a file is published under all its words. Later if needed: publisher and searcher policy, using `load` |
-| 4 | Storage budget in bytes, each keyword limited to a share | local policy of a storing node (§2.4 of this document); later if needed |
-| 5 | When full, displace the file with the fewest publisher sites instead of refusing | here (§2 of this document) |
-| 6 | One entry per file with a count of publisher sites, instead of every publisher's record | here (§2.1 of this document) |
-| 7 | Pair targets: a target from two keywords, used when one of them is crowded | later if needed: a further target derivation that publishers and searchers agree on by network upgrade; no message changes |
-| 8 | Spill to nodes further from the target | replaced by levels, which use other nodes without changing the closest-set rules |
+| 3 | Publish a file only under its rarer words; searchers target a query's rarest word | not done; file published under all its words. Later if needed: publisher/searcher policy, using `load` |
+| 4 | Storage budget in bytes, each keyword limited to a share | storing node's local policy (§2.4 of this document); later if needed |
+| 5 | When full, displace file with fewest publisher sites instead of refusing | here (§2 of this document) |
+| 6 | One entry per file with count of publisher sites, not every publisher's record | here (§2.1 of this document) |
+| 7 | Pair targets: target from two keywords, used when one is crowded | later if needed: further target derivation agreed by publishers and searchers via network upgrade; no message changes |
+| 8 | Spill to nodes further from the target | replaced by levels, which use other nodes w/o changing closest-set rules |
 
 Further alternatives:
 
-- **A load threshold instead of per-record results.** Every publisher, including those already
-  stored, would see the high load and move. The level would empty within a day and fill again.
-- **A repeated hash instead of a level index.** Equivalent, but a node could not jump to a level
-  without computing all the ones before it.
-- **Deleting a displaced file at once.** The file would be missing until its publishers' next
-  refresh, up to a day.
-- **Walking from level 0 at every refresh.** A popular file would reach its place within a day,
-  at up to 16 lookups per keyword and day for every file in a deep level.
-- **A random start level for searches**, to spread query load. It would defeat the ranking,
-  which puts the best results at level 0.
+- **Load threshold instead of per-record results.** Every publisher, incl. already stored,
+  would see high load and move; the level would empty within a day and fill again.
+- **Repeated hash instead of level index.** Equivalent, but can't jump to a level w/o computing
+  all before it.
+- **Delete displaced file at once.** Missing until publishers' next refresh, up to a day.
+- **Walk from level 0 every refresh.** Popular file reaches its place within a day, at up to 16
+  lookups per keyword and day for every file in a deep level.
+- **Random start level for searches** (spread query load). Defeats ranking, which puts best
+  results at level 0.
 
 ## 9. Comparison with eMule
 
 | | eMule Kad | ed3k version 1 | With this extension |
 |---|---|---|---|
 | Files per keyword on a node | 50,000 | 100,000 | 100,000 per level, 16 levels |
-| All keywords on a node | 60,000 | local | local, at least 2 levels' worth |
-| When full | refuse; above 90 % also refuse refreshes | refuse new files, renew held ones | displace the weakest, or send one level down |
-| Signal to the publisher | load 0–100, averaged over 3 nodes | result per record from 8 nodes | the same |
-| Publisher reaction | no publish for up to 7 days when the average is above 20 | retry at the next refresh | next level at once |
-| One lying node | silences the keyword for days | no effect below half of the nodes | no effect below half of the nodes |
+| All keywords on a node | 60,000 | local | local, ≥ 2 levels' worth |
+| When full | refuse; above 90 % also refuse refreshes | refuse new, renew held | displace weakest, or send one level down |
+| Signal to publisher | load 0–100, averaged over 3 nodes | result per record from 8 nodes | same |
+| Publisher reaction | no publish for up to 7 days when average is above 20 | retry next refresh | next level at once |
+| One lying node | silences keyword for days | no effect below half of nodes | no effect below half of nodes |
 | Order of results | trusted entries first, at most 300 | storing node's choice | by publisher sites |
 
 ## 10. Open points
 
-- Whether a block (IPv4 /16, IPv6 /32) should contribute only a few sites to a rank, to make
-  rank cost more than one address block. It would also compress the rank of honest files that
-  are popular within one large provider.
-- S, the number of levels and the size of the candidate and leaving tables are set without
-  measurements. The record size of 300 B is an estimate from the encoding rules.
-- Whether notes need the same treatment. A file with more than a few hundred notes is not
-  expected.
+- Should a block (IPv4 /16, IPv6 /32) contribute only a few sites to a rank, so rank costs more
+  than one address block? Would also compress rank of honest files popular within one large
+  provider.
+- S, level count, candidate/leaving table sizes set w/o measurements. Record size 300 B
+  estimated from encoding rules.
+- Do notes need the same treatment? File with more than a few hundred notes not expected.

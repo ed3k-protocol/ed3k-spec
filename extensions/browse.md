@@ -1,11 +1,11 @@
 # Extension: browsing a peer's shared files (`browse`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §13.1. Section numbers (§) refer to that document.
+**Extends:** [`Protocol.md`](../Protocol.md) §13.1. § = that document.
 **Capability:** bit 3, `BROWSE`. Message types 14 and 15.
 
-A node that sets `BROWSE` lets other nodes list the files it shares, by directory. It replaces
-the four shared-files and shared-directories opcodes of eD2K.
+`BROWSE` lets others list a node's shared files by directory; replaces eD2K's four shared-files/
+shared-directories opcodes.
 
 ## 1. Messages
 
@@ -27,48 +27,40 @@ message BrowseAnswer {
 ## 2. Rules
 
 - `Browse` is a request/answer exchange (§5.2).
-- A node sends `Browse` only to a peer that set `BROWSE` in its `Hello`. A node without the
-  capability answers `Error{UNSUPPORTED}`.
-- `dir` names one directory. The empty string asks for the top level. Its components MUST
-  follow [`file-set.md`](file-set.md) §2.2 (no `.`, `..`, empty component or `//`) and §2.1 (at most
-  32 components); a `dir` that does not is answered `Error{MALFORMED}`, and one the node does not
-  show `Error{NOT_FOUND}`. The answer lists the
-  directories directly below it in `dirs`, as names of one component each (the rules of
-  [`file-set.md`](file-set.md) §2.2 for a component apply), and the files directly in it in
-  `files`. The requester lists one of them with `dir` ‖ `/` ‖ name, or the name alone at the
-  top level.
-- Directory names are those the answering node chooses to show. They need not be paths of its
-  file system.
-- Whom a node answers is local policy: everyone, friends only, or nobody. Nobody is the
-  capability turned off: a node that answers nobody clears `BROWSE` and answers
-  `Error{UNSUPPORTED}` (§2), also on a connection whose `Hello` still showed `BROWSE`. A node
-  that answers friends only answers a refused request with `Error{DENIED}`, and MAY set
+- Sent only to a peer whose `Hello` set `BROWSE`; a node without it answers `Error{UNSUPPORTED}`.
+- `dir` names one directory; empty = top level. Its components MUST follow
+  [`file-set.md`](file-set.md) §2.2 (no `.`, `..`, empty component or `//`) and §2.1 (at most
+  32 components); a `dir` that does not → `Error{MALFORMED}`; one the node does not show →
+  `Error{NOT_FOUND}`. Answer: directories directly below it in `dirs`, as one-component names
+  ([`file-set.md`](file-set.md) §2.2 component rules apply), files directly in it in `files`.
+  Requester lists a subdirectory via `dir` ‖ `/` ‖ name (name alone at top level).
+- Directory names are what the answering node chooses to show, not necessarily its FS paths.
+- Whom to answer is local policy: everyone, friends only, or nobody. Nobody = capability off:
+  node clears `BROWSE` and answers `Error{UNSUPPORTED}` (§2), also on a connection whose
+  `Hello` still showed `BROWSE`. Friends only: refused request → `Error{DENIED}`; node MAY set
   `BROWSE` only in the `Hello` of a connection to a friend. A change reaches a connected peer
   as §2 says.
-- A node checks in this order: `UNSUPPORTED` (no capability, or nobody answered), then
-  `MALFORMED` (`dir`), then `DENIED` (friends only), then `NOT_FOUND`.
-- The answer is one frame and is compressed like any other (§5.3). The frame limit of 1 MiB
-  (§5.2) applies.
+- Check order: `UNSUPPORTED` (no capability, or nobody answered), then `MALFORMED` (`dir`), then
+  `DENIED` (friends only), then `NOT_FOUND`.
+- Answer is one frame, compressed as usual (§5.3); 1 MiB frame limit (§5.2) applies.
 
 **Paging**
 
-- The entries of a directory have one order: its directories first, then its files, each group
-  sorted by the bytes of the name in UTF-8.
+- Entry order: directories first, then files, each group sorted by the bytes of the name in UTF-8.
 - An answer holds as many entries as the answering node chooses, at most 1,000 *(initial)*,
-  starting at entry `offset` of that order. It sets `more` when entries remain. An answer with
-  more than 1,000 entries ends the listing: the node is dropped for it.
-- The requester asks again with `offset` raised by the number of entries it received (`dirs`
-  plus `files`), until an answer comes without `more`.
-- A requester asks at most 100 *(initial)* pages and takes at most 10,000 *(initial)* entries
-  from one node; a node that still answers `more` after that is dropped for this listing.
-- Each page is an exchange of its own. The node keeps no state between pages. If the directory
-  changes in between, entries can be missed or seen twice; the requester merges directories by
-  name and files by root.
+  starting at entry `offset`; `more` set when entries remain. An answer with >1,000 entries ends
+  the listing: node dropped for it.
+- Requester asks again with `offset` + entries received (`dirs` plus `files`) until an answer
+  lacks `more`.
+- Per node, a requester asks at most 100 *(initial)* pages and takes at most 10,000
+  *(initial)* entries; a node still answering `more` after that is dropped for this listing.
+- Each page is its own exchange; no state kept between pages. If the directory changes in
+  between, entries can be missed or seen twice; requester merges directories by name, files by
+  root.
 
 ## 3. Privacy
 
-A browse list shows everything a node shares to whoever asks, and ties it to the node ID.
-An implementation SHOULD leave the capability off by default, or limit it to friends.
+A browse list shows all a node shares to whoever asks, tied to its node ID. An implementation SHOULD leave the capability off by default, or limit it to friends.
 
 ## 4. Open points
 

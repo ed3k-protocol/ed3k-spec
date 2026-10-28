@@ -1,24 +1,22 @@
 # Extension: other names of a file (`alias`)
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §7.4, §10.3 and §10.7. Section numbers (§) refer to this document unless a document is named.
-**Capability:** none. Record kind 13, `ALIAS`. One field in `Record`, in `Store` and in `KadAnswer`.
+**Extends:** [`Protocol.md`](../Protocol.md) §7.4, §10.3, §10.7. § = this document unless a document is named.
+**Capability:** none. Record kind 13, `ALIAS`. One field each in `Record`, `Store`, `KadAnswer`.
 **Required of every `ROUTER`:** storing and returning the record kind `ALIAS` (§3), for every scheme, known or not. The rest is optional.
 
-A file has one identity in ed3k: its BLAKE3 root (`Protocol.md` §7.1). Outside ed3k the same
-bytes have other names: an eD2K hash, the infohash of a torrent, a link at a file hoster, a
-SHA-1 from a magnet link. This extension is the one way from such a name to the root.
+A file's one ed3k identity: its BLAKE3 root (`Protocol.md` §7.1). Outside ed3k the same bytes
+have other names (eD2K hash, torrent infohash, file-hoster link, magnet-link SHA-1). This is the
+one way from such a name to the root.
 
-- An **`ALIAS` record** says: *the thing with this name is the file, or the set, with this
-  root.* It is signed by its publisher and stored in Kad under a hash of the name.
-- The kind of name is a **scheme**, a short string. A storing node needs to know nothing about
-  a scheme to store its records. **A network or data source that is joined later needs a
-  scheme name and a document. It needs no new record kind and no upgrade of the network.**
-- §5 states the rules that every such document follows, so that whatever is joined ends under
-  the root.
+- **`ALIAS` record**: *the thing with this name is the file, or the set, with this root.*
+  Publisher-signed, stored in Kad under a hash of the name.
+- Kind of name = **scheme**, a short string; storing nodes need no scheme knowledge to store
+  its records. **A later-joined network or data source needs a scheme name and a document; no new
+  record kind, no network upgrade.**
+- §5: rules for every such document, so whatever is joined ends under the root.
 
-The extensions for torrents ([`torrent.md`](torrent.md)), for links at file hosters
-([`hoster.md`](hoster.md)) and for Usenet posts ([`usenet.md`](usenet.md)) are its users.
+Users: [`torrent.md`](torrent.md), [`hoster.md`](hoster.md) (hoster links), [`usenet.md`](usenet.md).
 
 ---
 
@@ -61,13 +59,11 @@ repeated Signed aliases = 18; // answer to a search of kind ALIAS
 target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 ```
 
-- The record is signed by its publisher like a keyword record (`Protocol.md` §10.7). Lifetime
-  24 h *(initial)*.
-- `scheme` is 1 to 16 bytes of `a`–`z`, `0`–`9` and `-`.
-- `entry` is at most 255 bytes, `password` at most 128 bytes.
-- The target is a hash of the name, but `scheme` and `id` are fields of the record, so a
-  storing node holds every name it stores in clear. Only a scheme whose `id` is itself a hash
-  (`url`, [`hoster.md`](hoster.md) §4) keeps the name from it.
+- Signed by publisher like a keyword record (`Protocol.md` §10.7). Lifetime 24 h *(initial)*.
+- `scheme`: 1 to 16 bytes of `a`–`z`, `0`–`9`, `-`.
+- `entry` ≤ 255 bytes, `password` ≤ 128 bytes.
+- Target hashes the name, but `scheme`, `id` are record fields: storing node holds every stored
+  name in clear, unless the scheme's `id` is itself a hash (`url`, [`hoster.md`](hoster.md) §4).
 
 ---
 
@@ -79,18 +75,17 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | `md5` | 16 B MD5 of the file | `SAME` | §4.1 |
 | `sha1` | 20 B SHA-1 of the file | `SAME` | §4.1 |
 | `sha256` | 32 B SHA-256 of the file | `SAME` | §4.1 |
-| `btih` | 20 B infohash of a version 1 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
-| `btmh` | 32 B infohash of a version 2 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
-| `url` | 32 B hash of a link in its canonical form | `SAME`, `SET` | [`hoster.md`](hoster.md) §4 |
+| `btih` | 20 B infohash, version 1 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
+| `btmh` | 32 B infohash, version 2 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
+| `url` | 32 B hash of a link in canonical form | `SAME`, `SET` | [`hoster.md`](hoster.md) §4 |
 | `b3` | 32 B BLAKE3 root of a file | `PACKED` | [`hoster.md`](hoster.md) §6 |
-| `nzb` | 32 B hash of the message IDs of a Usenet post | `SET` | [`usenet.md`](usenet.md) §1 |
+| `nzb` | 32 B hash of a Usenet post's message IDs | `SET` | [`usenet.md`](usenet.md) §1 |
 | `nzb-file` | 32 B hash of the message IDs of one file of a post | `SAME` | [`usenet.md`](usenet.md) §1 |
 
-- **A new scheme is registered by a document** that fixes the form of `id`, the relations it
-  allows, and how a claim is checked (§5). Until this table lists a name, an implementer who
-  needs one SHOULD use a name that starts with `x-`.
-- A scheme names **content**, never a place where a node is. A name whose bytes can change
-  (a web address that is edited, a feed) is handled by the document of its scheme.
+- **New scheme registered by a document** fixing `id` form, allowed relations, claim check (§5).
+  Until listed here, an implementer needing one SHOULD use a name starting `x-`.
+- Scheme names **content**, never where a node is. Names with changing bytes (edited web
+  address, feed): handled by the scheme's document.
 
 ---
 
@@ -98,142 +93,123 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 
 **Publisher**
 
-- A node publishes an `ALIAS` record only for a root it shares, and only when it has seen
-  itself that the name and the root belong together: it has the complete file under the root
-  and computed the name from those bytes (a hash it computed over the file before counts
-  while the file's size and modification time are unchanged), or it verified the same bytes under both
-  (`Protocol.md` §14.4). The documents of the schemes say what that means for a set and for an
-  archive.
-- It publishes at most 4 *(initial)* records per root and scheme.
+- A node publishes `ALIAS` only for a root it shares, and only when it has itself seen that name and root
+  belong together: it holds the complete file under the root and computed the name from those bytes (an
+  earlier hash of the file counts while its size and modification time are unchanged), or verified the same
+  bytes under both (`Protocol.md` §14.4). Scheme documents say what this means for set, archive.
+- It publishes ≤ 4 *(initial)* records per root and scheme.
 
 **Storing node**
 
 | Check | Rule |
 |---|---|
-| Signature, `expires` | as for a keyword record (`Protocol.md` §10.7) |
-| Content | `alias`, nothing else. `root` is 32 B, `id` 1 to 64 B, `scheme` as in §1, `name` at most 255 B of UTF-8, `entry` at most 255 B, `password` at most 128 B; else `REJECTED` |
-| Target | the target of the request is the one computed from `scheme` and `id` |
-| Count | one record per publisher, target and root. At most 2 *(initial)* roots per publisher key and 8 *(initial)* per publisher site under a target ([`ip-diversity.md`](ip-diversity.md) §2.4); a further one is `REJECTED`, checked before the target; a root counts as a file does in `Protocol.md` §10.8. At most 64 *(initial)* different roots per target; further ones get `FULL`. At most 3 *(initial)* records are kept per root under a target (below) |
+| Signature, `expires` | as keyword record (`Protocol.md` §10.7) |
+| Content | `alias` only. `root` 32 B, `id` 1 to 64 B, `scheme` per §1, `name` ≤ 255 B UTF-8, `entry` ≤ 255 B, `password` ≤ 128 B; else `REJECTED` |
+| Target | request target = computed from `scheme` and `id` |
+| Count | one record per publisher, target, root. Per target ≤ 2 *(initial)* roots per publisher key, 8 *(initial)* per publisher site ([`ip-diversity.md`](ip-diversity.md) §2.4); more → `REJECTED`, checked before target; a root counts as a file in `Protocol.md` §10.8. ≤ 64 *(initial)* distinct roots per target; more → `FULL`. ≤ 3 *(initial)* records kept per root per target (below) |
 
-- It checks nothing that depends on the scheme, and stores records of schemes it does not
-  know.
-- It cannot check the claim.
-- **Records per root.** It keeps at most 3 *(initial)* records per root under a target, of
-  different publishers, by the rule of `Protocol.md` §10.8. The site of a kept record is the
-  site ([`ip-diversity.md`](ip-diversity.md) §1) of the address of the `Store` that last stored
-  it, a renewal included.
-  - A record of a publisher already kept takes the place of that publisher's record, whatever
-    site it comes from; the kept record then has the site of this `Store`.
-  - Otherwise a record from a site that holds one of the places takes the place of that
-    site's record (of the least fresh one, should a renewal have left two of one site).
-  - A record from another site is added while fewer than 3 are kept, else it takes the place
-    of the least fresh record kept.
-  - A `Store` with `signer` never takes the place of another publisher's record of another
-    site; it is answered `REJECTED`. Otherwise the answer is `STORED`.
+- No scheme-dependent checks; stores records of unknown schemes. Cannot check the claim.
+- **Records per root.** ≤ 3 *(initial)* per root per target, distinct publishers, by
+  `Protocol.md` §10.8. Kept record's site = site ([`ip-diversity.md`](ip-diversity.md) §1) of
+  the address of the `Store` that last stored it, renewal included.
+  - A record of an already-kept publisher replaces its old one, from any site; kept record takes this
+    `Store`'s site.
+  - Else a record from a site holding a place replaces that site's (least fresh one, if a renewal
+    left two of one site).
+  - Record from another site: added while fewer than 3 are kept, else replaces least fresh kept record.
+  - `Store` with `signer` never replaces another publisher's record of another site →
+    `REJECTED`. Else `STORED`.
 
-  This is the limit of a storing node. The 4 records per root and scheme above are the limit
-  of one publisher, over the names it publishes.
-- **Sites per root.** The node remembers, per root under a target, the sites (as above: of the
-  address of each `Store`) that stored a valid record for it, each until that record would have
-  expired, also after the record was displaced. A `Store` with `signer` adds no site, and only
-  stores answered `STORED` count. One site counts once; the count saturates at 255
-  *(initial)*. `sites` and the order below use this count.
-- A search returns up to 16 *(initial)* records in `aliases`, one record per root: the roots
-  named by the most publisher sites first, and among equal counts by
-  `H("ed3k v1 page", secret ‖ root)` compared as bytes, where `root` is the 32 bytes of
-  `Alias.root` and `secret` that of `Protocol.md` §10.3. Of the records kept for a root, the
-  answer carries the one with the lowest `H("ed3k v1 page", secret ‖ root ‖ publisher key)`,
-  so that no publisher chooses which record is shown, also not by renewing often. A site is
-  the group of [`ip-diversity.md`](ip-diversity.md) §1.
-- `KadAnswer.sites` (`Protocol.md` §10.3) has one entry per entry of `aliases`: the publisher
-  sites the node counted for that root, 0 = not counted.
-- A search is paged with `offset` and `more` as in `Protocol.md` §10.3, along the order
-  above: `offset` counts roots in it.
+  This is the storing node's limit; the 4 per root and scheme above limit one publisher over its names.
+- **Sites per root.** Per root per target, remembers sites (as above: of each `Store`'s address)
+  that stored a valid record for it, each until that record would have expired, even if
+  displaced. `Store` with `signer` adds no site; only stores answered `STORED` count. Site counts
+  once; count saturates at 255 *(initial)*. `sites` and the order below use this count.
+- Search: ≤ 16 *(initial)* records in `aliases`, one per root, most publisher sites first; ties by `H("ed3k v1 page", secret ‖ root)` as bytes, `root` = 32 bytes of `Alias.root`,
+  `secret` that of `Protocol.md` §10.3. Of a root's kept records the answer carries the one with the lowest
+  `H("ed3k v1 page", secret ‖ root ‖ publisher key)`: no publisher picks which is shown, not
+  even by frequent renewal. Site = group of [`ip-diversity.md`](ip-diversity.md) §1.
+- `KadAnswer.sites` (`Protocol.md` §10.3): one entry per `aliases` entry, publisher sites counted for that
+  root, 0 = not counted.
+- Paged with `offset`, `more` as in `Protocol.md` §10.3, along this order; `offset` counts roots.
 
 **Searcher**
 
-- It checks the signature, `expires` and the content as for a keyword record
-  (`Protocol.md` §10.7) and as the Content row above, and that `scheme` and `id` give the
-  target it searched. A record that fails is dropped.
-- **Every record is a claim.** §4 says how each relation is checked.
-- It merges the answers by `root`. The site count of a root is the lower median of the
-  non-zero `sites` values reported for it, and 0 when all are 0; among equal counts the lower
-  `root` comes first.
-- It tries at most 3 *(initial)* roots per name, those named by the most publisher sites first.
-- A publisher whose claim proved false is ignored from then on.
+- Checks signature, `expires`, content as keyword record (`Protocol.md` §10.7) and Content row
+  above, and that `scheme`, `id` give the searched target; else drops it.
+- **Every record is a claim;** §4 says how each relation is checked.
+- Merges answers by `root`; site count = lower median of non-zero reported `sites` (0 if all
+  0); ties → lower `root` first.
+- Tries ≤ 3 *(initial)* roots per name, most publisher sites first.
+- Publisher whose claim proved false: ignored from then on.
 
 **What an attacker can do**
 
-- **Fill a target** with 64 false roots, from at least 8 sites. The order by publisher sites
-  puts the root that honest nodes of several sites name first, displaced records included, and each false record costs a signature under a node ID
-  that clients then ignore.
-- **Make a client download a file it did not ask for.** §4 bounds what that costs for each
-  relation. Nothing false is kept or passed on under the name.
+- **Fill a target** with 64 false roots, from ≥ 8 sites. Site ordering puts first the root named
+  by honest nodes of several sites, displaced records included; each false record costs a
+  signature under a node ID clients then ignore.
+- **Make a client download a file it did not ask for.** §4 bounds cost per relation; nothing
+  false is kept or passed on under the name.
 
 ---
 
 ## 4. Checking a claim
 
-**The name the user started from is the judge.** A download that started from an `ed3k:file`
-link is judged by its root, and an alias found for it is only a way to more sources. A
-download that started from a foreign name is judged by that name, and the root is the claim.
+**The name the user started from is the judge.** A download started from an `ed3k:file` link is judged by its
+root; an alias only adds sources. One started from a foreign name is judged by that name; the root is the claim.
 
 | Relation | The claim is true when | Until then |
 |---|---|---|
-| `SAME`, name can check parts (`ed2k`) | the same bytes pass under both hashes (`Protocol.md` §14.4) | false as soon as a part fails under the name while its blocks pass under the root |
-| `SAME`, name is a hash of the whole file | the complete file gives the name (§4.1) | the file is not shown as complete |
-| `SAME` and `SET`, name is a place (`url`) | the bytes fetched from the place pass under the root | the place is a source like any other ([`hoster.md`](hoster.md) §4) |
-| `SET` (`btih`, `btmh`) | the manifest fits the torrent, and its data passes under the hashes of the torrent ([`torrent.md`](torrent.md) §3, §4.2) | false as soon as a piece fails under the torrent while its blocks pass under the roots |
-| `SET` and `SAME` (`nzb`, `nzb-file`) | the manifest fits the article list, and articles agree with the roots ([`usenet.md`](usenet.md) §3, §4.2) | false as soon as an article passes its own checksum while its block fails under the root |
-| `PACKED` | the archive, unpacked, gives the file `id` names ([`hoster.md`](hoster.md) §6) | the archive is a download of its own |
+| `SAME`, name can check parts (`ed2k`) | same bytes pass under both hashes (`Protocol.md` §14.4) | false once a part fails under the name while its blocks pass under the root |
+| `SAME`, name is a hash of the whole file | complete file gives the name (§4.1) | file not shown complete |
+| `SAME` and `SET`, name is a place (`url`) | bytes fetched there pass under the root | place = source like any other ([`hoster.md`](hoster.md) §4) |
+| `SET` (`btih`, `btmh`) | manifest fits the torrent; data passes under torrent hashes ([`torrent.md`](torrent.md) §3, §4.2) | false once a piece fails under the torrent while its blocks pass under the roots |
+| `SET` and `SAME` (`nzb`, `nzb-file`) | manifest fits the article list; articles agree with roots ([`usenet.md`](usenet.md) §3, §4.2) | false once an article passes its own checksum while its block fails under the root |
+| `PACKED` | archive, unpacked, gives the file `id` names ([`hoster.md`](hoster.md) §6) | archive is a download of its own |
 
 ### 4.1 A hash of the whole file
 
-`md5`, `sha1` and `sha256` name a file by a hash that cannot check a part of it. Such names
-come from magnet links (`urn:sha1`), from download pages and from file hosters.
+`md5`, `sha1`, `sha256`: whole-file hash, can't check parts. From magnet links (`urn:sha1`),
+download pages, file hosters.
 
-- A client that starts from such a name downloads the file under the claimed root. Every block
-  is verified under that root as always, so every sender is known.
-- When the file is complete, the client computes the hash. If it is the name, the claim is
-  true. If not, the client tells the user that it found another file, does not show it as the
-  file that was asked for, and ignores the publisher.
-- A false claim therefore costs one download of a file that is what its root says. A client
-  SHOULD compare `size` with the size it knows for the name before it starts.
-- MD5 and SHA-1 are broken for collisions. Two files with one such name can exist; the root
-  names one of them.
+- Client downloads under the claimed root; every block verified under it, so every sender known.
+- When complete, the client computes the hash; if it equals the name, the claim is true. Else it tells the user another file was found, doesn't show it
+  as the requested file, and ignores the publisher.
+- False claim costs one download of a file that is what its root says. Client SHOULD compare
+  `size` with the size it knows for the name before starting.
+- MD5, SHA-1 broken for collisions: two files may share one such name; the root names one.
 
 ---
 
 ## 5. Rules for joining another network or data source
 
-Every document that joins a network or a source of bytes to ed3k follows these rules. They are
-what keeps one identity.
+Every document joining a network or byte source to ed3k follows these; they keep one identity.
 
 | # | Rule |
 |---|---|
-| 1 | **One identity on the wire.** Every ed3k message names a file by its root. No request carries a foreign name (`Protocol.md` §7.4) |
-| 2 | **No foreign protocol inside ed3k.** A client speaks the other network with that network's peers. ed3k carries at most a description of where bytes are |
+| 1 | **One identity on the wire.** Every ed3k message names a file by root. No request carries a foreign name (`Protocol.md` §7.4) |
+| 2 | **No foreign protocol inside ed3k.** Client speaks the other network with its peers; ed3k carries at most a description of where bytes are |
 | 3 | **A name is found through `ALIAS`.** A scheme, no new record kind |
-| 4 | **A pairing is a claim** until the client has checked it itself (§4). Who is blamed for a false one is stated per scheme |
-| 5 | **Checked is not verified.** Bytes that passed only a foreign check are not shown in a `have` bitmap and not sent to an ed3k node, until they pass under the root |
-| 6 | **One store of bytes.** What a client has of a file is a set of byte ranges. The bitmaps of each network are views of it (`Protocol.md` §14.4) |
-| 7 | **Several files are a set.** A thing that holds several files is a manifest ([`file-set.md`](file-set.md)), and each file keeps a root and sources of its own. Where every holder can compute the same manifest, the document fixes a canonical form ([`torrent.md`](torrent.md) §2) |
-| 8 | **Another form of the bytes is another file.** An archive, an encrypted or an encoded copy has a root of its own. What it turns into is a relation in an `ALIAS` record (`PACKED`), never a second identity of the file |
-| 9 | **A source of bytes is a field.** Where bytes can be fetched is told in the file stream and next to the `SOURCE` record, as HTTP sources are ([`http-source.md`](http-source.md) §2). A new kind of source gets a field of its own and a capability bit, so that a node without it is never handed something it would fetch wrongly |
-| 10 | **Nothing is run that a peer sent.** Code that speaks to another network or site comes with the client, never over ed3k |
+| 4 | **A pairing is a claim** until the client checked it itself (§4). Blame for a false one stated per scheme |
+| 5 | **Checked is not verified.** Bytes passing only a foreign check: not in a `have` bitmap, not sent to an ed3k node, until they pass under the root |
+| 6 | **One store of bytes.** A client's data of a file = byte ranges; each network's bitmaps are views (`Protocol.md` §14.4) |
+| 7 | **Several files are a set.** Multi-file thing = manifest ([`file-set.md`](file-set.md)); each file keeps own root, sources. Where every holder can compute the same manifest, the document fixes a canonical form ([`torrent.md`](torrent.md) §2) |
+| 8 | **Another form of the bytes is another file.** Archive, encrypted or encoded copy: own root. What it turns into = an `ALIAS` relation (`PACKED`), never a second identity of the file |
+| 9 | **A source of bytes is a field.** Fetch locations told in the file stream and beside the `SOURCE` record, as for HTTP sources ([`http-source.md`](http-source.md) §2). A new source kind gets its own field and a capability bit, so a node lacking it is never handed something it would fetch wrongly |
+| 10 | **Nothing is run that a peer sent.** Code talking to another network or site ships with the client, never over ed3k |
 
-How networks fit under these rules. The last column says where, or that nothing is specified.
+How networks fit; last column: where specified, or not.
 
 | Network or source | Name | Relation | Bytes come from | Specified |
 |---|---|---|---|---|
 | eD2K | `ed2k` | `SAME` | eD2K peers; part hashes check parts of 9,728,000 bytes | `Protocol.md` §14 |
 | BitTorrent | `btih`, `btmh` | `SET` | BitTorrent peers; piece hashes | [`torrent.md`](torrent.md) |
-| Web servers, cache servers | none needed: the URL travels with the file | — | HTTP | [`http-source.md`](http-source.md) |
-| File hosters | `url`; `b3` for archives | `SAME`, `SET`, `PACKED` | a resolver that turns a link into a byte stream | [`hoster.md`](hoster.md) |
+| Web servers, cache servers | none needed: URL travels with the file | — | HTTP | [`http-source.md`](http-source.md) |
+| File hosters | `url`; `b3` for archives | `SAME`, `SET`, `PACKED` | a resolver turning a link into a byte stream | [`hoster.md`](hoster.md) |
 | Magnet links with `urn:sha1`, download pages with a checksum | `sha1`, `md5`, `sha256` | `SAME` | ed3k sources | §4.1 |
-| Usenet | `nzb`, `nzb-file`; `b3` for archives | `SET`, `SAME`, `PACKED` | news servers; the checksum of an article is a foreign check (rule 5) | [`usenet.md`](usenet.md) |
-| A catalogue on a chain (a video site) | none: the chain names the set, and the set names the chain | — | ed3k sources; the site's server or an IPFS gateway as an HTTP source. A content ID in the link is a place, not a name | [`chaintube.md`](chaintube.md) |
-| A network with a tree hash of its own (a content ID over a block graph, a tiger tree) | a scheme for that ID | `SAME` for one file, `SET` for a directory | its peers or gateways; its own hashes check parts, as eD2K part hashes do | no |
+| Usenet | `nzb`, `nzb-file`; `b3` for archives | `SET`, `SAME`, `PACKED` | news servers; article checksum = foreign check (rule 5) | [`usenet.md`](usenet.md) |
+| A catalogue on a chain (a video site) | none: chain names the set, set names the chain | — | ed3k sources; site's server or IPFS gateway as HTTP source. Content ID in the link = a place, not a name | [`chaintube.md`](chaintube.md) |
+| A network with a tree hash of its own (a content ID over a block graph, a tiger tree) | a scheme for that ID | `SAME` for a file, `SET` for a directory | its peers or gateways; own hashes check parts, like eD2K's | no |
 
 ---
 
@@ -241,11 +217,11 @@ How networks fit under these rules. The last column says where, or that nothing 
 
 | | |
 |---|---|
-| A later network | a scheme name. Storing nodes of today store its records |
-| Kad | one record kind for all names; one record per publisher, name and root, about 150 B |
-| What a storing node can check | that the record sits under the hash of its own name. Nothing about the name itself |
-| What a storing node learns | the name, in clear, and that a publisher has a file with it; for `url` only the hash of the link |
-| Trust | none added. A record is a signed claim, ordered by how many sites make it |
+| A later network | a scheme name; today's storing nodes store its records |
+| Kad | one record kind for all names; one ~150 B record per publisher, name, root |
+| What a storing node can check | record sits under its own name's hash; nothing about the name |
+| What a storing node learns | name in clear, and that a publisher has a file with it; for `url` only the link hash |
+| Trust | none added. Record = signed claim, ranked by how many sites make it |
 
 ---
 
@@ -253,20 +229,19 @@ How networks fit under these rules. The last column says where, or that nothing 
 
 | Alternative | Pro | Con |
 |---|---|---|
-| **A record kind per network** (`TORRENT`, then one for links, …) | each kind has exactly the fields it needs; a storing node can apply checks of that network | every new network is a kind that every `ROUTER` must learn, so joining one is a network upgrade. This was the first form of [`torrent.md`](torrent.md) |
-| **A list of typed hashes in `FileInfo`**, in place of the one `ed2k` field | no lookup: the names travel with every file record | goes from the root to the names, not from a name to the root; grows every record; names of a whole-file hash cannot be checked by the receiver |
-| **Requests by any hash type** | a node could serve a file it knows only by a foreign name | a second identity on the wire, and data that cannot be verified under the root (`Protocol.md` §7.4) |
-| **A scheme number** from a registry | 1 byte | two implementers who add a network at the same time collide; a string does not |
-| **The name in clear** as the Kad target | a storing node could check the form of a name | storing nodes read every name; a link at a hoster would be public by being looked up |
+| **A record kind per network** (`TORRENT`, then one for links, …) | exact fields per kind; storing node can apply that network's checks | each new network = a kind every `ROUTER` must learn → joining = network upgrade. [`torrent.md`](torrent.md)'s first form |
+| **A list of typed hashes in `FileInfo`**, in place of the one `ed2k` field | no lookup: names ride every file record | root → names, not name → root; grows every record; receiver can't check whole-file-hash names |
+| **Requests by any hash type** | node could serve a file known only by a foreign name | second identity on the wire; data not verifiable under the root (`Protocol.md` §7.4) |
+| **A scheme number** from a registry | 1 byte | two implementers adding a network at once collide; strings don't |
+| **The name in clear** as the Kad target | storing node could check a name's form | storing nodes read every name; looking up a hoster link makes it public |
 
 ---
 
 ## 8. Open points
 
-- `FileInfo.ed2k` (`Protocol.md` §7.4) and the scheme `ed2k` say the same thing in two places.
-  When the field is dropped, the record remains.
-- Whether a search should be able to ask for one scheme's relation only. Today a target holds
-  one scheme by construction.
-- A record from a root to its names (the reverse direction). `MEMBER` does this for sets
-  ([`file-set.md`](file-set.md) §6); for plain names nothing does.
+- `FileInfo.ed2k` (`Protocol.md` §7.4) and scheme `ed2k` say the same twice; when the field
+  goes, the record remains.
+- Search for one scheme's relation only? Today a target holds one scheme by construction.
+- Reverse record, root → names. `MEMBER` does it for sets ([`file-set.md`](file-set.md) §6);
+  nothing for plain names.
 - All numbers are first values.

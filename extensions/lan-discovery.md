@@ -1,20 +1,18 @@
 # Extension: finding nodes in the local network (`lan-discovery`)
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §9.2, §12.1 and §13.1. Section numbers (§) refer to that document unless this one is named.
+**Extends:** [`Protocol.md`](../Protocol.md) §9.2, §12.1 and §13.1. § = that document unless this one is named.
 **Capability:** bit 13, `LAN`. Message types 24 and 25. One multicast datagram outside any connection.
 
-Two nodes in the same home or office network usually cannot find each other: both sit behind
-the same NAT, and Kad knows them by the same public address. This extension lets them meet
-directly, so that a file one of them has moves at the speed of the local network and uses none
-of the user's line.
+Two nodes in one home/office network usually can't find each other: same NAT, same public
+address in Kad. This lets them meet directly, so a file moves at LAN speed, using none of the
+user's line.
 
-- A node **announces its presence** by multicast: node ID and port, nothing else.
-- Which files two nodes have in common is asked **inside the connection**, which is encrypted
-  and authenticated like any other.
+- A node **announces its presence** by multicast: node ID and port only.
+- Files in common are asked **inside the connection**, encrypted and authenticated as usual.
 
-The idea is BitTorrent's Local Service Discovery (BEP 14). BEP 14 announces the files
-themselves to the whole network; ed3k does not
+Idea: BitTorrent's Local Service Discovery (BEP 14), which announces the files themselves to the
+whole network; ed3k does not
 ([`docs/bittorrent-comparison.md`](../docs/bittorrent-comparison.md) §2.2).
 
 ---
@@ -30,8 +28,8 @@ mask   = as in §4.3, with this key
 body   = a serialised LanAnnounce
 ```
 
-`salt` is fresh for every datagram, and `salt[0]` follows the rule of §4.3. A datagram is at
-most 512 *(initial)* bytes; a larger one is dropped unread.
+`salt` is fresh per datagram; `salt[0]` follows the rule of §4.3. A datagram is at most
+512 *(initial)* bytes; larger → dropped unread.
 
 ```protobuf
 message LanAnnounce {
@@ -45,48 +43,45 @@ message LanAnnounce {
 |---|---|---|
 | Group *(initial)* | `239.255.101.51` | `ff02::6533:6b` |
 | Port *(initial)* | 6533 | 6533 |
-| Reach | TTL 1 | hop limit 1; the group is link-local |
+| Reach | TTL 1 | hop limit 1; group is link-local |
 
 Neither group nor port is registered.
 
-- The address of the announcing node is the source address of the datagram. The body carries
-  none.
-- A `LanAnnounce` whose `port` is 0 or above 65,535 is dropped.
+- Announcing node's address = datagram source address; body carries none.
+- A `LanAnnounce` with `port` 0 or above 65,535 is dropped.
 - Several nodes on one host share the port; each binds it for shared use.
-- The mask has a key that everyone can compute. It only keeps the datagram free of fixed
-  bytes. Anyone in the network who knows this document can read it (§5 of this document).
+- Anyone can compute the mask key; it only keeps the datagram free of fixed bytes. Anyone in the
+  network who knows this document can read it (§5 of this document).
 
 **Sending**
 
-- A node announces on each interface it listens on: when it starts, when the interface gets a
-  new address, and every 5 min *(initial)*. An interface with addresses of both families
-  announces to both groups; the two datagrams are one announce for the limits below.
-- A node that hears an announce from a node it did not know answers with one announce sent to
-  the group, with `reply` set, after a random wait of up to 1 s. It answers a given node at most
-  once per 5 min and sends at most 10 *(initial)* replies per minute; replies do not count
-  against the limit below. A newcomer then knows the others at once, and so does everyone else
-  on the link, as in BEP 14.
-- A node sends at most 1 multicast announce per minute and interface. The 10 replies per
-  minute are per node, over all its interfaces.
+- Announce on each listening interface: at start, when the interface gets a new address, and every 5 min
+  *(initial)*. An interface with both families announces to both groups; the two datagrams =
+  one announce for the limits below.
+- Announce from an unknown node → answer with one announce to the group, `reply` set, after a
+  random wait of up to 1 s. At most once per 5 min per given node, at most 10 *(initial)*
+  replies per minute; replies don't count against the limit below. So a newcomer knows the
+  others at once, as does everyone else on the link, as in BEP 14.
+- At most 1 multicast announce per minute and interface. The 10 replies/minute are per node,
+  over all its interfaces.
 
 **Receiving**
 
-- A node accepts an announce only when its source address is a private address of
-  `Protocol.md` §8.2 (8) other than loopback (`127.0.0.0/8`, `::1`), **and** lies in a network
-  of the interface it arrived on. Everything else is dropped.
-- It remembers (node ID, address, port, interface) as a **LAN peer** for 15 min *(initial)* after the last
-  announce.
-- An announce is not a reason to connect. A node dials a LAN peer when it has something to ask
+- An announce is accepted only when its source address is a private address of `Protocol.md`
+  §8.2 (8) other than loopback (`127.0.0.0/8`, `::1`), **and** lies in a network of the
+  arrival interface. All else dropped.
+- Node remembers (node ID, address, port, interface) as a **LAN peer** for 15 min *(initial)*
+  after the last announce.
+- An announce is no reason to connect; a node dials a LAN peer when it has something to ask
   (§2 of this document).
 - A node without Kad contacts also dials a LAN peer for first contact
-  ([`bootstrap.md`](bootstrap.md) §1). Every node answers a `KadRequest` with the contacts it
-  knows (§10.3), so a LAN peer that is only a leaf serves for that too. Rule §3 of this document
-  holds: the LAN peer itself does not enter the routing table.
-- An announce proves nothing. The handshake does (T1): a LAN peer whose key does not give the
-  announced node ID is dropped. A false announce costs one dial inside the local network.
-- A node keeps at most 256 *(initial)* LAN peers and takes at most 10 new ones per minute,
-  both per node, over all its interfaces. A node that is not taken for these limits is still
-  answered as a node it did not know.
+  ([`bootstrap.md`](bootstrap.md) §1). Every node answers `KadRequest` with contacts it knows
+  (§10.3), so a leaf LAN peer serves too. Rule §3 of this document holds: the LAN peer
+  itself does not enter the routing table.
+- An announce proves nothing; the handshake does (T1): a LAN peer whose key does not give the
+  announced node ID is dropped. A false announce costs one LAN dial.
+- At most 256 *(initial)* LAN peers kept, at most 10 new ones taken per minute, both per node
+  over all interfaces. A node not taken due to these limits is still answered as unknown.
 
 ---
 
@@ -102,49 +97,44 @@ message LanAnswer {
 }
 ```
 
-- `LanQuery` is a request/answer exchange (§5.2), sent only to a LAN peer that set `LAN`. A
-  `LanQuery` with more than 256 roots, or whose `roots` is not a multiple of 16 bytes, is
-  answered `Error{MALFORMED}`.
-- A node answers it only on a connection whose remote address passes the test of §1 of this
-  document (Receiving), and with `Error{DENIED}` otherwise. This is checked before the
-  `MALFORMED` test above.
-- `have` holds one bit per root of the query, in its order. A `have` that is shorter than the
-  query reads as if the missing bits were 0; bits beyond the last root are ignored.
-- For every set bit the asking node adds the LAN peer as a source of that file and opens a file
-  stream as usual (§12.1).
-- A node asks a LAN peer at most once per 10 min *(initial)*, and once more when it starts a new
+- `LanQuery`: request/answer exchange (§5.2), only to a LAN peer that set `LAN`. >256 roots, or
+  `roots` not a multiple of 16 bytes → `Error{MALFORMED}`.
+- Answered only on a connection whose remote address passes §1 of this document (Receiving),
+  else `Error{DENIED}`; checked before the `MALFORMED` test.
+- `have`: one bit per query root, in order. Shorter `have` → missing bits read as 0; bits beyond
+  the last root ignored.
+- Per set bit, asker adds the LAN peer as source of that file and opens a file stream as usual
+  (§12.1).
+- Ask a LAN peer at most once per 10 min *(initial)*, plus once more when starting a new
   download, at most once per minute.
-- 16 bytes of the root are enough to pick a source. The file stream names the whole root, and
-  every block is verified against it.
+- 16 root bytes suffice to pick a source; the file stream names the whole root and every block
+  is verified against it.
 
-A node that only shares never needs to ask. It is found by the nodes that download.
+A node that only shares never needs to ask; downloading nodes find it.
 
 ---
 
 ## 3. Rules for a LAN peer
 
 - **A LAN address is never passed on.** A node MUST NOT name a LAN peer by its local address in
-  a Kad answer, in `FileStatus.sources`, in a `Peer` of any other message, or as a relay. It is
-  not put into the routing table.
-- **Its address reports do not count.** What a LAN peer says in `Hello.observed` is a local
-  address. It is not a report in the sense of §9.2, and a connection from it is not an unasked
-  connection there.
-- The limits of [`ip-diversity.md`](ip-diversity.md) do not count a LAN peer (§1 there), and
-  the connection budget (§4.6) exempts local addresses.
-- A LAN peer waits in the upload queue like any other downloader. A node MAY serve LAN peers
-  outside its upload limit and outside its number of slots, because that data does not use the
-  user's line. This is local policy.
-- A file that is bad when it comes from a LAN peer is handled as from any source (§12.3).
+  a Kad answer, in `FileStatus.sources`, in a `Peer` of any other message, or as a relay. Not put in
+  the routing table.
+- **Its address reports do not count.** A LAN peer's `Hello.observed` is a local address: no
+  report in the §9.2 sense, and a connection from it is no unasked connection there.
+- The limits of [`ip-diversity.md`](ip-diversity.md) do not count a LAN peer (§1 there); the
+  connection budget (§4.6) exempts local addresses.
+- A LAN peer waits in the upload queue like any downloader. A node MAY serve LAN peers outside
+  its upload limit and slot count, since that data does not use the user's line; local policy.
+- A bad file from a LAN peer is handled as from any source (§12.3).
 
 ---
 
 ## 4. When it is on
 
 - A user MUST be able to turn the extension off, as a whole and per network.
-- It SHOULD be on in a network that the operating system marks as private or home, and off in
-  one marked as public, unless the user decides otherwise.
-- With the extension off a node neither announces nor answers announces, and answers `LanQuery`
-  with `Error{UNSUPPORTED}`.
+- It SHOULD be on in a network the OS marks private/home, and off in one marked public, unless
+  the user decides otherwise.
+- Off: no announcing, no answering announces; `LanQuery` → `Error{UNSUPPORTED}`.
 
 ---
 
@@ -152,13 +142,12 @@ A node that only shares never needs to ask. It is found by the nodes that downlo
 
 | To whom | What |
 |---|---|
-| Everyone in the local network | that this host runs ed3k, its node ID and its port. The obfuscation of §4.2 hides this from a network operator; an announce gives it away |
-| A LAN peer that asks | which of the files it names this node shares. Any peer on the internet learns the same by opening a file stream |
+| Everyone in the local network | that this host runs ed3k, its node ID and port. §4.2 obfuscation hides this from network operators; an announce gives it away |
+| A LAN peer that asks | which named files this node shares. Any internet peer learns the same via a file stream |
 | A LAN peer that is asked | 16 bytes of the root of each file the asking node looks for |
 | Nobody outside the network | anything. The datagrams do not leave the link |
 
-This is why the announce names no files, and why §4 of this document turns the extension off
-in a public network.
+Hence the announce names no files, and §4 of this document turns it off in a public network.
 
 ---
 
@@ -166,18 +155,20 @@ in a public network.
 
 | Alternative | Pro | Con |
 |---|---|---|
-| **Announcing the files** (BEP 14) | no query; a node dials only peers that have something | every host in the network reads what each node downloads, without connecting |
-| **Asking with a file stream per file** | no new message | files × peers exchanges, most of them answered `NOT_FOUND` |
-| **mDNS / DNS-SD** | registered, tools exist | a service name in clear, and a second protocol to implement for 30 bytes of content |
-| **Browsing the LAN peer** ([`browse.md`](browse.md)) | exists | optional, lists everything, and many nodes turn it off |
-| **A plain datagram without the mask** | simplest | fixed bytes at a fixed place, which the transport avoids everywhere else |
-| **Finding the peer through Kad and hairpin NAT** | nothing new | many routers do not hairpin, and the data would pass the router |
+| **Announcing the files** (BEP 14) | no query; dial only peers that have something | every host in the network reads what each node downloads, w/o connecting |
+| **Asking with a file stream per file** | no new message | files × peers exchanges, most answered `NOT_FOUND` |
+| **mDNS / DNS-SD** | registered, tools exist | service name in clear; a 2nd protocol
+
+ to implement for 30 bytes of content |
+| **Browsing the LAN peer** ([`browse.md`](browse.md)) | exists | optional, lists everything, many nodes turn it off |
+| **A plain datagram without the mask** | simplest | fixed bytes at a fixed place, avoided everywhere else in the transport |
+| **Finding the peer through Kad and hairpin NAT** | nothing new | many routers do not hairpin, and data would pass the router |
 
 ---
 
 ## 7. Open points
 
 - Group and port are placeholders.
-- Whether a node should prefer a LAN source so strongly that it stops asking others for the
-  same blocks.
-- Networks that block multicast between clients (many guest networks) are not served.
+- Whether to prefer a LAN source so strongly that others are no longer asked for the same
+  blocks.
+- Networks blocking multicast between clients (many guest networks) are not served.

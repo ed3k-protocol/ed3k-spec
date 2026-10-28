@@ -1,21 +1,21 @@
 # Extension: HTTP sources (`http-source`)
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
-**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12.1, §12.5 and §13.2. Section numbers (§) refer to this document unless a document is named.
+**Extends:** [`Protocol.md`](../Protocol.md) §10.3, §12.1, §12.5 and §13.2. § = this document unless a document is named.
 **Capability:** bit 9, `HTTP`. No message types; fields in existing messages.
-**Compatible with:** eMuleQt's HTTP Cache for eD2K (`docs/protocol/http-cache-spec.md` in the eMuleQt repository), referred to below as *HTTP Cache*.
+**Compatible with:** eMuleQt's HTTP Cache for eD2K (`docs/protocol/http-cache-spec.md` in the eMuleQt repo), below *HTTP Cache*.
 
-A file, or a range of one, can be fetched from an HTTP server as well as from peers. This
-extension lets nodes tell each other where. It covers two kinds of source with one description:
+A file or range can be fetched over HTTP as well as from peers; nodes tell each other where. One
+description, two source kinds:
 
-- **Plain source.** A URL whose body is the file itself: a web server, a mirror, a content
-  network. Anyone who knows such a URL can attach it to a file.
-- **Sealed chunk.** A range of the file that an uploader encrypted and placed on a cache server,
-  so that many downloaders fetch it over HTTP and the uploader spends its upstream once. This is
-  HTTP Cache, carried over to ed3k with the same cipher and the same server contract.
+- **Plain source.** URL whose body is the file itself: web server, mirror, content network.
+  Anyone knowing it can attach it to a file.
+- **Sealed chunk.** File range an uploader encrypted and put on a cache server, so many
+  downloaders fetch it over HTTP and the uploader spends upstream once. HTTP Cache carried to
+  ed3k: same cipher, same server contract.
 
-HTTP is only a transport for bytes. Every byte is verified against the BLAKE3 root (`Protocol.md` §7.2) like
-bytes from a peer, so a source cannot make a download accept wrong data.
+HTTP only transports bytes. Every byte is verified against the BLAKE3 root (`Protocol.md` §7.2)
+like peer bytes, so no source can make a download accept wrong data.
 
 ## 1. Description of a source
 
@@ -39,22 +39,22 @@ message SealedChunk {         // not `Sealed`, the record of hidden-set.md
 
 | | Plain source | Sealed chunk |
 |---|---|---|
-| Body of the URL | the file bytes `offset .. offset+length` | the ciphertext of those bytes |
-| Whole file | `offset` = 0, `length` = 0 | not used; a chunk is a range |
-| Body length | `length` | `(length / 16 + 1) × 16`; not sent, the reader derives it |
-| Who can read it | anyone with the URL | anyone with the URL and the key |
+| URL body | file bytes `offset .. offset+length` | their ciphertext |
+| Whole file | `offset` = 0, `length` = 0 | not used; chunk is a range |
+| Body length | `length` | `(length / 16 + 1) × 16`; not sent, reader derives it |
+| Readable by | anyone with the URL | anyone with URL and key |
 | `expires` | usually 0 | MUST be set |
 
-- `url` and `hashes` are each at most 1,024 bytes, and at most 256 bytes in a Kad record.
-- `alg` 1 is the scheme of HTTP Cache. Other values are reserved; a reader does not fetch a
-  source with an `alg` it does not know, and reports it as `BAD_SOURCE` (§5).
-- A sealed chunk uses a fresh random key and IV. A key is never used for two chunks.
-- A sealed chunk covers at most 16 MiB (16,777,216 bytes) of the file, which is 4 pieces and a
-  ciphertext of 16,777,232 bytes. A reader MUST refuse a sealed chunk with a larger `length`.
-- A sealed chunk SHOULD start on a piece boundary and cover whole pieces (`Protocol.md` §7.2), or end with
-  the file. The default is 4 pieces; a publisher uses fewer when the server accepts less (§4).
-- A chunk made for eD2K covers one eD2K part of 9,728,000 bytes and is equally valid here; its
-  edges are not block-aligned, which §6 covers.
+- `url`, `hashes`: each ≤ 1,024 bytes; ≤ 256 bytes in a Kad record.
+- `alg` 1 = HTTP Cache scheme; others reserved. Unknown `alg` → reader doesn't fetch, reports
+  `BAD_SOURCE` (§5).
+- Sealed chunk: fresh random key and IV; a key never serves two chunks.
+- Sealed chunk covers ≤ 16 MiB (16,777,216 bytes) of the file, i.e. 4 pieces, ciphertext 16,777,232
+  bytes. A reader MUST refuse a sealed chunk with larger `length`.
+- A sealed chunk SHOULD start on a piece boundary and cover whole pieces (`Protocol.md` §7.2),
+  or end with the file. Default 4 pieces; fewer when the server accepts less (§4).
+- A chunk made for eD2K covers one eD2K part of 9,728,000 bytes, equally valid here; edges not
+  block-aligned (§6).
 
 ## 2. Where sources travel
 
@@ -68,19 +68,18 @@ message SealedChunk {         // not `Sealed`, the record of hidden-set.md
 | Link | `wh=<url>` in `ed3k:file` (`Protocol.md` §13.2) | hash body of the file (§3.1) |
 | Link | `ed3k:cache` | a cache server and its upload key (§4.1) |
 
-A node sends these fields on a file stream only to a peer that set `HTTP`. A storing node keeps
-and returns `Store.http` whether or not it sets the bit, checking the limits and nothing else,
-as it does for every record of an extension (`Protocol.md` §10.3). A node without the extension ignores the
-fields elsewhere (`Protocol.md` §16), so nothing else changes for it.
+Fields sent on a file stream only to peers that set `HTTP`. Storing node keeps and returns
+`Store.http` whether or not it sets the bit, checking limits only, as for every extension record
+(`Protocol.md` §10.3). Nodes without the extension ignore the fields elsewhere (`Protocol.md`
+§16); nothing else changes for them.
 
 ### 2.1 In the file stream
 
-- An uploader MAY put sources into any `FileStatus`: the first answer, a ping, or the answer to
-  a returning downloader (`Protocol.md` §12.5). A downloader waiting in the queue thereby gets bytes without a
-  slot.
-- An uploader that gives a downloader a source covering what it asked for MAY take its slot
-  back and give it to a downloader the source does not help.
-- The downloader reports the outcome in its next `FileRequest`:
+- Uploader MAY put sources in any `FileStatus`: first answer, ping, or answer to a returning
+  downloader (`Protocol.md` §12.5). Queued downloader thus gets bytes w/o a slot.
+- Uploader giving a downloader a source covering its request MAY reassign that slot to a
+  downloader the source doesn't help.
+- Downloader reports outcome in its next `FileRequest`:
 
 ```protobuf
 message HttpResult {
@@ -101,64 +100,60 @@ message HttpResult {
 }
 ```
 
-  The codes and their numbers are those of HTTP Cache. Codes 8 to 10 belong to the extension
-  for links at file hosters ([`hoster.md`](hoster.md) §2). After 3 *(initial)* results of 5, 6 or 7
-  from downloaders in 3 different sites ([`ip-diversity.md`](ip-diversity.md) §1), an uploader
-  stops handing out that source. `bytes` is reported with `OK` only: a count on a failure
-  would tell the peer that named the URL how much of it exists.
+  Codes and numbers = HTTP Cache's. Codes 8 to 10: file-hoster links extension
+  ([`hoster.md`](hoster.md) §2). After 3 *(initial)* results of 5, 6 or 7 from downloaders in 3
+  different sites ([`ip-diversity.md`](ip-diversity.md) §1), uploader stops handing out that
+  source. `bytes` reported with `OK` only: on failure it would tell the URL's namer how much
+  exists.
 
 ### 2.2 In Kad
 
-- A node that publishes itself as a source of a file (`Protocol.md` §10.3) MAY attach up to 3 HTTP sources to
-  that `Store`. They live and expire with its source record.
-- It attaches only sources it vouches for: sealed chunks it published itself, or plain sources
-  from which it has verified at least one block.
-- A storing node returns them in `KadAnswer.http` with their source record, when that record
-  is in the answer (`Protocol.md` §10.3, **Paging**). It checks the limits of
-  this document and nothing else; it does not fetch. A `Store` whose `http` holds more than 3
-  sources, or a `url` or `hashes` above 256 bytes, is answered `REJECTED`, and its source
-  record is not kept.
-- A searcher can then download without contacting any peer.
+- A node publishing itself as file source (`Protocol.md` §10.3) MAY attach up to 3 HTTP sources
+  to that `Store`; they live and expire with its source record.
+- Only ones it vouches for: own published sealed chunks, or plain sources it verified ≥ 1 block
+  from.
+- Storing node returns them in `KadAnswer.http` with their source record, when that is in the
+  answer (`Protocol.md` §10.3, **Paging**). Checks this document's limits only; never fetches.
+  `Store` with more than 3 sources in `http`, or `url` or `hashes` above 256 bytes → `REJECTED`, source
+  record not kept.
+- Searcher can then download without contacting any peer.
 
 ### 2.3 Passing a source on
 
-A node that fetched a source and verified every block of it under the root MAY hand the same
+A node that fetched a source and verified every block under the root MAY hand the same
 `HttpSource` to its own downloaders; one that verified only some blocks of a sealed chunk MUST
-NOT, since it would be blamed for the rest (§6). There is no marker for this, and none is to be added: a passed-on description
-is identical to a first-hand one, so it does not reveal who published a chunk.
+NOT, as it would be blamed for the rest (§6). No marker for this, and none to be added:
+passed-on is identical to first-hand, so it doesn't reveal who published a chunk.
 
-A sealed chunk that is passed on keeps the expiry its publisher set, and is not attached to a
-Kad record by anyone but its publisher.
+Passed-on sealed chunk keeps its publisher's expiry; nobody but its publisher attaches it to a
+Kad record.
 
 ## 3. Fetching
 
-- Requests are `GET` with at most one `Range` per request and one request outstanding per
-  connection.
-- A plain source SHOULD support `Range`. One that answers 200 to a range request is read from
-  the start of its body, or not used.
-- A sealed chunk is read as in HTTP Cache: the SHA-256 of the whole ciphertext is checked
-  against `digest`, the padding is checked, and the plaintext then goes to BLAKE3 verification.
-  CBC allows resuming at any multiple of 16 bytes, with the preceding block as chaining value.
-- A response is refused when its length or `Content-Range` disagrees with the description.
-- Requests carry `Accept-Encoding: identity`. A response with a `Content-Encoding` other than
-  `identity` is refused (`HTTP_FAILED`).
-- Redirects are followed at most 3 times *(initial)*, and every target passes the checks of §5.
-- A node SHOULD send a `User-Agent` that names the client, so that operators can let it pass.
+- `GET`, ≤ 1 `Range` per request, one request outstanding per connection.
+- Plain source SHOULD support `Range`. One answering 200 to a range request is read from body
+  start, or not used.
+- Sealed chunk read as in HTTP Cache: SHA-256 of whole ciphertext checked against `digest`,
+  padding checked, plaintext then to BLAKE3 verification. CBC allows resuming at any multiple of
+  16 bytes, preceding block as chaining value.
+- Response refused when its length or `Content-Range` disagrees with the description.
+- Requests carry `Accept-Encoding: identity`; response with `Content-Encoding` other than
+  `identity` refused (`HTTP_FAILED`).
+- ≤ 3 redirects followed *(initial)*; every target passes §5 checks.
+- A node SHOULD send a `User-Agent` naming the client, so operators can let it pass.
 
-**Verification.** Blocks are verified with the chaining values of `Protocol.md` §12.4, which are themselves
-verified against the root. They come from a peer, or from a hash URL (§3.1). A downloader that
-has neither can still fetch a whole file from a plain source and verify it by computing the
-root at the end; a failure then cannot be located.
+**Verification.** Blocks verified with chaining values of `Protocol.md` §12.4, themselves
+verified against the root; from a peer or a hash URL (§3.1). With neither, a downloader can still fetch a
+whole file from a plain source and verify by computing the root at the end; a failure then
+can't be located.
 
 ### 3.1 Block hashes over HTTP
 
-`hashes`, or `wh` in a link, names a URL whose body is the hash tree of the file above its
-blocks. A reader fetches the parts it needs with `Range` requests and can verify each part as
-it arrives.
+`hashes`, or `wh` in a link, names a URL whose body is the file's hash tree above its blocks.
+Reader fetches needed parts by `Range` and can verify each on arrival.
 
-**The tree** is the one of `Protocol.md` §12.4. Let n = ceil(size / 256 KiB) be the number of blocks. Level 0
-holds the chaining values of the blocks, the values `HashAnswer.cvs` carries. Each level above
-halves the count:
+**The tree** is that of `Protocol.md` §12.4. n = ceil(size / 256 KiB) = block count. Level 0 = block
+chaining values (what `HashAnswer.cvs` carries). Each level above halves the count:
 
 ```
 count(0) = n                    count(k) = ceil(count(k−1) / 2)
@@ -166,12 +161,12 @@ node(k, j) = parent( node(k−1, 2j), node(k−1, 2j+1) )     if both exist
            = node(k−1, 2j)                                 if it is the last and has no partner
 ```
 
-`parent` is BLAKE3's parent node function. The level with one node is the root, level L. It is
-finalised with the `ROOT` flag and equals the file's root. This is the tree BLAKE3 itself builds
-(`Protocol.md` §7.2); a node without a partner is carried up unchanged.
+`parent` = BLAKE3's parent node function. The one-node level is the root, level L, finalised
+with `ROOT` flag; equals the file's root. This is the tree BLAKE3 itself builds (`Protocol.md`
+§7.2); a partnerless node is carried up unchanged.
 
-**The body.** Levels L−1 down to 0, in that order, each as its nodes in order, 32 bytes per
-node. The root is not stored.
+**The body.** Levels L−1 down to 0, in that order, nodes in order, 32 bytes each. Root not
+stored.
 
 ```
 level L−1 ‖ level L−2 ‖ … ‖ level 1 ‖ level 0
@@ -185,59 +180,54 @@ length of the body =  32 × ( count(L−1) + … + count(0) )        about 64 by
 | 1 GiB | 4,096 | 256 KiB |
 | 100 GiB | 409,600 | 25 MiB |
 
-- A file of one block has no hash body; its root is its only hash.
-- A body of another length than the one computed from the file size is refused.
+- One-block file: no hash body; root is its only hash.
+- Body of another length than the one computed from file size → refused.
 
-**Reading.** A node of level k is **verified** when it and its partner give the verified node
-above them, or when it has no partner and equals that node. The root the reader is downloading
-is the starting point: the two nodes of level L−1 must give it.
+**Reading.** Level-k node **verified** when it and its partner give the verified node above, or
+it has no partner and equals that node. Start: the root being downloaded; the two level L−1
+nodes must give it.
 
-- The reader fetches from the top down. The first bytes of the body are the top levels, so one
-  request for a prefix verifies many levels at once.
-- Below that, it fetches the range of a level that covers the blocks it is about to download.
-  Ranges start at an even node index, so that partners arrive together.
-- Level 0 is the last n × 32 bytes of the body. A reader that wants every block hash can fetch
-  that range alone and build the tree itself.
-- A hash URL needs no trust: a wrong body fails verification and the URL is dropped.
-- The server MUST support `Range`. The URL passes the checks of §5 and counts towards the fetch
-  limits like any other.
+- Fetch top down: body starts with the top levels, so one prefix request verifies many.
+- Below, fetch a level's range covering blocks about to be downloaded; ranges start at an even
+  node index so partners arrive together.
+- Level 0 = last n × 32 bytes of the body. A reader wanting every block hash can fetch just that
+  and build the tree itself.
+- A hash URL needs no trust: wrong body fails verification, URL dropped.
+- Server MUST support `Range`. URL passes §5 checks and counts towards fetch limits like any
+  other.
 
 **Use.**
 
-- The hashes belong to the file, not to one source. Any `HttpSource` of the file may carry the
-  field, plain or sealed, and the values verify blocks from every source, peers included.
-- A node SHOULD take block hashes from an ed3k source (`Protocol.md` §12.4) when it has one. A peer returns
-  the values for a range together with their proof in one exchange, on a connection that is
-  open anyway.
-- A node that has no ed3k source SHOULD NOT fetch the hash body up front. It downloads from the
-  plain source and checks the root when the file is complete, which costs no request. It
-  fetches from the hash URL only if that check fails, to find the blocks that are wrong.
-- A node MAY fetch hashes earlier when it needs verified blocks before the file is complete,
-  for example to act as a source for the parts it has: unverified blocks MUST NOT be served.
-  A `hashes` field does not change this. A node without an ed3k source fetches hashes before
-  the file is complete only for blocks it is about to offer: once it stores a `SOURCE` record
-  for the file in part (`Protocol.md` §10.3), or a downloader asks it for a range.
-- The field is optional on both sides.
+- Hashes belong to the file, not one source. Any `HttpSource` of the file, plain or sealed, may
+  carry the field; values verify blocks from every source, peers included.
+- A node SHOULD take block hashes from an ed3k source (`Protocol.md` §12.4) if it has one: peer
+  returns a range's values with proof in one exchange, on an already open connection.
+- A node with no ed3k source SHOULD NOT fetch the hash body up front: it downloads from the
+  plain source and checks the root on completion (no request); fetches from the hash URL only
+  if that fails, to find the wrong blocks.
+- A node MAY fetch hashes earlier when it needs verified blocks before completion, e.g. to be a
+  source for parts it has: unverified blocks MUST NOT be served. A `hashes` field doesn't change
+  this. W/o ed3k source, a node fetches hashes before completion only for blocks it is about to
+  offer: once it stores a `SOURCE` record for the partial file (`Protocol.md` §10.3), or a
+  downloader asks it for a range.
+- Field optional on both sides.
 
 ## 4. Cache servers
 
-A sealed chunk is stored on a server that speaks the HTTP Cache contract: `POST` to store a
-blob with a time to live, `GET` with `Range` to read it, `DELETE` to remove it. This extension
-adds nothing to that contract and requires nothing else of a server.
+Sealed chunks are stored on a server speaking the HTTP Cache contract: `POST` stores a blob
+with TTL, `GET` with `Range` reads, `DELETE` removes. This extension adds nothing to it and
+requires nothing else of a server.
 
-- The contract sets no size limit. Each server states its own as `maxChunkSize` in `/v1/info`
-  and answers 413 above it. A publisher reads that value and seals the largest whole number of
-  pieces, up to 4, whose ciphertext fits. A server sized for exactly one eD2K part
-  (9,728,016 bytes) takes 2 pieces.
-- A server receives ciphertext only. It is given neither the root, the offset, nor the key.
-- The same server serves eD2K and ed3k, and so does the same blob when it is cut as an eD2K
-  part: the tags of an HTTP Cache offer map to `HttpSource` as below. A chunk cut in pieces is
-  read by ed3k nodes only, since an eD2K reader accepts nothing but one part of 9,728,000 bytes.
-- A node on both networks SHOULD cut a chunk the way that serves more of its waiting
-  downloaders. It counts the queued downloaders that lack the range, per network. With more on
-  eD2K it publishes the eD2K part and describes it in both networks; otherwise it publishes
-  pieces and describes them in ed3k only. On a tie it publishes the eD2K part, which both can
-  read.
+- No size limit in the contract; each server states its own as `maxChunkSize` in `/v1/info`,
+  answers 413 above it. Publisher reads it and seals the largest whole number of pieces, up to 4, whose
+  ciphertext fits. Server sized for exactly one eD2K part (9,728,016 bytes) takes 2 pieces.
+- Server gets ciphertext only; never root, offset or key.
+- One server serves eD2K and ed3k, as does one blob cut as an eD2K part: HTTP Cache offer tags
+  map to `HttpSource` as below. Chunk cut in pieces: read by ed3k nodes only, as an
+  eD2K reader accepts nothing but one part of 9,728,000 bytes.
+- A node on both networks SHOULD cut a chunk the way serving more waiting downloaders: counts
+  queued downloaders lacking the range, per network. More on eD2K → publish eD2K part, describe
+  in both networks; else publish pieces, describe in ed3k only. Tie → eD2K part (both read it).
 
 | HTTP Cache offer | `HttpSource` |
 |---|---|
@@ -249,26 +239,22 @@ adds nothing to that contract and requires nothing else of a server.
 | SHA-256 of the ciphertext | `sealed.digest` |
 | expiry | `expires` |
 
-When an uploader publishes a chunk is local policy. HTTP Cache publishes a range once two or
-more queued downloaders lack it and one of them is asking for it.
+When an uploader publishes a chunk: local policy. HTTP Cache publishes a range once ≥ 2 queued
+downloaders lack it and one of them asks for it.
 
-**Copies of one range.** A range that is already on a cache server needs no second upload,
-except as a spare for a server that fails.
+**Copies of one range.** A range already on a cache server needs no second upload, except as
+spare for a failing server.
 
-- A node SHOULD NOT publish a sealed chunk for a range while it knows 2 *(initial)* live
-  sealed sources that cover it. A source is live until its `expires`; with `expires` = 0,
-  until a fetch from it fails.
-- When it knows 1, it SHOULD publish a second only on another server: one whose URL has a
-  different host name and, where both are known, a different IP address. The host names
-  compared are those of the sources' `url`. For a copy it posted itself, a node also takes
-  the host of the server it posted to; a second copy goes to a server that differs from
-  both.
-- The rule counts sources from every origin: `FileStatus`, source exchange, Kad records and
-  the node's own uploads.
+- A node SHOULD NOT publish a sealed chunk for a range while it knows 2 *(initial)* live sealed
+  sources covering it. Live until `expires`; with `expires` = 0, until a fetch from it fails.
+- Knowing 1, it SHOULD publish a second only on another server: different host name (of the
+  sources' `url`) and, where both known, different IP address. For a copy it posted itself, also
+  the host it posted to; a second copy goes to a server differing from both.
+- Counts sources of every origin: `FileStatus`, source exchange, Kad records, own uploads.
 
 ### 4.1 Links a server shows
 
-A server SHOULD show ed3k links, so that setting it up in a client is one click or one paste.
+A server SHOULD show ed3k links, so client setup is one click or paste.
 
 **A cache server** shows a link with its address and an upload key:
 
@@ -278,154 +264,142 @@ ed3k:cache?url=<url-encoded base URL>&key=<upload key>[&dn=<url-encoded name>][&
 
 | Parameter | Meaning |
 |---|---|
-| `url` | base URL of the cache server, `http` or `https`, absolute, without user name, query or fragment |
-| `key` | the secret that authorises uploads. Not empty, no white space |
-| `dn` | a name for display |
-| `kid` | a name for the key, for display |
+| `url` | cache server base URL, `http` or `https`, absolute, no user name, query or fragment |
+| `key` | secret authorising uploads. Not empty, no white space |
+| `dn` | display name |
+| `kid` | key name, for display |
 
-- **The link is the credential.** Anyone who holds it can upload under that key. A client MUST
-  ask the user before it applies such a link, and MUST NOT write the key to a log or show it in
-  an error message.
-- A link longer than 4,096 bytes, or with a `url` or `key` that breaks the rules above, or
-  with `url` or `key` repeated, is refused as a whole. Unknown parameters are ignored.
-- The link carries the same three things as HTTP Cache's own eD2K link (name, base URL,
-  secret), so a server can show both for one account.
+- **The link is the credential**: whoever holds it can upload under that key. A client MUST ask
+  the user before applying it, and MUST NOT write the key to a log or show it in an error
+  message.
+- Link longer than 4,096 bytes, or `url`/`key` breaking the rules above, or `url` or `key` repeated →
+  refused whole. Unknown parameters ignored.
+- Same three things as HTTP Cache's own eD2K link (name, base URL, secret), so a server can show
+  both for one account.
 
-**A server that hosts a file** shows an `ed3k:file` link (`Protocol.md` §13.2) with itself as source:
+**A server hosting a file** shows an `ed3k:file` link (`Protocol.md` §13.2) with itself as source:
 
 ```
 ed3k:file?b3=<root>&sz=<size>&dn=<name>&ws=<URL of the file>[&wh=<URL of the hash body>]
 ```
 
-No key is involved: a plain source is public, and the root in the link is what makes the
-download verifiable.
+No key: plain source is public; the link's root makes the download verifiable.
 
 ## 5. Checks before fetching
 
-A source is a URL chosen by someone else. A node fetches only when all of this holds:
+A source is a URL someone else chose. Fetch only when all hold:
 
 | Check | Rule |
 |---|---|
-| Scheme | `http` or `https`, with a host; no user name or password in the URL |
-| Target address | global unicast, for the first URL and for every redirect (below) |
-| Range | `offset` and `length` lie inside the file and cover bytes still wanted. `offset` is below the file size, so a source of a file of size 0 never passes |
-| Sealed | `length` from 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set and at least 120 s *(initial)* ahead |
-| Origin | from a peer: the peer is a source for that file on an open or recent file stream. From Kad or a link: the node itself chose the file |
-| Load | below the node's limit of concurrent fetches; no other fetch running for the same range |
+| Scheme | `http` or `https`, with host; no user name or password in the URL |
+| Target address | global unicast, for first URL and every redirect (below) |
+| Range | `offset` and `length` inside the file, covering bytes still wanted. `offset` is below file size, so a size-0 file's source never passes |
+| Sealed | `length` 1 to 16 MiB; `alg` known; key 32 B, IV 16 B, digest 32 B; `expires` set, ≥ 120 s *(initial)* ahead |
+| Origin | from a peer: peer is a source of that file on an open or recent file stream. From Kad or link: node itself chose the file |
+| Load | below node's concurrent-fetch limit; no other fetch running for the same range |
 
 **Target address.** The address a fetch connects to MUST be global unicast as `Protocol.md`
 §8.2 (7) lists it.
 
-- A literal address is checked at once, a name after it is resolved, and again for every
-  redirect. The fetch connects to the address that was checked, not to a second resolution of
-  the name. When that address is refused, by the address check or by the fetch limits, the
-  fetch ends; no other address of the name is tried.
-- `Alt-Svc` and similar hints are ignored. The fetch uses only the checked address.
-- An IPv4-mapped address (`::ffff:0:0/96`) is normalised to IPv4 first and checked as IPv4.
-- An address of NAT64 (`64:ff9b::/96`) or of 6to4 (`2002::/16`) is judged by the IPv4 address
-  embedded in it: the last 32 bits of the first, bits 16 to 47 of the second. It is acceptable
-  only when that IPv4 address is. A name that resolves to an inner address through such a
-  prefix is refused like the inner address itself.
-- **The one exception is a named network** (`net_id` not empty, `Protocol.md` §4.3): there the
-  private ranges of `Protocol.md` §8.2 are allowed as well. In the public network they never
-  are.
-- **Through a proxy** the node resolves the name itself, checks the address, and passes the
-  literal address to the proxy, with the original name in `Host` and, for `https`, as the
-  server name of TLS (SNI) and in the check of the certificate. It follows redirects itself, so
-  that every target is checked the same way. A node that cannot resolve the name itself, or
-  whose proxy takes names only, does not use the source.
+- Literal address checked at once, name after resolving, again per redirect. Connect to the checked
+  address, never a re-resolution. Address refused (address check or fetch limits) → fetch
+  ends; no other address of the name tried.
+- `Alt-Svc` and similar hints ignored; only the checked address used.
+- IPv4-mapped (`::ffff:0:0/96`) normalised to IPv4 first, checked as IPv4.
+- NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`): judged by embedded IPv4 — last 32 bits of the
+  first, bits 16 to 47 of the second; acceptable only if that IPv4 is. A name resolving to an
+  inner address via such a prefix is refused like the inner address.
+- **The one exception is a named network** (`net_id` not empty, `Protocol.md` §4.3): private
+  ranges of `Protocol.md` §8.2 allowed too. Never in the public network.
+- **Through a proxy**: node resolves and checks itself, passes the literal to the proxy, original
+  name in `Host` and, for `https`, as TLS server name (SNI) and in the certificate check.
+  Follows redirects itself so every target is checked alike. Node unable to resolve itself, or whose
+  proxy takes names only → source not used.
 
-**What is reported.** A peer that named a URL MUST NOT learn from the result how a name
-resolves where the downloader is. The result (§2.1) therefore depends on the check:
+**What is reported.** A peer that named a URL MUST NOT learn from the result how a name resolves
+at the downloader. So the result (§2.1) depends on the check:
 
 | Failed | `HttpResult.code` |
 |---|---|
-| Scheme, or the form of the URL: no host, a user name or password, longer than 1,024 bytes | `BAD_SOURCE` |
-| Range: `offset` and `length` not inside the file, `offset` equal to the file size, or a file of size 0 | `BAD_SOURCE` |
+| Scheme, or URL form: no host, user name or password, longer than 1,024 bytes | `BAD_SOURCE` |
+| Range: `offset` and `length` not inside the file, `offset` = file size, or size-0 file | `BAD_SOURCE` |
 | Range: inside the file, but not wanted | `NOT_WANTED` |
-| Sealed: size, `alg`, the lengths of key, IV and digest, `expires` | `BAD_SOURCE` |
-| Target address, of the first URL or of a redirect, literal or resolved | `HTTP_FAILED` |
+| Sealed: size, `alg`, key/IV/digest lengths, `expires` | `BAD_SOURCE` |
+| Target address, first URL or redirect, literal or resolved | `HTTP_FAILED` |
 | Scheme or form of a redirect target | `HTTP_FAILED` |
 | Load | `BUSY` |
 | Fetch limits: failed or pending fetches per file, per namer or per host | `BUSY` |
 
-`BAD_SOURCE` is for what every node decides alike from the description alone. It says nothing
-of the downloader's network. A refused address is reported like a server that could not be
-reached.
+`BAD_SOURCE` = what every node decides alike from the description alone; says nothing of the
+downloader's network. Refused address reported like an unreachable server.
 
-**Fetch limits.** A false source costs a request to a host that did not ask for it. A node
-therefore limits failed or pending fetches per file and hour to the values it uses for failed
-source dials ([`ip-diversity.md`](ip-diversity.md) §2.5), counted by the address of the HTTP
-server: 2 per host, 4 per site, 8 per block *(initial)*.
+**Fetch limits.** A false source costs a request to a host that didn't ask. So failed or pending
+fetches per file and hour are limited to the node's values for failed source dials
+([`ip-diversity.md`](ip-diversity.md) §2.5), counted by HTTP server address: 2 per host, 4 per
+site, 8 per block *(initial)*.
 
-The same values bound failed or pending fetches **over all files** per hour. There they are
-counted per pair of who named the URL and the host, site or block of the server. One URL
-published under many files then costs its host no more than one file would, and a peer that
-names dead URLs at a cache server or a content network uses up its own budget there, not that
-of other sources.
+Same values bound failed or pending fetches **over all files** per hour, per pair (URL namer,
+server host/site/block). So one URL under many files costs its host no more than one file; a
+peer naming dead URLs at a cache server or content network spends its own budget there, not
+other sources'.
 
-Over all files and all namers together, a node allows at most 8 *(initial)* failed or pending
-fetches per host and hour. Node IDs cost nothing, so the count per namer alone does not bound
-what a host receives.
+Over all files and namers together: ≤ 8 *(initial)* failed or pending fetches per host and hour.
+Node IDs cost nothing, so per-namer counts alone don't bound a host's load.
 
-- **Who named the URL** is the peer that sent it, by node ID. For a source from a Kad answer,
-  who named it is the pair of the target and the node that answered.
-- A fetch is **pending** from the request until the response header arrived. After that it is
-  a failure or it counts nothing.
-- A fetch that was redirected counts at every address of the chain, the first included. Each
-  address of the chain is checked against these limits before its request, and counts as
-  pending from it, whether the target is a literal address or a resolved name. A chain that a
-  later address ends, refused by these limits or by the address check, is a failure at every
+- **Who named the URL**: sending peer, by node ID. Kad-answer source: pair (target, answering
+  node).
+- **Pending**: from request until response header arrives; then failure or nothing.
+- Redirected fetch counts at every chain address, first included; each checked against these
+  limits before its request, pending from it, literal or resolved. A chain
+  ended by a later address (refused by these limits or the address check) is a failure at every
   address before it.
-- **Not counted over all files:** a fetch at a host that delivered a block which passed
-  verification within the last hour, and a fetch at a gateway, a cache server or a link that
-  the user configured or pasted. The same holds for the limit over all namers. The limit per
-  file holds for these too.
+- **Not counted over all files:** fetch at a host that delivered a block passing verification
+  within the last hour, and fetch at a user-configured or pasted gateway, cache server or link.
+  Same for the all-namers limit. Per-file limit holds for these too.
 
 ## 6. Who is blamed
 
 | Case | Blamed |
 |---|---|
-| Plain source, a block fails BLAKE3 | the URL: it is dropped. The node that named it is told `CORRUPT` and not banned, since it may have passed the URL on in good faith |
-| Sealed chunk, ciphertext does not match `digest`, or bad padding | nobody: a broken server and a wrong description look the same. `CORRUPT` is reported |
-| Sealed chunk, ciphertext matches `digest`, a block fails BLAKE3 | the peer that gave the description: it vouched for exactly these bytes. Treated like a peer that sent a corrupt block |
-| Sealed chunk, a block fails BLAKE3 before the whole ciphertext was checked against `digest` | nobody, unless the downloader fetches the rest of the chunk and a row above applies |
-| Sealed chunk, a block that lies partly outside the chunk fails | nobody: the describer vouched for the chunk's bytes only, and the rest of the block came from elsewhere. The block is fetched again from an ed3k source |
-| Source from Kad or a link | nobody; the URL is dropped |
+| Plain source, a block fails BLAKE3 | the URL: dropped. Namer told `CORRUPT`, not banned: may have passed it on in good faith |
+| Sealed chunk, ciphertext does not match `digest`, or bad padding | nobody: broken server and wrong description look alike. `CORRUPT` reported |
+| Sealed chunk, ciphertext matches `digest`, a block fails BLAKE3 | peer that gave the description: vouched for exactly these bytes. Treated like a peer sending a corrupt block |
+| Sealed chunk, a block fails BLAKE3 before the whole ciphertext was checked against `digest` | nobody, unless downloader fetches the rest of the chunk and a row above applies |
+| Sealed chunk, a block that lies partly outside the chunk fails | nobody: describer vouched for chunk bytes only; rest came from elsewhere. Block re-fetched from an ed3k source |
+| Source from Kad or a link | nobody; URL dropped |
 
-The cache server is never blamed for a sealed chunk. It holds bytes it cannot read, and the
-digest proves they are the ones the publisher stored.
+Cache server never blamed for a sealed chunk: holds bytes it can't read; digest proves they are
+what the publisher stored.
 
 ## 7. What it reveals
 
-- **To the HTTP server:** the address of every node that fetches. For a plain source also which
-  file; for a sealed chunk only that some chunk was fetched.
-- **To anyone who has a sealed chunk's description:** the content of that chunk. The key travels
-  with the URL, so the claim is only that the *server* is never given the key.
-- **In Kad:** a description in a source record is public. For a sealed chunk that publishes the
-  key; the chunk is one range of a file that is being shared anyway, and it expires. A node
-  that wants keys to stay between it and its downloaders does not attach sealed chunks to Kad
-  records.
-- **Over `http`:** the request and a plain body are readable on the path. `https` is to be
-  preferred; certificates are checked as a browser does.
+- **To the HTTP server:** every fetching node's address. Plain source: also which file; sealed:
+  only that some chunk was fetched.
+- **To anyone with a sealed chunk's description:** its content; key travels with the URL. The
+  only claim: the *server* never gets the key.
+- **In Kad:** a source-record description is public; for a sealed chunk that publishes the key.
+  Chunk = one range of a file shared anyway, and expires. A node wanting keys kept between it
+  and its downloaders doesn't attach sealed chunks to Kad records.
+- **Over `http`:** request and plain body readable on the path. `https` preferred; certificates
+  checked as a browser does.
 
 ## 8. Comparison
 
 | | HTTP Cache (eD2K) | This extension | BitTorrent web seeds |
 |---|---|---|---|
 | Sources | sealed chunks only | sealed chunks and plain URLs | plain URLs |
-| Unit | one part of 9,728,000 bytes | sealed: a range of up to 16 MiB, 4 pieces by default; plain: any range or the whole file | whole torrent |
+| Unit | one part of 9,728,000 bytes | sealed: range ≤ 16 MiB, 4 pieces by default; plain: any range or whole file | whole torrent |
 | Verified by | MD4 part hash, later | BLAKE3 per 256 KiB block | piece hashes |
-| Announced | opcode with tags; tags on the Kad source record | fields in the file stream, the Kad source record and links | in the metadata file |
-| Result report | to the offering peer | the same | none |
+| Announced | opcode with tags; tags on Kad source record | fields in file stream, Kad source record, links | in metadata file |
+| Result report | to offering peer | same | none |
 | Peers without it | never sent the opcode | ignore the fields | ignore the keys |
 
 ## 9. Open points
 
-- Test vectors for the hash body, for files of 2, 3, 5 and 4,096 blocks, are in
+- Hash body test vectors, files of 2, 3, 5 and 4,096 blocks:
   [`tests/vectors-v1.md`](../tests/vectors-v1.md).
-- A cipher that needs no padding and can be read at any offset (`alg` 2). It would remove the
-  derived length and the chaining rule, at the cost of chunks that eD2K nodes cannot read.
-- Whether a storing node should refuse a URL whose host is a literal private address. It cannot
-  resolve names without doing the publisher's work.
-- The limits of §2 and §5 are first values.
+- Cipher w/o padding, readable at any offset (`alg` 2): would drop derived length and chaining rule,
+  but eD2K nodes can't read such chunks.
+- Whether a storing node should refuse a URL whose host is a literal private address. It can't resolve
+  names without doing the publisher's work.
+- Limits of §2 and §5 are first values.

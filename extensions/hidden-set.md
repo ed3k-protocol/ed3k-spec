@@ -1,23 +1,21 @@
 # Extension: hidden sets (`hidden-set`)
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
-**Extends:** [`file-set.md`](file-set.md) §1, §3 and §5, and [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.7. Section numbers (§) refer to this document unless a document is named.
-**Capability:** none of its own; a node that uses it sets `SETS`. Record kind 8. One field in `Record`, one in `Member`, one parameter in `ed3k:set` links.
+**Extends:** [`file-set.md`](file-set.md) §1, §3 and §5, and [`Protocol.md`](../Protocol.md) §10.1, §10.3 and §10.7. § = this document unless a document is named.
+**Capability:** none of its own; a node using it sets `SETS`. Record kind 8. One field in `Record`, one in `Member`, one parameter in `ed3k:set` links.
 **Required of every `ROUTER`:** storing and returning the record kind `HIDDEN` (§3). The rest is optional.
 
-A set that changes ([`file-set.md`](file-set.md) §5) can be found and read by everyone: its
-head record names the manifest, and the manifest lists the files. A **hidden set** can be
-found, read and followed only by those who were given its link.
+Anyone can find and read a changing set ([`file-set.md`](file-set.md) §5): head record names
+the manifest, manifest lists files. A **hidden set** is findable, readable and followable only
+with its link.
 
-- The link carries a **secret**. The head record and the manifest are encrypted with keys made
-  from it.
-- A storing node can **check** a head record and tell a newer from an older one. It cannot
-  read it.
-- The place of the head record in Kad **changes every day**.
+- Link carries a **secret**; head record and manifest are encrypted with keys derived from it.
+- A storing node can **check** a head record and tell newer from older, but can't read it.
+- Head record's Kad location **changes every day**.
 - Members MAY be encrypted too (§4.2).
 
-I2P does this for the record that leads to a hidden service
-([`docs/i2p-zeronet-comparison.md`](../docs/i2p-zeronet-comparison.md) §2.3). Private live
+I2P does this for a hidden service's record
+([`docs/i2p-zeronet-comparison.md`](../docs/i2p-zeronet-comparison.md) §2.3); private live
 channels ([`live.md`](live.md) §10) use the same construction for a stream.
 
 ---
@@ -28,17 +26,16 @@ channels ([`live.md`](live.md) §10) use the same construction for a stream.
 ed3k:set?key=<set key, base32 lower case, no padding>&s=<secret, 32 bytes, base32>[&dn=<url-encoded name>][&path=<url-encoded path>]
 ```
 
-- A link with `s` names a hidden set. It has no `id` parameter; a link with both `id` and `s`
-  is refused.
-- **`key` is made for this set.** The author MUST NOT use its node key or the key of another
-  set. One key is one hidden set.
-- `secret` is 32 random bytes.
-- `key` and `s` are base32 as `Protocol.md` §13.2 fixes: written lower case without padding,
-  read either way.
-- A link is invalid when `s` is repeated or does not decode to 32 bytes.
+- Link with `s` = hidden set, no `id` parameter; both `id` and `s` → refused.
+- **`key` is made for this set.** The author MUST NOT use its node key or another set's key. One
+  key = one hidden set.
+- `secret` = 32 random bytes.
+- `key` and `s` are base32 per `Protocol.md` §13.2: written lower case without padding, read
+  either way.
+- Link invalid when `s` is repeated or doesn't decode to 32 bytes.
 
-**The link is the credential.** A client MUST NOT write the secret to a log or show it in an
-error message, and SHOULD mark such a link as private wherever it shows it.
+**Link = credential.** A client MUST NOT write the secret to a log or show it in an error
+message, and SHOULD mark such a link private wherever shown.
 
 ---
 
@@ -53,26 +50,24 @@ base    = H("ed3k v1 hidden head", key)[0..16)
 target  = H("ed3k v1 hidden head target", base ‖ period(8))[0..16)        period = Unix time / 86400, rounded down, big-endian
 ```
 
-`base` and `target` need only the key. A storing node computes them. `k` and what follows from
-it need the secret.
+`base`, `target` need only the key (storing node computes them); `k` and its derivatives need
+the secret.
 
-Sealed data is
+Sealed data:
 
 ```
 sealed bytes = nonce(12) ‖ ChaCha20(key, nonce, plain bytes)              RFC 8439 cipher, counter from 0
 ```
 
-with a random `nonce` for every use. The one exception is the sealed `Head` of a head record
-(§3), whose nonce is derived, so that a version stored again has the same bytes, also after a
-restart:
+with a random `nonce` per use, except the sealed `Head` of a head record (§3): nonce derived,
+so a re-stored version has the same bytes, also after a restart:
 
 ```
 head nonce = H("ed3k v1 hidden head nonce", k_head ‖ seq(8) ‖ root)[0..12)     seq and root as in the Head
 ```
 
-The plain `Head` follows from `seq` and `root`, so one nonce never seals two different texts.
-There is no authentication tag: every sealed thing is fixed by a signature or by a signed
-root.
+Plain `Head` follows from `seq` and `root` → one nonce never seals two different texts. No
+authentication tag: everything sealed is fixed by a signature or signed root.
 
 ---
 
@@ -92,58 +87,55 @@ message Sealed {
 }
 ```
 
-- The record is a `Signed` of kind `HIDDEN`, signed with the set key. In the signature the
-  place of `target` is taken by **`base`**, which does not change with the day. The author
-  therefore signs once, and others can store the record on later days, until its `expires`.
-- It travels in the fields of a `HEAD` record: `Store.head` with `Store.signer`, and
-  `KadAnswer.sets`. `signer` is always present; a `Store` of kind `HIDDEN` without it is
-  answered `REJECTED`.
-- In the sealed `Head`, `id` and `seq` are those of the manifest, `root` and `size` those of
-  the sealed manifest (§4.1), and `name` is empty.
-- `data` is 12 to 256 bytes: the nonce and the sealed `Head`.
+- Record = `Signed` of kind `HIDDEN`, signed with the set key; in the signature **`base`**
+  (day-independent) replaces `target`. So author signs once; others can store it on later days
+  until its `expires`.
+- Travels in `HEAD` record fields: `Store.head` with `Store.signer`, and `KadAnswer.sets`.
+  `signer` always present; `Store` of kind `HIDDEN` without it → `REJECTED`.
+- In the sealed `Head`: `id` and `seq` are the manifest's, `root` and `size` the sealed
+  manifest's (§4.1), `name` empty.
+- `data` is 12 to 256 bytes: nonce + sealed `Head`.
 
 | | Storing node, on `Store` | Reader, on `KadAnswer` |
 |---|---|---|
-| Signature | valid under `signer`, with `base` computed from `signer` | valid under the key of the link |
-| Target | the target of the request is the one of `signer` for the current day, the day before or the day after | the one it searched, and the one of the link's key for the current day, the day before or the day after |
-| `expires` | later than now, at most 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
-| `seq` | any; a record that does not replace the one held is answered `OLDER` | the highest of all answers wins |
-| Count | one record per target. It is replaced by a record with a higher `seq`; by one with the same `seq` and a lower `data`, compared as a byte string; and by one with the same `seq` and `data` and a later `expires`; a valid record that does not replace it is answered `OLDER` | among equal `seq` the lower `data`, as on the storing node |
-| Content | `sealed` and nothing else; else `REJECTED` | `data` opens to a `Head` whose `seq` is the one outside and whose `root` is 32 B |
+| Signature | valid under `signer`, with `base` computed from `signer` | valid under the link's key |
+| Target | request target is `signer`'s for current day, day before or day after | the one it searched, and the link key's for current day, day before or day after |
+| `expires` | later than now, ≤ 7 days *(initial)* plus 1 h ahead | later than now minus 1 h |
+| `seq` | any; a record not replacing the held one → `OLDER` | highest of all answers wins |
+| Count | one record per target, replaced by: higher `seq`; same `seq` and lower `data` (byte-string compare); same `seq` and `data` with later `expires`. A valid record not replacing it → `OLDER` | among equal `seq` the lower `data`, as on the storing node |
+| Content | `sealed` only; else `REJECTED` | `data` opens to a `Head` with the outer `seq` and a 32 B `root` |
 | Size | `data` 12 to 256 B; else `REJECTED` | the same |
 
-- A storing node deletes the record at `expires`, and at the latest 48 h after the day of its
-  target began.
-- **Only the author can make a record.** The target follows from the key that signs, so nobody
-  can take the place first with a record under a key of their own.
-- An author MUST store the same sealed bytes each time it stores one version again: a fresh
-  nonce would change `data`, and with it the tie-break between two records of one `seq`. The
-  derived nonce of §2 gives that.
+- Storing node deletes the record at `expires`, at the latest 48 h after its target's day
+  began.
+- **Only the author can make a record.** Target follows from the signing key; nobody can occupy
+  the place first under an own key.
+- An author MUST store the same sealed bytes each time it re-stores one version: a fresh nonce
+  would change `data` and thus the tie-break between two records of one `seq`. §2's derived
+  nonce provides that.
 
 **Storing**
 
-- The author stores the record when it publishes a version. It stores it again as a follower
-  does, and before `expires` signs the same `data` with a later `expires`.
-- A follower stores the record it holds under the target of the current day, once per day: at
-  a random time in the first 6 h *(initial)* of the day that others cannot predict, or at once
-  when it comes online later in the day. The author need not be online.
-- A storing node of one day is, as a rule, not one of the next.
+- Author stores the record on publishing a version, re-stores like a follower, and before
+  `expires` signs the same `data` with a later `expires`.
+- Follower stores its held record under the current day's target, daily: at a random time
+  others can't predict in the day's first 6 h *(initial)*, or at once when coming online later.
+  Author need not be online.
+- One day's storing node is, as a rule, not one of the next.
 
 **Reading**
 
-1. Search `HIDDEN` at the targets of the current day and of the day before, and merge the
-   answers: a follower's store of an old version on the new day must not hide a newer one that
-   is still under yesterday's target.
-2. Take the record with the highest `seq` and open `data`. One that does not open as the
-   Content row says is not taken: the reader keeps the version it holds and stores the record
-   it held.
-3. Download the sealed manifest by its `root`, open it (§4.1), and accept it by the rules of
-   [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` and the `id` of
-   the opened `Head`, and with the `id` of the version held before, if there is one.
+1. Search `HIDDEN` at today's and yesterday's targets, merge answers: a follower's new-day
+   store of an old version must not hide a newer one still under yesterday's target.
+2. Take highest-`seq` record, open `data`. One not opening per the Content row isn't taken:
+   reader keeps its held version and stores the record it held.
+3. Download the sealed manifest by its `root`, open it (§4.1), accept per
+   [`file-set.md`](file-set.md) §5.3: signed by the set key, with the `seq` and `id` of the opened
+   `Head`, and with the `id` of the previously held version, if any.
 
-A follower checks as often as for any set (`file-set.md` §5.3). There is no topic for a hidden
-set in [`pubsub.md`](pubsub.md) in this version, except that of a paid one
-([`subscription.md`](subscription.md) §8.4).
+A follower checks as often as for any set (`file-set.md` §5.3). No [`pubsub.md`](pubsub.md) topic
+for a hidden set in this version, except for a paid one ([`subscription.md`](subscription.md)
+§8.4).
 
 ---
 
@@ -151,17 +143,16 @@ set in [`pubsub.md`](pubsub.md) in this version, except that of a paid one
 
 ### 4.1 Manifests
 
-- The manifest is written as in [`file-set.md`](file-set.md) §1, signed (§2.4 there), with an
-  `id` and a `seq`. It is then sealed with `k_data`. What is shared is the sealed file.
-- It is signed by the set key alone. Co-owners are not defined for a hidden set
-  ([`multi-author-set.md`](multi-author-set.md) §7), so a reader refuses a hidden manifest
-  that carries a `grant`. Parts and mounts are not defined for it either: a hidden manifest
-  with `open`, or with a member that has `mount` (`multi-author-set.md` §2, §3.1), is refused
-  too.
-- An inner manifest (`file-set.md` §2.5) of a hidden set is sealed the same way. Its `root` and
-  `size` in the outer manifest are those of the sealed file.
-- A sealed manifest does not start with the 8 bytes of a manifest. A client knows what it is
-  from the head record or from the outer manifest.
+- Manifest written per [`file-set.md`](file-set.md) §1, signed (§2.4 there), with `id` and
+  `seq`, then sealed with `k_data`; the sealed file is shared.
+- Signed by the set key alone. No co-owners for a hidden set
+  ([`multi-author-set.md`](multi-author-set.md) §7): reader refuses a hidden manifest with a
+  `grant`. No parts or mounts either: a hidden manifest with `open`, or a member with `mount`
+  (`multi-author-set.md` §2, §3.1), is refused too.
+- An inner manifest (`file-set.md` §2.5) of a hidden set is sealed the same way; its `root` and
+  `size` in the outer manifest are the sealed file's.
+- Sealed manifest lacks a manifest's 8 leading bytes; client knows it from head record or
+  outer manifest.
 
 ### 4.2 Members
 
@@ -170,36 +161,33 @@ set in [`pubsub.md`](pubsub.md) in this version, except that of a paid one
 bool sealed = 9;              // the shared file is sealed with k_data; root and size are those of the sealed file
 ```
 
-- A member without `sealed` is an ordinary file. Everyone who knows its root can download it,
-  and it is the same file as any other copy in the network.
-- A member with `sealed` is stored and shared in sealed form. A client opens it after the
-  download, or while reading: the cipher allows reading from any position.
-- A sealed member holds at most 256 GiB of plain bytes, the limit of the cipher for one nonce:
-  its `size` is at most 2^38 + 12 bytes. A reader refuses a manifest that lists a larger one.
-- Sealed data does not compress; the rule of [`Protocol.md`](../Protocol.md) §12.3 then sends
-  it as it is.
+- Without `sealed`: ordinary file, downloadable by anyone knowing its root; same file as any
+  other copy in the network.
+- With `sealed`: stored and shared sealed. Client opens it after download, or while reading
+  (cipher allows reading from any position).
+- A sealed member holds ≤ 256 GiB plain bytes, the cipher's one-nonce limit: `size` at most
+  2^38 + 12 bytes. Reader refuses a manifest listing a larger one.
+- Sealed data doesn't compress; the rule of [`Protocol.md`](../Protocol.md) §12.3 then sends it
+  as is.
 
 | | Open member | Sealed member |
 |---|---|---|
 | Who can read it | everyone with the root | only who has the link |
-| Sources | all sources of that file in the network | only nodes that hold this set |
-| What others see | a known file at a node | data without a name |
-| Cost | none | 12 bytes, and the client opens it before use |
+| Sources | all sources of that file in the network | only nodes holding this set |
+| What others see | a known file at a node | nameless data |
+| Cost | none | 12 bytes, and client opens it before use |
 
 ### 4.3 Rules for a node that holds a hidden set
 
-- It publishes a `SOURCE` record for the sealed manifest and for each sealed member it shares.
-  It MUST NOT publish `KEYWORD` or `MEMBER` records for them, and does not list them in
-  `Browse`.
-- For an open member it publishes nothing because of the hidden set. If the node shares that
-  file for another reason, the usual rules apply.
-- A sealed file is named on the wire, in `FileStatus.name` (`Protocol.md` §12.1), by the first
-  16 characters of its root in base32, lower case (`Protocol.md` §13.2). The names in the
-  manifest stay inside it.
-- The member bitmap ([`file-set.md`](file-set.md) §4.1) works on the root of the sealed
-  manifest as on any manifest. Whoever knows that root learns which members a node holds, and
-  nothing about what they are.
-- A reader asks the sources of the manifest for the members first (`file-set.md` §3).
+- Publishes a `SOURCE` record for the sealed manifest and each sealed member it shares; MUST NOT
+  publish `KEYWORD` or `MEMBER` records for them; doesn't list them in `Browse`.
+- Open member: nothing published because of the hidden set; shared for another reason → usual
+  rules.
+- A sealed file is named on the wire, in `FileStatus.name` (`Protocol.md` §12.1), by the first 16
+  characters of its root in base32, lower case (`Protocol.md` §13.2). Manifest names stay inside.
+- Member bitmap ([`file-set.md`](file-set.md) §4.1) works on the sealed manifest's root as on any
+  manifest: knowing that root reveals which members a node holds, nothing about what they are.
+- A reader asks the manifest's sources for the members first (`file-set.md` §3).
 
 ---
 
@@ -207,16 +195,16 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 
 | | |
 |---|---|
-| Someone without the link | cannot find the set, read its list, or read a sealed member |
-| A node that stores the head record | learns the set key, the version number, and the addresses of those who store it there. It cannot open the record |
-| A node that stored it once | can compute where the record is on any later day, and search it there. It still cannot open it |
-| A node that stores `SOURCE` records | learns that some nodes share a file without a name |
-| A follower who passes the link on | gives full access. Followers are not told apart |
-| Taking access away | not possible. A new secret is a new set, and every follower needs the new link. A paid hidden set gives each follower a pass of their own that ends ([`subscription.md`](subscription.md) §8.3) |
-| A secret that leaks later | opens every version that someone kept. There is no forward secrecy |
-| Open members | are as visible as any shared file. Only that they belong together is hidden |
-| The author | is not named by the `HIDDEN` record when it stores through `signer` like any follower. Its `SOURCE` records for the sealed manifest (§4.3) are bound to its node ID like any source record, so a storing node sees who first offers a new version |
-| An author who is away | can stay offline only until the `expires` of the record its followers hold, at most 7 days *(initial)* plus 1 h. Only the author can sign a later one (§3); after that the set is not found until it comes back |
+| Someone without the link | can't find the set, read its list, or read a sealed member |
+| A node that stores the head record | learns set key, version number, addresses of those storing it there. Can't open it |
+| A node that stored it once | can compute its place on any later day and search there; still can't open it |
+| A node that stores `SOURCE` records | learns that some nodes share a nameless file |
+| A follower who passes the link on | gives full access. Followers aren't told apart |
+| Taking access away | impossible. A new secret = a new set; every follower needs the new link. A paid hidden set gives each follower an own expiring pass ([`subscription.md`](subscription.md) §8.3) |
+| A secret that leaks later | opens every version someone kept. No forward secrecy |
+| Open members | as visible as any shared file; only that they belong together is hidden |
+| The author | not named by the `HIDDEN` record when storing through `signer` like any follower. Its `SOURCE` records for the sealed manifest (§4.3) are bound to its node ID like any, so a storing node sees who first offers a new version |
+| An author who is away | can stay offline only until `expires` of the record its followers hold, ≤ 7 days *(initial)* plus 1 h. Only the author can sign a later one (§3); after that set isn't found until it returns |
 
 ---
 
@@ -224,24 +212,24 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 
 | Alternative | Pro | Con |
 |---|---|---|
-| **Key blinding**, as I2P and Tor use it: the record is signed with a key derived from the set key and the day | a storing node never learns the set key, so it cannot compute the target of another day | the author has to sign every day and so must be online; signing with a derived key is outside the standard Ed25519 interface of most libraries |
-| **A fixed target** | simpler; nothing to store again each day | the same few nodes see every follower for as long as the set exists, and anyone can place nodes there |
-| **A target from the secret**, which a storing node cannot check | a storing node learns nothing at all | anyone who knows the target can put a record of its own there first, and the real one finds no room |
-| **Sealing the head only** | manifests stay ordinary files | whoever comes across the root of a manifest reads the whole list |
-| **Always sealing members** | no choice to explain | a file that is public anyway loses its sources in the rest of the network |
-| **A key per follower**, so one follower can be removed | access can be taken away | the author wraps a key for every follower and changes it on every removal. Per-follower access with epoch keys is the paid subscription extension ([`subscription.md`](subscription.md)) |
-| **A password typed by the user** in place of a random secret | easier to pass on | can be guessed off line by anyone who holds a sealed file |
+| **Key blinding** (I2P, Tor): record signed with a key derived from set key and day | storing node never learns set key, can't compute another day's target | author must sign daily, so be online; derived-key signing is outside most libraries' standard Ed25519 interface |
+| **A fixed target** | simpler; no daily re-store | same few nodes see every follower for the set's life; anyone can place nodes there |
+| **Target from the secret**, uncheckable by a storing node | storing node learns nothing | anyone knowing the target can put an own record there first; real one finds no room |
+| **Sealing the head only** | manifests stay ordinary files | whoever finds a manifest root reads the whole list |
+| **Always sealing members** | no choice to explain | a file public anyway loses its sources in the rest of the network |
+| **A key per follower**, to remove one follower | revocable access | author wraps a key per follower, changes it on every removal. Per-follower access with epoch keys = paid subscription extension ([`subscription.md`](subscription.md)) |
+| **User-typed password** instead of a random secret | easier to pass on | guessable offline by anyone holding a sealed file |
 | **An authenticated cipher** | the usual choice | 16 bytes and a second check of what a signature or a signed root already fixes |
 
 ---
 
 ## 7. Open points
 
-- Push for hidden sets: a topic in [`pubsub.md`](pubsub.md) that subscribers enter with a
-  proof of the secret, as the neighbours of a private channel do ([`live.md`](live.md) §10.3).
-  A paid hidden set has one: the `PAID` topic of [`subscription.md`](subscription.md) §8.4.
-- Whether the day is the right period. A shorter one moves the record more often and costs
-  followers more stores.
-- A hidden set has the open point of every set: no successor for a lost key
+- Push for hidden sets: a [`pubsub.md`](pubsub.md) topic subscribers enter with a proof of the
+  secret, as private-channel neighbours do ([`live.md`](live.md) §10.3). A paid hidden set has
+  one: the `PAID` topic of [`subscription.md`](subscription.md) §8.4.
+- Whether a day is the right period: shorter moves the record more often, costs followers more
+  stores.
+- A hidden set shares every set's open point: no successor for a lost key
   ([`file-set.md`](file-set.md) §10).
 - All numbers are first values.

@@ -1,45 +1,42 @@
 # Extension: IP diversity limits (`ip-diversity`)
 
 **Status:** draft 0.2 (2026-10-13). Not implemented. **Required in version 1.**
-**Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2, §10.3 and §10.4. Section numbers (§) refer to this document unless a document is named.
+**Extends:** [`Protocol.md`](../Protocol.md) §6.3, §10.2, §10.3 and §10.4. § = this document unless a document is named.
 **Capability:** none. Each node applies the limits to what it accepts; nothing on the wire changes.
 
-The routing ID of `Protocol.md` §6.3 ties a node's position to its address, but an address block still buys
-positions: an IPv4 /16 or an IPv6 /29 reaches 131,072 of the 2²¹ prefixes, enough to sit next to
-a chosen key. This extension limits how many contacts from one network a node accepts, wherever
-a set of contacts is built: in the routing table, in a lookup, in the set of nodes a payload is
-stored on, and among the publishers of a record.
+The `Protocol.md` §6.3 routing ID ties a node's position to its address, but an address block
+still buys positions: an IPv4 /16 or IPv6 /29 reaches 131,072 of the 2²¹ prefixes, enough to sit
+by a chosen key. So a node limits contacts accepted from one network wherever a contact set is
+built: routing table, lookup, nodes a payload is stored on, a record's publishers.
 
-The limits do not make an attack impossible. They turn "one allocation" into "several
-unrelated allocations" (§7).
+Attacks stay possible but need "several unrelated allocations" instead of "one allocation" (§7).
 
 ## 1. Address groups
 
-Every public address belongs to three groups. A limit counts contacts per group.
+Every public address belongs to three groups; a limit counts contacts per group.
 
 | Group | IPv4 | IPv6 | Stands for |
 |---|---|---|---|
-| **host** | /32 (the address) | /64 | one machine or one home link |
-| **site** | /24 | /48 | one customer or one small network |
+| **host** | /32 (the address) | /64 | one machine or home link |
+| **site** | /24 | /48 | one customer or small network |
 | **block** | /16 | /32 | one provider allocation |
 
-- Groups are counted **per address family**. A dual-stack node has two routing-table entries
-  (`Protocol.md` §10.2); each is counted in its own family.
-- **Private** addresses are those `Protocol.md` §8.2 (8) lists. In a named network (`net_id` not
-  empty, `Protocol.md` §4.3) they are **exempt** from every limit, as they are from the routing
-  ID check (`Protocol.md` §6.3). On the public network they are not exempt; they never become
-  contacts there, so no limit meets them. `100.64.0.0/10` is neither private nor global unicast
-  and is exempt nowhere.
-- Where a private address is counted per host address in a named network, the host is the
-  IPv4 /32 or the IPv6 /128, not the /64 (`Protocol.md` §9.2).
-- A LAN peer ([`lan-discovery.md`](lan-discovery.md)) is not a Kad contact and stores no
-  record. No limit of this document counts it, in any network.
-- Addresses that `Protocol.md` §8.2 rejects (Teredo, 6to4, documentation, multicast) never become contacts, so
-  they need no group.
+- Counted **per address family**: a dual-stack node's two routing-table entries
+  (`Protocol.md` §10.2) count each in its own family.
+- **Private** addresses = those `Protocol.md` §8.2 (8) lists. In a named network (`net_id` not
+  empty, `Protocol.md` §4.3) **exempt** from every limit, as from the routing ID check
+  (`Protocol.md` §6.3). Public network: not exempt, but never contacts there, so no limit meets
+  them. `100.64.0.0/10` is neither private nor global unicast; exempt nowhere.
+- Where a private address is counted per host address in a named network, the host is the IPv4
+  /32 or IPv6 /128, not the /64 (`Protocol.md` §9.2).
+- LAN peer ([`lan-discovery.md`](lan-discovery.md)): no Kad contact, stores no record; no limit
+  here counts it, in any network.
+- Addresses `Protocol.md` §8.2 rejects (Teredo, 6to4, documentation, multicast): never contacts,
+  no group needed.
 
 ## 2. The limits
 
-All numbers are *(initial)* and are repeated in Appendix A of the main document.
+All numbers *(initial)*, repeated in Appendix A of the main document.
 
 | Where | host | site | block |
 |---|---|---|---|
@@ -53,77 +50,67 @@ All numbers are *(initial)* and are repeated in Appendix A of the main document.
 
 ### 2.1 Routing table
 
-A node MUST NOT insert a contact that would exceed a bucket or table limit. When a contact
-replaces another, the contact being replaced is taken out of the counts first.
+A node MUST NOT insert a contact that would exceed a bucket or table limit. A replaced contact
+leaves the counts first.
 
-- The table limits exist because the bucket limits alone allow 2 per site in *every* bucket.
-- **The limits hold for the contacts that are in the table, not only for the one that
-  arrives.** While the limits stay as they are, checking each insertion is enough. Whenever
-  they become stricter (new numbers by a network upgrade, or by any later rule that changes
-  them with the size of the table), the node checks the whole table again and takes out what
-  no longer fits. Insertion then uses the stricter of the limits now and the limits the table
-  was last checked against, so that what was taken out does not come back.
-- A working contact is never taken out to make room for a new one. It is taken out only when
-  the table itself is over a limit.
-- **Identity churn.** A host group whose contact was removed from the table, for whatever
-  reason (failed attempts, a `Hello` without `ROUTER` and `nat = 1`, `Protocol.md` §10.2, or a
-  stricter limit), is not admitted under another node ID for 1 h after the removal. The same node ID is admitted again at once.
-  A node remembers each removed host group, with its node ID, for 1 h. While a contact is in
-  the table, the host limit already keeps a second node ID of its host group out. This slows
-  an address from walking through the 8 positions that the choice of key gives it
-  (`Protocol.md` §6.3). The contact is refused, not banned (§5).
-- These limits raise the price of an attack on the **responsibility rule** (`Protocol.md` §10.3) but do not
-  close it. A node is responsible while it knows fewer than K closer verified contacts. The
-  contacts closer to a key than the node span several buckets, and the table holds up to 20
-  per block, so one block with enough sites can still place K contacts next to a key in an
-  honest node's table and make it refuse the payload; without the limits one site could.
+- Table limits exist because bucket limits alone allow 2 per site in *every* bucket.
+- **Limits hold for the contacts in the table, not only the arriving one.** With unchanged
+  limits, checking each insertion suffices. When they get stricter (network upgrade numbers, or
+  any later rule varying them with table size), node re-checks the whole table, removes what no
+  longer fits. Insertion then uses the stricter of current limits and those last checked
+  against, so removed contacts don't come back.
+- A working contact is removed only when the table is over a limit, never to make room.
+- **Identity churn.** A host group whose contact was removed from the table for whatever reason
+  (failed attempts, a `Hello` without `ROUTER` and `nat = 1`, `Protocol.md` §10.2, or a stricter
+  limit) is not admitted under another node ID for 1 h after removal. The same node ID is admitted again at once.
+  Removed host groups remembered with node ID for 1 h. While a contact is in the table,
+  the host limit already keeps out a second node ID of its group. Slows an address walking the
+  8 positions its key choice gives (`Protocol.md` §6.3). Refused, not banned (§5).
+- Limits raise the price of attacking the **responsibility rule** (`Protocol.md` §10.3), don't close it. A node is responsible while it knows < K closer verified contacts. Contacts closer
+  to a key than the node span several buckets, and the table holds up to 20 per block, so one
+  block with enough sites can still put K contacts by a key in an honest node's table, making it
+  refuse the payload; without limits one site could.
 
 ### 2.2 Lookup
 
-A requester applies two filters while it runs a lookup (`Protocol.md` §10.4).
+Two filters during a lookup (`Protocol.md` §10.4):
 
-1. **Per answer.** From the contacts in one `KadAnswer`, in the order sent (closest first), it
-   keeps a contact only while the answer's limits hold, and drops the rest. A contact in the
-   answering node's own host group is dropped too. One answer can therefore add at most 4
-   contacts of one block to the candidates.
-2. **Per lookup.** The limits are 1 per host, 2 per site and R/2 per block: 2 per block for a
-   search (R = 4) and 4 for a store (R = 8). A lookup without an operation uses those of a
-   search. They are counted over the closest set as it stands (§2.3), not over every node
-   queried: the requester does not query a candidate when the members of that set that are
-   closer to the target than the candidate already reach a limit for one of the candidate's
-   groups. A node that was queried and has not answered yet counts as a member for this test.
-   The candidate stays among the candidates and is queried later if such a node fails.
+1. **Per answer.** Of one `KadAnswer`'s contacts, in sent order (closest first), keep each only
+   while the answer's limits hold; drop the rest, and any in the answerer's own host group. So
+   one answer adds ≤ 4 contacts of one block to the candidates.
+2. **Per lookup.** Limits: 1 per host, 2 per site, R/2 per block: 2 per block for a search
+   (R = 4), 4 for a store (R = 8). A lookup without an operation uses a search's. Counted over
+   the current closest set (§2.3), not every node queried: a candidate isn't queried when set
+   members closer to the target than it already reach a limit for one of its groups. A queried,
+   not-yet-answered node counts as a member for this test. The candidate stays, queried later if
+   such a node fails.
 
-A waypoint far from the target therefore uses up nothing. It leaves the closest set as closer
-nodes answer, and the closest nodes of its groups are still queried.
+So a waypoint far from the target uses up nothing: it leaves the closest set as closer nodes
+answer; its groups' closest nodes are still queried.
 
-A candidate that was skipped does not count towards termination. It is neither "answered" nor
-"closer and unasked", and it does not count towards the minimum of answers M (`Protocol.md`
-§10.4).
+A skipped candidate doesn't count towards termination: neither "answered" nor "closer and
+unasked", and not towards the minimum of answers M (`Protocol.md` §10.4).
 
 ### 2.3 Closest set
 
-The closest set is the R closest nodes that the lookup queried and that answered, whatever
-their `responsible`, within the per-lookup limits of §2.2. R = 4 for a search and 8 for a store
-(`Protocol.md` §10.4). This is the one definition; the set exists from the first answer and
-changes while the lookup runs.
+Closest set = R closest queried nodes that answered, whatever their `responsible`, within the
+per-lookup limits of §2.2. R = 4 for a search, 8 for a store
+(`Protocol.md` §10.4). The one definition; exists from the first answer, changes as the lookup runs.
 
-- The nodes that answered are taken closest first. A node is left out when the nodes taken
-  before it reach a limit for one of its groups. The set therefore holds at most 1 node per
-  host, 2 per site and R/2 per block, and always the closest ones of a group.
-- No further rule applies. There is no preference for one node per block.
-- A `search` merges the results of the members that said `responsible`. A `store` is judged
-  over the members that said `responsible` (`Protocol.md` §10.3, §10.4).
-- A lookup that cannot reach R nodes within the limits ends with fewer.
+- Answered nodes taken closest first; a node is left out when those taken before reach a limit
+  for one of its groups. So ≤ 1 per host, 2 per site, R/2 per block, always a group's closest.
+- No further rule; no preference for one node per block.
+- A `search` merges results of members saying `responsible`; a `store` is judged over them
+  (`Protocol.md` §10.3, §10.4).
+- A lookup unable to reach R nodes within the limits ends with fewer.
 
-A full closest set spans at least 2 blocks: 2 sites for a search, 4 sites for a store. On a
-small network the honest nodes near a key may well share a provider; half of the set per block
-leaves room for that.
+A full closest set spans ≥ 2 blocks: 2 sites for a search, 4 for a store. On a small network
+honest nodes near a key may share a provider; half the set per block allows that.
 
 ### 2.4 Stored records
 
-A node that stores records limits publishers per target. This refines the request limits per
-source address of `Protocol.md` §10.3.
+Storing nodes limit publishers per target, refining the per-source-address request limits of
+`Protocol.md` §10.3.
 
 | Record | host | site | block |
 |---|---|---|---|
@@ -140,103 +127,96 @@ source address of `Protocol.md` §10.3.
 | `GATE` records held, over all targets ([`hops.md`](hops.md) §4.3) | 64 | 256 | — |
 | `NAME` records held, over all targets ([`name.md`](name.md) §3.2) | 1,024 | 4,096 | — |
 
-- `SOURCE`: several nodes behind one carrier-grade NAT address are distinct, honest sources, so
-  the host limit is above 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
-- `ANON`: the record names no address, so it is counted on the address the `Store` came from
+- `SOURCE`: nodes behind one carrier-grade NAT address are distinct honest sources, hence host
+  limit > 1. Each record still belongs to one authenticated node ID (`Protocol.md` §10.3).
+- `ANON`: record names no address, so counted on the address the `Store` came from
   ([`hops.md`](hops.md) §4.2).
-- The `HEAD`/`HIDDEN`, `GATE` and `NAME` rows count over the node, not per target: each of these kinds
-  holds one record per target, and its target follows from a key that costs nothing. A record
-  counts at the host and site of the `Store` that last stored it, a renewal included, also one
-  with `signer`. A record that replaces one held under the same target from the same host adds
-  none. Beyond the limit it is `REJECTED`. An index node, which holds every target, bounds the
-  other kinds over all targets too (`Protocol.md` §11).
-- A record beyond a host or site limit of this table (the row of publishers counted per entry
-  is a count, not a limit) is answered `REJECTED`, not `FULL`. `FULL` says that the
-  target has no room (`Protocol.md` §10.8). An address limit says nothing about the target: the
-  storing node does not set `spill` for it, and the publisher does not start a lookup of its
-  own because of it (`Protocol.md` §10.4).
-- **Address limits come first.** A storing node checks the limits of this table, and those per
-  publisher key, before the limits of the target: a record over one is `REJECTED`, whether or
-  not the target has room. A valid record that is not newer than the one held is `OLDER`
-  (`Protocol.md` §10.7) before these limits are looked at: it changes nothing. A limit over
-  all targets of an index node (`Protocol.md` §11) is an address limit too, `REJECTED` before
-  the target. A record that renews one held for the same publisher counts as a
-  new one at a host or site that holds no record of that publisher there. Over a limit it is
-  `REJECTED`, and the held record stays as it was until it expires.
-- Limits per publisher key, not per address, are in the documents of the kinds: a `KEYWORD`
-  target takes at most 1,000 *(initial)* files of one publisher key and 2,000 of one publisher
-  site (`Protocol.md` §10.8); a `MEMBER` target at most 4 sets of one publisher key
+- `HEAD`/`HIDDEN`, `GATE`, `NAME` rows count over the node, not per target: each such kind holds
+  one record per target, target derived from a free key. A record counts at the
+  host and site of the `Store` that last stored it, renewal included, also one with `signer`. A
+  record replacing one held under the same target from the same host adds none. Beyond the
+  limit → `REJECTED`. An index node, holding every target, bounds the other kinds over all
+  targets too (`Protocol.md` §11).
+- A record beyond a host or site limit of this table (the publishers-per-entry row is a count,
+  not a limit) is answered `REJECTED`, not `FULL`. `FULL` says the target has no room
+  (`Protocol.md` §10.8). An address limit says nothing about the target: no `spill` set for it, and
+  the publisher starts no own lookup because of it (`Protocol.md` §10.4).
+- **Address limits come first.** A storing node checks this table's limits, and per-publisher-key
+  ones, before the target's limits: a record over one is `REJECTED`, whether or not the target
+  has room. A valid record not newer than the held one is `OLDER` (`Protocol.md` §10.7) before
+  these limits are consulted; changes nothing. A limit over all targets of an index node
+  (`Protocol.md` §11) is an address limit too, `REJECTED` before the target. A record renewing
+  one held for the same publisher counts as new at a host or site holding no record of that
+  publisher there. Over a limit → `REJECTED`; held record stays as is until it expires.
+- Per-publisher-key (not per-address) limits are in the kinds' documents: a `KEYWORD` target
+  takes at most 1,000 *(initial)* files of one publisher key and 2,000 of one publisher site
+  (`Protocol.md` §10.8); a `MEMBER` target at most 4 sets of one publisher key
   ([`file-set.md`](file-set.md) §6); an `ALIAS` target at most 2 roots of one publisher key
   ([`alias.md`](alias.md) §3); a `CLAIM` target at most 2 zones of one publisher key
   ([`name.md`](name.md) §4.2); a `PART` target one record per author key
   ([`multi-author-set.md`](multi-author-set.md) §3.4).
-- `KEYWORD` and `NOTE`: beyond the limits per key, host and site of `Protocol.md` §10.8, records
-  are accepted within the general flood limits; when an entry's publishers are counted (popularity, ranking, or a rating average), one
-  site counts once. A network that publishes many entries gains nothing per entry by doing so.
+- `KEYWORD` and `NOTE`: beyond the per-key, host and site limits of `Protocol.md` §10.8, records
+  are accepted within the general flood limits; when an entry's publishers are counted
+  (popularity, ranking, rating average), one site counts once. A network publishing many entries
+  gains nothing per entry.
 
 ### 2.5 Dialling sources
 
-Source records are not signed (`Protocol.md` §10.3). A storing node, or an index node, can return records that
-point at an address which never published them, and every searcher of that file would then send
-a connection attempt there. The handshake exposes the false record, but only after the attempt
-has been sent. A node therefore limits the attempts that fail.
+Source records are unsigned (`Protocol.md` §10.3). A storing or index node can return records
+pointing at an address that never published them, and every searcher of that file would dial
+it. The handshake exposes the false record only after the attempt. So failing attempts are
+limited.
 
-For the sources of one file, a node allows at most the following number of connection attempts
-that **failed or are still pending**, per hour:
+Per file's sources, at most this many connection attempts **failed or still pending** per hour:
 
 | | host | site | block |
 |---|---|---|---|
 | Failed or pending dials per file and hour | 2 | 4 | 8 |
 | Failed or pending dials per hour, over all files | 8 | — | — |
 
-- An attempt that completes its handshake with the expected node ID does not count. A group of
-  honest sources behind one address or in one network is therefore dialled without limit.
-  A relay counts as dialled until the handshake with it completes with its node ID; a relay
-  that is already connected when the dial starts does not count. A dial through a relay
-  completes only when the relay forwards: a `Punch` answered `Error{DENIED}`,
-  `Error{NOT_FOUND}`, or `Error{UNSUPPORTED}` from a node that is no relay counts as one
-  failed attempt at the relay's address (`Protocol.md` §10.3), also on a connection that was
-  open before. `Error{BUSY}` and every other answer of the relay do not count. An attempt made for several files counts under
-  each of them.
-- An attempt given up before its handshake completes, for example because the download was
-  closed, counts as failed.
-- The limit counts every address dialled on behalf of the file, each under its own groups: the
-  endpoints of a source in both families, every relay taken from a source record or from a
-  source exchange, and every gate taken from a `GATE` record ([`hops.md`](hops.md) §4.3), also
-  when a last hop dials it.
-- An address that would exceed a limit is not dialled; it is kept and tried in a later hour.
-  The other addresses of that source MAY be dialled within their own limits.
-- A live stream ([`live.md`](live.md) §5.2), a topic ([`pubsub.md`](pubsub.md) §5) and a room
-  ([`room.md`](room.md) §5) each count as a file here. The limit over all files counts them together with files.
-- Gates and addresses dialled for a node rather than a file (an uploader's slot offer, chat,
-  browse, friends) count in the row over all files. Only attempts that fail or are pending
-  count, so a node that is reached is dialled without limit, also for a long chat.
-- The limit is per file, so one answer cannot use up a node's attempts for other downloads.
-- **Over all files** the host limit is 8 per hour. A source beyond it is kept and tried in a
-  later hour, as above.
+- Attempt completing its handshake with the expected node ID: doesn't count, so honest sources
+  behind one address or in one network are dialled without limit. A relay counts as dialled
+  until its handshake completes with its node ID; one already connected when the dial starts
+  doesn't count. A dial through a relay completes only when the relay
+  forwards: a `Punch` answered `Error{DENIED}`, `Error{NOT_FOUND}`, or `Error{UNSUPPORTED}` from
+  a node that is no relay counts as one failed attempt at the relay's address (`Protocol.md`
+  §10.3), also on a connection open before. `Error{BUSY}` and every other relay answer don't
+  count. An attempt made for several files counts under each.
+- An attempt given up before its handshake completes (e.g. download closed) counts as failed.
+- Limit counts every address dialled for the file, each under its own groups: a source's endpoints in
+  both families, every relay from a source record or source exchange, every gate from a `GATE`
+  record ([`hops.md`](hops.md) §4.3), also when a last hop dials it.
+- An address that would exceed a limit is not dialled; kept and tried in a later hour. Other
+  addresses of that source MAY be dialled within their own limits.
+- A live stream ([`live.md`](live.md) §5.2), topic ([`pubsub.md`](pubsub.md) §5) and room
+  ([`room.md`](room.md) §5) each count as a file here; the over-all-files limit counts them with
+  files.
+- Gates and addresses dialled for a node rather than a file (uploader's slot offer, chat,
+  browse, friends) count in the over-all-files row. Only failed or pending attempts count, so a
+  reached node is dialled without limit, also for a long chat.
+- Limit is per file, so one answer can't use up a node's attempts for other downloads.
+- **Over all files** host limit is 8 per hour; a source beyond it is kept, tried in a later hour.
 
-A victim address then receives at most 2 attempts per hour from each searcher and file, and 8
-from each searcher over all files, whatever the number of false records and whether they name
-it as an endpoint, as a relay or as a gate.
+So a victim address gets ≤ 2 attempts per hour per searcher and file, and 8 per searcher over all
+files, however many false records, and whether they name it as endpoint, relay or gate.
 
 ## 3. What a requester may still do
 
-- Connect to, download from and upload to any number of peers in one group. The limits concern
-  Kad contacts, Kad records and failed source dials only.
-- Answer requests from any address. A node that is over a limit is not inserted or queried; its
-  own requests are served as usual.
-- Query candidates beyond the lookup limits of §2.2 in the first lookup
-  ([`bootstrap.md`](bootstrap.md) §4), and only while fewer than α = 3 candidates remain that
-  the limits allow it to query. They are inserted into the table under the limits like any
-  contact.
+- Connect to, download from, upload to any number of peers in one group. Limits concern only Kad
+  contacts, Kad records and failed source dials.
+- Answer requests from any address. A node over a limit isn't inserted or queried; its requests
+  are served as usual.
+- Query candidates beyond the §2.2 lookup limits in the first lookup
+  ([`bootstrap.md`](bootstrap.md) §4), only while fewer than α = 3 limit-allowed candidates
+  remain. Inserted into the table under the limits like any contact.
 
 ## 4. Comparison
 
 ### 4.1 BitTorrent DHT
 
-The BEP index has no proposal for IP limits. BEP 42 restricts node IDs (the model for `Protocol.md` §6.3),
-and BEP 45 only advises a multi-homed node to use one address per /64 because "other nodes might
-treat IPv6 /64 subnets as a single entity". The limits in use are an implementation matter;
+The BEP index has no IP-limit proposal. BEP 42 restricts node IDs (model for `Protocol.md` §6.3);
+BEP 45 only advises a multi-homed node to use one address per /64 because "other nodes might
+treat IPv6 /64 subnets as a single entity". Limits in use are an implementation matter;
 libtorrent's are the de-facto reference.
 
 | | libtorrent | This extension |
@@ -247,16 +227,16 @@ libtorrent's are the de-facto reference.
 | One lookup | 1 per /24, 1 per /64 (`dht_restrict_search_ips`) | 2 per site; 2 per block for a search, 4 for a store |
 | Larger IPv6 groups | none: a /56 is 256 groups, a /48 is 65,536 | /48 and /32 |
 | Larger IPv4 groups | none | /16 |
-| Storage targets | no rule beyond the lookup filter | at most half of them, 4 of 8, in one block (§2.3) |
+| Storage targets | no rule beyond the lookup filter | at most half, 4 of 8, in one block (§2.3) |
 | ID tied to address | BEP 42, off by default (`dht_enforce_node_id`) | `Protocol.md` §6.3, always on |
 
-libtorrent is stricter inside a bucket and has nothing above /24 and /64. For IPv6 that leaves
-the limit almost without effect, since a home delegation already spans hundreds of /64s.
+libtorrent: stricter inside a bucket, nothing above /24 and /64. For IPv6 nearly ineffective, as
+a home delegation already spans hundreds of /64s.
 
 ### 4.2 eMule Kad and eMuleQt
 
-eMuleQt enforces the eMule limits in its routing bins and adds the SafeKad node tracker. Both
-are IPv4 only.
+eMuleQt enforces the eMule limits in its routing bins and adds the SafeKad node tracker; both
+IPv4 only.
 
 | Rule | eMule Kad / eMuleQt | This extension |
 |---|---|---|
@@ -268,82 +248,74 @@ are IPv4 only.
 | Lookup as a whole | none | per-lookup limit |
 | Storage targets | none | at most 2 per site and 4 of 8 per block (§2.3) |
 | Keyword trust | 10 points per /24, shared among all entries that /24 published | one site counts once per entry |
-| One node per address (SafeKad) | a second node on a tracked address is rejected | host limit |
-| ID change (SafeKad) | a verified node changing ID within 1 h bans its address for up to 24 h | refused for 1 h, no ban |
-| Unverified ID change against a verified record (SafeKad) | rejected | cannot occur: every contact is verified by its handshake (`Protocol.md` §6.3) |
+| One node per address (SafeKad) | 2nd node on a tracked address rejected | host limit |
+| ID change (SafeKad) | verified node changing ID within 1 h bans its address for up to 24 h | refused for 1 h, no ban |
+| Unverified ID change against a verified record (SafeKad) | rejected | can't occur: every contact verified by its handshake (`Protocol.md` §6.3) |
 | Unresponsive nodes (SafeKad) | remembered 5 min | contact dropped after two failed connections (`Protocol.md` §10.2) |
 | LAN addresses | exempt | exempt in a named network only (§1) |
 
-The numbers for address and site are taken over unchanged, because they have years of use behind
-them. The differences come from what ed3k has that eMule Kad lacks: the node ID is proven by the
-handshake, so the ID-spoofing cases SafeKad guards against do not arise, and IPv6 needs tiers of
-its own.
+Address and site numbers taken over unchanged (years of use). Differences come from what ed3k
+has and eMule Kad lacks: handshake-proven node ID, so SafeKad's ID-spoofing cases don't arise;
+and IPv6 needs own tiers.
 
 ## 5. Alternatives considered
 
-- **Ban instead of refuse.** Rejected. A ban by address also hits the other users of a
-  carrier-grade NAT address or of a /64, and a forged-source trigger would make it a tool for
-  denial of service. Refusal has the same effect on the routing table with no victim.
-  Connection floods are a different matter: `Protocol.md` §4.6 bans the node ID, never the
-  address, counted on completed handshakes only.
+- **Ban instead of refuse.** Rejected: an address ban also hits other users of a carrier-grade
+  NAT address or /64, and a forged-source trigger makes it a DoS tool. Refusal: same
+  routing-table effect, no victim. Connection floods differ: `Protocol.md` §4.6 bans
+  the node ID, never the address, counted on completed handshakes only.
 - **One IPv6 tier (/64).** Rejected, see §4.1.
 - **/56 instead of /48 as the IPv6 site.** A /48 customer would count as 256 sites. /48 is the
   largest prefix a single customer normally holds.
-- **One node per block first in the closest set, more only when the blocks run out.** Not
-  taken. It is stricter where blocks are plenty, but it is a preference with a fall-back: where
-  blocks are few it allows what the count allows, and which nodes it picks depends on the
-  blocks each requester happened to meet. The closest set has one hard count instead, R/2 per
-  block, and a lookup that cannot meet it ends with fewer nodes (§2.3).
-- **Limits by autonomous system.** The best grouping in principle, since it follows ownership
-  and not prefix length. It needs a routing database that every implementation ships and
-  updates, and nodes with different database versions would disagree.
-- **Looser limits while the table is small.** Fills slots on a young network that strict
-  limits leave empty. Left out for simplicity (§8). Done without a re-check it is harmful:
-  whatever was let in early keeps its slots for as long as it answers, so the loose limits of
-  the first minutes become the limits for good.
+- **One node per block first in the closest set, more only when blocks run out.** Not taken.
+  Stricter where blocks are plenty, but a preference with fall-back: with few blocks it allows
+  what the count allows, and its picks depend on the blocks each requester happened to meet. The closest set has one hard count instead, R/2 per block; a lookup that
+  can't meet it ends with fewer nodes (§2.3).
+- **Limits by autonomous system.** Best grouping in principle (ownership, not prefix length).
+  Needs a routing database every implementation ships and updates; differing versions disagree.
+- **Looser limits while the table is small.** Fills young-network slots strict limits leave
+  empty. Left out for simplicity (§8). Without re-check harmful: what got in early keeps its
+  slots while it answers, so loose first-minute limits become permanent.
 - **Disjoint lookup paths** (S/Kademlia). Complements these limits: d independent paths survive
-  when fewer than d are captured. At about 2.5 KB per queried node over QUIC (`Protocol.md` §10.5) it
-  multiplies the cost of every lookup by d. Left for the datagram binding.
+  if fewer than d are captured. At about 2.5 KB per queried node over QUIC (`Protocol.md` §10.5) it
+  multiplies every lookup's cost by d. Left for the datagram binding.
 
 ## 6. Small networks
 
-On a young network the honest nodes cluster in a few providers, and hard limits can leave table
-slots empty. The block limits are loose for that reason: 4 of 10 slots in a bucket, and half
-of a closest set. The closest set can still shrink: where all nodes near a key are in one
-block, a search ends with 2 nodes and a store with 4 (§2.3). Whether the limits should be
-looser while a table is small is an open point (§8).
+Young network: honest nodes cluster in few providers; hard limits can leave slots empty. Hence
+loose block limits: 4 of 10 slots in a bucket, half a closest set. The closest set
+can still shrink: where all nodes near a key are in one block, a search ends with 2 nodes, a
+store with 4 (§2.3). Whether limits should be looser while a table is small: open point (§8).
 
 ## 7. What an attacker still needs
 
-Costs with the limits in force, K = 10, R = 4 for a search and R = 8 for a store:
+Costs with limits in force, K = 10, R = 4 for a search, R = 8 for a store ("each near" = each address, or each /64, with a routing prefix near the key):
 
 | Goal | IPv4 | IPv6 |
 |---|---|---|
-| Fill one bucket of a victim | addresses in 5 /24s that span 3 /16s | addresses in 5 /48s that span 3 /32s |
-| Hold the whole closest set of a search (R = 4) | 4 addresses in 2 /24s, one /24 in each of 2 /16s, each address with a routing prefix near the key | 4 /64s in 2 /48s, one /48 in each of 2 /32s, each with a routing prefix near the key |
-| Hold the whole closest set of a store (R = 8) | 8 addresses in 4 /24s, two /24s in each of 2 /16s, each address with a routing prefix near the key | 8 /64s in 4 /48s, two /48s in each of 2 /32s, each with a routing prefix near the key |
+| Fill one bucket of a victim | addresses in 5 /24s spanning 3 /16s | addresses in 5 /48s spanning 3 /32s |
+| Hold the whole closest set of a search (R = 4) | 4 addresses in 2 /24s, one /24 in each of 2 /16s, each near | 4 /64s in 2 /48s, one /48 in each of 2 /32s, each near |
+| Hold the whole closest set of a store (R = 8) | 8 addresses in 4 /24s, two /24s in each of 2 /16s, each near | 8 /64s in 4 /48s, two /48s in each of 2 /32s, each near |
 | More than 20 table entries on one victim | a second /16 | a second /32 |
 
-- The IPv6 column is the weak one. A /29, the usual first allocation from a regional registry,
-  contains 8 /32s. Each /32 reaches 16,384 routing prefixes, so most of the 8 will have one
-  near a given key on a network of 100,000 nodes. A closest set needs 2 of the 8, so one /29
-  can hold a whole one, of a search and of a store.
-- Two blocks are enough in both families, because one block may hold half of a set. A stricter
-  count would shut out honest nodes that share a provider (§6). One block alone holds at most
-  half of a set, and the other half answers.
+- IPv6 is the weak column. A /29, usual first regional-registry allocation, holds 8 /32s, each
+  reaching 16,384 routing prefixes, so most of the 8 have one near a given key on a 100,000-node
+  network. A closest set needs 2 of the 8, so one /29 can hold a whole one, search or store.
+- Two blocks suffice in both families, as one block may hold half a set; stricter would shut out
+  honest nodes sharing a provider (§6). One block alone holds ≤ half; the other half answers.
 - The limits remove the cheapest cases: a home /56 or /48, a single /32, a rented /24.
-- What remains is addressed by the key puzzle (`Protocol.md` §6.3), which is reserved, and by
-  disjoint paths (§5), which are not specified.
+- What remains is addressed by the key puzzle (`Protocol.md` §6.3), reserved, and disjoint paths
+  (§5), unspecified.
 
 ## 8. Open points
 
-- All numbers are untested against a real address distribution. The block limits in particular
-  should be checked against the share of the largest provider once there is a network to measure.
-- Whether the IPv6 block should be /29 instead of /32, which would bind the usual registry
-  allocation at the price of grouping more unrelated customers.
-- Whether the limits of a bucket should be looser while a table is small (§6). It was drafted
-  and left out to keep the protocol simple: it needs a boundary, a re-check when the table
-  crosses it, and a band around it so that a table does not take contacts out and insert them
-  again in turns. §2.1 already says what any such rule must do.
-- Whether the routing-ID mask for IPv6 should end at /32 (`Protocol.md` §6.3). It was
-  left at /48; with it, a /32 would reach 8 routing prefixes instead of 16,384.
+- All numbers untested against a real address distribution; block limits especially to be
+  checked against the largest provider's share once a network can be measured.
+- Whether the IPv6 block should be /29 instead of /32: would bind the usual registry allocation, at
+  the price of grouping more unrelated customers.
+- Whether bucket limits should be looser while a table is small (§6). Drafted, left out for
+  simplicity: needs a boundary, a re-check on crossing it, and a band around it so a table
+  doesn't remove and re-insert contacts in turns. §2.1 already says
+  what any such rule must do.
+- Whether the IPv6 routing-ID mask should end at /32 (`Protocol.md` §6.3). Left at /48; with
+  /32, a /32 would reach 8 routing prefixes instead of 16,384.

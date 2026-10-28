@@ -1,35 +1,30 @@
 # Extension: Usenet posts as file sets (`usenet`)
 
 **Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
-**Extends:** [`file-set.md`](file-set.md) §1 and §3, [`alias.md`](alias.md) §2 and §4, and [`Protocol.md`](../Protocol.md) §7.4 and §14.4. Section numbers (§) refer to this document unless a document is named.
-**Capability:** none of its own; a node that uses it sets `SETS`. Two schemes of the `ALIAS` record. One field in a manifest, one file format.
+**Extends:** [`file-set.md`](file-set.md) §1, §3; [`alias.md`](alias.md) §2, §4, and [`Protocol.md`](../Protocol.md) §7.4, §14.4. § = this document unless a document is named.
+**Capability:** none of its own; a node using it sets `SETS`. Two `ALIAS` schemes, one manifest field, one file format.
 **Required of every `ROUTER`:** nothing beyond the `ALIAS` record of [`alias.md`](alias.md).
 
-A binary post on Usenet is a number of files, each cut into articles of a few hundred
-kilobytes. An NZB file lists the articles by their message IDs. This extension gives a post
-**one BLAKE3 root**, so that a client can download it from news servers and from ed3k nodes at
-once, verify every byte under the ed3k hash, and still have the files when the articles are
-gone.
+Usenet binary post = several files, each cut into articles of a few hundred KiB; an NZB lists
+articles by message ID. Here a post gets **one BLAKE3 root**: client downloads from news
+servers and ed3k nodes at once, verifies every byte under the ed3k hash, keeps the files after
+the articles are gone.
 
-- A post is described by a file set ([`file-set.md`](file-set.md)): a manifest that lists the
-  files of the post with their BLAKE3 roots.
-- The manifest has a **canonical form** (§3). Everyone who has the complete post computes the
-  same manifest, byte for byte. Its root is the **post root**.
-- The articles are named in an **article list** (§2), which is an ordinary ed3k file.
-- `ALIAS` records lead from an NZB to the post root, and from one file of an NZB to its root
-  (§1, §6).
+- Post = file set ([`file-set.md`](file-set.md)): manifest of its files with BLAKE3 roots.
+- Manifest has a **canonical form** (§3): everyone with the complete post gets it byte for
+  byte; its root = **post root**.
+- Articles are named in an **article list** (§2), an ordinary ed3k file.
+- `ALIAS` records lead NZB → post root, and one file of an NZB → its root (§1, §6).
 
-Usenet itself is not carried in ed3k. A client that uses this extension speaks NNTP with the
-news servers of its user and ed3k with ed3k nodes. Every ed3k request still names a file by
-its root (`Protocol.md` §7.4). The rules of [`alias.md`](alias.md) §5 apply.
+Usenet not carried in ed3k: client speaks NNTP with its user's news servers, ed3k with nodes. Every ed3k request still names a file by root (`Protocol.md` §7.4).
+[`alias.md`](alias.md) §5 rules apply.
 
 ---
 
 ## 1. Names
 
-An NZB file is XML. Two NZB files for one post, made by two indexers, differ in their text,
-in the order of their entries and often in which files they list. The names used here are
-computed from the message IDs alone.
+NZB is XML; two indexers' NZBs for one post differ in text, entry order, often the files listed.
+Names here come from message IDs alone.
 
 ```
 file id = H("ed3k v1 nzb file", m₁ ‖ 0x00 ‖ m₂ ‖ 0x00 ‖ … ‖ mₙ ‖ 0x00)      32 B
@@ -38,26 +33,23 @@ post id = H("ed3k v1 nzb", f₁ ‖ f₂ ‖ … ‖ fₖ)                      
 
 | | |
 |---|---|
-| mᵢ | the message ID of part *i* of the file: the character data of the `segment` element after XML decoding (entities and character references resolved; CDATA sections are character data, comments and processing instructions are skipped; a `segment` with a child element gives no mᵢ, as an empty one), with leading and trailing whitespace removed, and then one enclosing pair of `<` and `>` removed when both are there, as UTF-8 bytes. Whitespace is space (0x20), tab (0x09), CR (0x0D) and LF (0x0A) here, since an XML element may hold line breaks; in §2 it is space and tab |
-| Order of parts | by the `number` attribute, 1 to n, where n is the number of different `number` values of the file. Where a number occurs twice, the first entry in the NZB counts |
-| fⱼ | the different file ids of the files of the NZB, in ascending order of their bytes; a file whose file id equals another's counts once: both name the same articles, so they are one file, with one `name` and `size` (§2) |
+| mᵢ | message ID of part *i*: character data of the `segment` element after XML decoding (entities, character references resolved; CDATA = character data; comments, processing instructions skipped; a `segment` with a child element gives no mᵢ, like an empty one), leading/trailing whitespace stripped, then one enclosing `<`/`>` pair if both present, as UTF-8 bytes. Whitespace here = space (0x20), tab (0x09), CR (0x0D), LF (0x0A), as XML elements may hold line breaks; in §2 = space and tab |
+| Order of parts | by `number` attribute, 1 to n, n = count of the file's distinct `number` values. Duplicate number: first NZB entry counts |
+| fⱼ | distinct file ids of the NZB's files, ascending by bytes; a file whose file id equals another's counts once: same articles → one file, one `name` and `size` (§2) |
 
-- **A file with a gap** in its part numbers has no file id, and an NZB with such a file has no
-  post id. A part numbered 0 is a gap, and so is a file without parts: the parts are numbered
-  1 to n, each number present. A file with a `number` outside 1..n, or one that is not a
-  decimal number, has no file id either. A file with an empty or missing mᵢ has no file id, as a file
-  with a gap. Such an NZB is not joined with ed3k; the files of it
-  that are whole still are, one by one.
-- Subject, poster, date, groups and the sizes an NZB tells are not part of a name. They differ
-  from indexer to indexer.
+- **File with a gap** in part numbers: no file id; its NZB no post id. Part 0 is a gap, as is a
+  file without parts: parts are 1 to n, each present. A `number` outside 1..n or
+  not decimal → no file id; same for an empty or missing mᵢ. Such an NZB is not joined with
+  ed3k; its whole files still are, one by one.
+- Subject, poster, date, groups, NZB-stated sizes: not part of a name; differ per indexer.
 
 | Scheme of `ALIAS` | `id` | Relation | `root` |
 |---|---|---|---|
 | `nzb` | the post id | `SET` | the manifest of the post (§3) |
 | `nzb-file` | the file id | `SAME` | the file |
 
-Two NZB files that list other subsets of a post have two post ids. The file id of a file is the
-same in both when both list the same parts for it, so such a file is still found.
+NZBs listing different subsets of a post → different post ids; a file's file id is equal in
+both if both list the same parts for it, so it is still found.
 
 ---
 
@@ -67,7 +59,7 @@ same in both when both list the same parts for it, so such a file is still found
 "ed3knzb" ‖ 0x01 ‖ ArticleList
 ```
 
-The file starts with the 8 bytes `65 64 33 6B 6E 7A 62 01`. The rest is one protobuf message:
+File starts with the 8 bytes `65 64 33 6B 6E 7A 62 01`; rest is one protobuf message:
 
 ```protobuf
 message ArticleList {
@@ -81,26 +73,25 @@ message Post {
 }
 ```
 
-- **`name` and `size` come from the articles,** not from the NZB: the `name` and the `size` of
-  the yEnc header line `=ybegin`, with trailing whitespace (space and tab) removed. `name` is the text after `name=` up to
-  the end of the line, or up to the first `=ypart ` on it, as it stands: quotation marks are
-  part of the name. Text from such a `=ypart ` on is that article's `=ypart` line. All
-  parts of a file carry the same values; a client takes them from the lowest-numbered part it
-  has that passed its CRC-32 (§4), and makes no manifest and no `ALIAS` record of `nzb` for a
-  post in which a file's parts disagree among the parts that passed, also when the NZB lists
-  that file twice (§1). `nzb-file` records do not depend on names and are published as in §6.
-- A name that is not valid UTF-8 is read as ISO 8859-1 and written as UTF-8.
-- **A message ID that is not valid UTF-8** cannot be written into `ids`. A post with such a
-  message ID has no article list and no manifest (§3).
-- **The list does not say which bytes an article holds.** Each article says so itself, in its
-  `=ypart` line (`begin`, `end`). A client that wants a range asks for the part the range
-  falls in when all parts have the size of the first, and corrects itself from the answer.
-- The list is written in the canonical serialisation of `Protocol.md` §0.
-- The list is at most 32 MiB *(initial)*. It is shared as an ordinary file with a `SOURCE`
-  record, and MUST NOT get `KEYWORD` records.
-- Groups are not in the list. An article is asked for by its message ID.
+- **`name`, `size` from the articles,** not the NZB: those of the yEnc header line `=ybegin`, trailing
+  whitespace (space, tab) removed. `name` = text after `name=` to end of line or first `=ypart `
+  on it, as is (quotes are part of the name); text from such a `=ypart ` on is that article's
+  `=ypart` line. All parts carry the same values; client takes them from its lowest-numbered
+  part that passed CRC-32 (§4). If a file's passed parts
+  disagree (also when the NZB lists that file twice, §1): no manifest and no `ALIAS` record of
+  `nzb` for the post. `nzb-file` records do not depend on names; published as in §6.
+- Name not valid UTF-8 → read as ISO 8859-1, written as UTF-8.
+- **Message ID not valid UTF-8** can't go into `ids`; post has no article list, no manifest
+  (§3).
+- **List doesn't say which bytes an article holds;** its `=ypart` line does (`begin`, `end`).
+  For a range, client asks the part it falls in assuming all parts are the first's size, and
+  corrects from the answer.
+- List: canonical serialisation of `Protocol.md` §0.
+- At most 32 MiB *(initial)*. Shared as an ordinary file with a `SOURCE` record; MUST NOT get
+  `KEYWORD` records.
+- No groups in the list; articles asked by message ID.
 
-Only yEnc is covered. A post in another encoding has no article list and is not joined.
+Only yEnc covered; other encodings: no article list, not joined.
 
 ---
 
@@ -117,200 +108,175 @@ message Usenet {
 }
 ```
 
-A manifest with `usenet` is a **post set**. Its canonical form:
+Manifest with `usenet` = **post set**. Canonical form:
 
 | Field | Value |
 |---|---|
-| `files` | the files of the article list, in its order |
-| `Member.name`, `Member.size` | `name` and `size` of the entry in the list |
+| `files` | files of the article list, in its order |
+| `Member.name`, `Member.size` | `name`, `size` of the list entry |
 | `Member.root` | BLAKE3 root of the decoded file |
-| `Member.dir` | 0: all files at the top level |
+| `Member.dir` | 0: all at top level |
 | `usenet` | post id, root and size of the article list |
-| Everything else | absent: every other field of `FileSet` and of a `Member`, among them `title`, `dirs`, `comment`, `created`, `id`, `seq`, `ed2k`, `links`, inner sets and mounts, `sealed`, `open`, `torrent`, `tube`, key and signature |
+| Everything else | absent: every other field of `FileSet` and `Member`, incl. `title`, `dirs`, `comment`, `created`, `id`, `seq`, `ed2k`, `links`, inner sets and mounts, `sealed`, `open`, `torrent`, `tube`, key, signature |
 
-- Serialisation as in [`torrent.md`](torrent.md) §2. The file is the 8 bytes of a manifest
-  followed by a `SetFile` that has `body` only.
-- Every file of the NZB is a member: archive volumes, repair files, text files.
-- **No canonical manifest exists** for a post
-  - with a file of which the client has no article that passed its CRC-32, so that name and
-    size are unknown; a file rebuilt from the repair files alone has none (§10),
-  - with a message ID that is not valid UTF-8 (§2),
-  - whose article list would be larger than 32 MiB *(initial)*, the limit of `list_size`,
+- Serialisation as [`torrent.md`](torrent.md) §2: the 8 bytes of a manifest + a `SetFile` with
+  `body` only.
+- Every NZB file is a member: archive volumes, repair, text files.
+- **No canonical manifest** for a post
+  - with a file lacking any article that passed CRC-32, so name, size unknown; a file rebuilt
+    from repair files alone has none (§10),
+  - with a message ID not valid UTF-8 (§2),
+  - whose article list would exceed 32 MiB *(initial)* (`list_size` limit),
   - whose names break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2, two equal names
     included,
-  - or whose manifest would be larger than 4 MiB.
+  - or whose manifest would exceed 4 MiB.
 
-A manifest with `usenet` that is not canonical is still a valid post set, for example one that
-its author gave a title. It has another root. A node that makes a manifest for a post it
-downloaded MUST make the canonical one.
+Non-canonical `usenet` manifest (e.g. author added a title): still a valid post set, other
+root. A node making a manifest for a post it downloaded MUST make the canonical one.
 
-**Checking a post set.** A client that holds the manifest and the article list checks, before
-it uses both together:
+**Checking a post set,** before using manifest and article list together:
 
 | Check | Rule |
 |---|---|
-| List | the article list has the root `usenet.list`. A `list_size` above 32 MiB *(initial)* fails: the list is not fetched |
-| Post id | the file ids of the list, hashed as in §1, give `usenet.id` |
-| Count, order | the manifest has one member per entry of the list, in its order |
-| Name, size | member *i* has the name and the size of entry *i* |
+| List | article list has root `usenet.list`. `list_size` above 32 MiB *(initial)* fails: list not fetched |
+| Post id | list's file ids, hashed as §1, give `usenet.id` |
+| Count, order | one member per list entry, same order |
+| Name, size | member *i* has name and size of entry *i* |
 
-If a check fails, the manifest is a plain set for this client and Usenet is not used for it.
-The checks say that the list fits the manifest. They say nothing about the roots. §4 does.
+Any failure: plain set for this client, Usenet not used. Checks show list fits manifest,
+nothing about roots; §4 does.
 
 ---
 
 ## 4. Downloading
 
-A client keeps what it has of a member as byte ranges (`Protocol.md` §14.4). A decoded article
-is a range of a member, at the place its `=ypart` line says.
+Member held as byte ranges (`Protocol.md` §14.4); decoded article = range at the place its
+`=ypart` line says.
 
-**An article is checked, not verified.** yEnc carries a CRC-32 per part. It finds damage and
-proves nothing. An article passes only when its decoded length is also `=yend size` and, with a
-`=ypart` line, `end` − `begin` + 1; else it failed as a failed CRC-32. An `=yend` line
-without `size`, and a `=ypart` line, glued (§2) or its own, without decimal `begin` and `end`
-with 1 ≤ `begin` ≤ `end`, fail it the same way. A decoded article that
-passes is *checked*: the client MUST NOT show its
-bytes in a `have` bitmap or send them to an ed3k node until they pass under the member's root
-([`alias.md`](alias.md) §5 rule 5).
+**Article is checked, not verified.** yEnc CRC-32 per part finds damage, proves nothing. Article passes
+only if its decoded length also = `=yend size` and, with a `=ypart` line, `end` − `begin` +
+1; else fails like a failed CRC-32. Also failed: `=yend` without `size`; a `=ypart` line
+(glued, §2, or own) without decimal `begin`, `end` with 1 ≤ `begin` ≤ `end`. Passing decoded
+article is *checked*: client MUST NOT show its bytes in a `have` bitmap or send them to an ed3k
+node until they pass under the member's root ([`alias.md`](alias.md) §5 rule 5).
 
 ### 4.1 Started from a post root
 
-The user gave an `ed3k:file` link of a post set, or chose it in a search. **BLAKE3 is the
-judge.**
+User gave a post set's `ed3k:file` link, or chose it in a search. **BLAKE3 is the judge.**
 
-1. The client downloads the manifest and the article list from ed3k nodes and makes the
-   checks of §3.
-2. It downloads each member from ed3k sources and from its news servers at once.
-3. Every block is verified against the member's root, whoever sent it. A block made of
-   articles that fails is dropped; the articles in it are asked for again from another server,
-   or the block is taken from an ed3k source.
-4. **An article that is gone is a range to take from somewhere else.** Nothing fails because
-   of it.
+1. Download manifest and article list from ed3k nodes; checks of §3.
+2. Download each member from ed3k sources and news servers at once.
+3. Every block verified against member's root, whoever sent it. Failing block made of articles
+   dropped; articles re-asked from another server, or block taken from an ed3k source.
+4. **Gone article = range taken elsewhere.** Nothing fails because of it.
 
-**When no ed3k node has a member,** block hashes are missing (`Protocol.md` §12.4). The client
-then downloads the member from Usenet, repairs it by the repair files of the post where it
-has to, and computes the root when the member is complete. If it is the root of the manifest,
-the member is verified and the client is the first ed3k source for it. If not, the manifest
-and the articles do not belong together; the client says so and keeps nothing of the member
-as an ed3k file.
+**No ed3k node has a member:** no block hashes (`Protocol.md` §12.4). Download from Usenet,
+repair with the post's repair files where needed, compute root when complete. Root = manifest's root
+→ verified, client is first ed3k source. Else manifest and articles don't belong together;
+client says so, keeps nothing of the member as an ed3k file.
 
 ### 4.2 Started from an NZB
 
-The user gave an NZB file. **The articles are what was asked for,** and a root found in Kad is
-a claim.
+User gave an NZB. **Articles are what was asked for;** a Kad root is a claim.
 
-1. The client computes the post id and the file ids (§1) and searches `ALIAS` records of
-   `nzb`, in parallel with the download from Usenet. It searches `nzb-file` only when `nzb`
-   gave no post set that passes §3, and then for at most 256 *(initial)* files of the NZB.
-2. For a post set it finds, it downloads the manifest and the article list and makes the
-   checks of §3. A set whose `usenet.id` is not the post id it searched is refused; its
-   publisher is blamed (§8). It tries at most 3 *(initial)* sets, those named by the most
-   publisher sites first. A root found through `nzb-file` is a claim for that one file.
-3. It adds the ed3k sources of each member. A block from them is verified under the member's
-   root as always.
-4. **The claim is tested against articles.** Before the client keeps anything from ed3k
-   sources of a member, it fetches at least one article of that member, or, where none can
-   be fetched, the complete member passes under the repair files' hashes; it goes on
-   comparing as articles arrive. If an article passes its CRC-32 and its block fails under
-   the claimed root, or its `=ybegin` gives another `size` than the member's, the claim is
-   false for that member: the client drops the claim and what it took from ed3k sources for
-   it, and ignores the publishers of the records that named that root.
-5. When the post is complete, the client computes the canonical manifest itself (§3). That
-   root is the post root, whatever the records said. Where it differs from the set fetched,
-   nobody is blamed: names are not part of the claim, and clients that compared other parts
-   of a post whose parts disagree can see other names (§2). The client publishes for its own
-   manifest as §6 says. It MAY go on sharing the fetched manifest and article list as files,
-   with `SOURCE` only, and publishes no `ALIAS` or `MEMBER` record for them.
+1. Compute post id, file ids (§1); search `ALIAS` `nzb` in parallel with the Usenet download. Search `nzb-file` only if `nzb` gave no post set passing §3, then for at most 256
+   *(initial)* NZB files.
+2. Per post set found: fetch manifest, article list; §3 checks. `usenet.id` ≠ searched post id
+   → refused, publisher blamed (§8). At most 3 *(initial)* sets tried, most publisher sites
+   first. A root via `nzb-file` is a claim for that one file.
+3. Add each member's ed3k sources; blocks verified under member's root as always.
+4. **Claim tested against articles.** Before keeping anything from a member's ed3k sources,
+   client fetches ≥ 1 of its articles, or, if none fetchable, the complete member passes under
+   the repair files' hashes; keeps comparing as articles arrive. If an article passes CRC-32 but its
+   block fails under the claimed root, or its `=ybegin` `size` ≠ member's → claim false for that
+   member: drop it and what came from ed3k sources for it; ignore publishers of records naming
+   that root.
+5. Post complete → client computes canonical manifest itself (§3); its root = post root,
+   whatever records said. Differs from fetched set → nobody blamed: names are
+   not part of the claim, and clients comparing other parts of a post whose parts disagree can
+   see other names (§2). Client publishes for its own manifest per §6; MAY keep sharing the
+   fetched manifest and article list as files, `SOURCE` only, no `ALIAS` or `MEMBER` record.
 
-**What a true claim proves.** The bytes are the file with that root, block by block. That the
-file is the one the articles hold is proven for the articles that were compared, and for the
-whole file where the post has repair files and the file passes under their hashes. A client
-SHOULD make that check when repair files exist. Without them, a publisher could name a root
-that agrees with the post only in the ranges a client is likely to compare; §9 says what that
-costs.
+**What a true claim proves.** Bytes = file with that root, per block. That it is the
+articles' file: proven for compared articles, and for the whole file where the post has repair
+files and it passes under their hashes. Client SHOULD check this when repair
+files exist. Without them a publisher could name a root agreeing with the post only
+where clients are likely to compare; §9 has the cost.
 
 ### 4.3 What each side adds
 
 | | From news servers | From ed3k sources |
 |---|---|---|
 | Speed | as fast as the user's account allows | as peers give |
-| Old posts | gone after the retention time of the server, or removed | there as long as one node shares the file |
-| A damaged range | found by CRC-32 per article; repaired from repair files, if the post has enough | found per 256 KiB block; fetched again |
-| Which range is bad | known after the repair files were read | known at once, from the block hashes |
+| Old posts | gone after server retention, or removed | there while one node shares the file |
+| A damaged range | found by CRC-32 per article; repaired from repair files, if enough | found per 256 KiB block; fetched again |
+| Which range is bad | known after the repair files were read | known at once, from block hashes |
 | Cost | an account | none |
 
 ---
 
 ## 5. Archives
 
-Most posts hold an archive in volumes, often under names that say nothing, sometimes with a
-password.
+Most posts hold an archive in volumes, often meaninglessly named, sometimes passworded.
 
-- The volumes are members of the post set, and files like any other.
-- **What the archive unpacks to** is the `PACKED` record of [`hoster.md`](hoster.md) §6,
-  unchanged. Its `root` is the manifest of the post set; members that are not volumes of the
-  archive are left aside when unpacking. `password` carries the password, where the NZB or
-  its source told one.
-- A user who looks for a file can so find a post that holds it, and a user who has an NZB
-  learns what comes out of it before the download ends.
-- Repair files are members too. They are of use to a client that takes bytes from Usenet, and
-  none to one that has every block verified under the roots.
+- Volumes = post set members, files like any other.
+- **What the archive unpacks to** = `PACKED` record of [`hoster.md`](hoster.md) §6, unchanged.
+  Its `root` = post set's manifest; non-volume members left aside when unpacking. `password`
+  carries the password, where the NZB or its source told one.
+- So a file search finds a post holding it; NZB holder learns the output before download ends.
+- Repair files are members too: useful when taking bytes from Usenet, useless with every block
+  verified under roots.
 
 ---
 
 ## 6. Publishing
 
-A node publishes when it has the complete post and shares the files. The complete post is
-every member, repair files included: a client that fetched repair volumes only where a repair
-needed them makes no manifest, article list or `nzb` record until it has the rest. It MAY
-fetch them afterwards to publish, from ed3k sources first; whether it does is local policy.
-Its members and their `nzb-file` records are published meanwhile. Two kinds of rows have a
-further condition, as in [`torrent.md`](torrent.md) §5: the `ALIAS` rows and `PACKED` are
-published only by a node that decoded the articles itself and computed every member's root
-from them, with no byte taken from ed3k sources (bytes repaired by the post's repair files
-count as from the articles). Members that were only verified under roots the node was given prove the manifest,
-not the post. Such a node, one that got the post over ed3k, still publishes the other rows.
+Node publishes once it has the complete post and shares the files. Complete = every member incl.
+repair files: client that fetched repair volumes only where a repair needed them makes no
+manifest, article list or `nzb` record until it has the rest. It MAY fetch them afterwards to
+publish, ed3k sources first; whether it does is local policy. Members and their `nzb-file` records published
+meanwhile. Further condition, as [`torrent.md`](torrent.md) §5: `ALIAS` rows and `PACKED`
+published only by a node that decoded the articles itself and computed every member's root from them,
+no byte from ed3k sources (bytes
+repaired by the post's repair files count as from the articles). Members only verified under
+given roots prove the manifest, not the post; such a node (post via ed3k) still publishes the
+other rows.
 
 | What | How | Who |
 |---|---|---|
-| The members | as files: `SOURCE`, and `KEYWORD` by their names | every node that shares them |
-| The manifest and the article list | as files: `SOURCE` only | every node that shares them |
-| `ALIAS` of `nzb` | post id → manifest. Only for the canonical manifest | only a node that decoded the articles itself |
-| `ALIAS` of `nzb-file` | file id → member, for each member. At most 256 *(initial)* per post; a client that needs more members finds them through the set | only a node that decoded the articles of that member itself, at least one of them passing its CRC-32: a member rebuilt from the repair files alone has nothing that ties its file id to its bytes |
-| `MEMBER` | from each member to the post set ([`file-set.md`](file-set.md) §6), so that a download that started from one file finds the article list | every node that shares both |
+| The members | as files: `SOURCE`, and `KEYWORD` by their names | every node sharing them |
+| The manifest and the article list | as files: `SOURCE` only | every node sharing them |
+| `ALIAS` of `nzb` | post id → manifest. Canonical manifest only | only a node that decoded the articles itself |
+| `ALIAS` of `nzb-file` | file id → member, per member. At most 256 *(initial)* per post; a client needing more finds them through the set | only a node that decoded that member's articles itself, ≥ 1 passing CRC-32: a member rebuilt from repair files alone has nothing tying file id to bytes |
+| `MEMBER` | each member → post set ([`file-set.md`](file-set.md) §6): a download started from one file finds the article list | every node sharing both |
 | `PACKED` | where the node unpacked the archive itself | only a node that decoded the articles itself |
 
-- **A post that was downloaded is published.** A client that shares the files of a post
-  shares the manifest and the article list with them, and publishes the records above.
-- **Holding posts back** is a setting, off by default. With it on, the client does not share
-  the article list and publishes no `ALIAS` record of `nzb` or `nzb-file`, so that nothing it
-  sends leads to the articles. **The files are shared all the same,** each under its root
-  with `SOURCE` and `KEYWORD` records, like any file. The client then does not share the post
-  set either: a manifest with `usenet` names the article list, and a set that others cannot
-  check is of no use. It MAY share a plain set of the same files.
-- A member that is complete and verified is an ordinary shared file from that moment, before
-  the rest of the post is done. Its `nzb-file` record can be published then.
+- **Downloaded post is published:** sharing a post's files = sharing manifest and article list
+  too, and publishing the records above.
+- **Holding posts back:** setting, default off. On → no article list shared, no `ALIAS` of
+  `nzb` or `nzb-file` published, so nothing sent leads to the articles.
+  **Files shared all the same,** each under its root with `SOURCE` and `KEYWORD`, like any file.
+  Post set not shared either: a `usenet` manifest names the article list; a set others can't
+  check is useless. It MAY share a plain set of the same files.
+- Complete, verified member = ordinary shared file at once, before the rest; its `nzb-file`
+  record can be published then.
 
-**A link in an NZB.** An NZB file MAY carry the `ed3k:file` link of the post set in its head:
+**Link in an NZB.** An NZB MAY carry the post set's `ed3k:file` link in its head:
 
 ```xml
 <head><meta type="ed3k">ed3k:file?b3=…&amp;sz=…&amp;dn=…</meta></head>
 ```
 
-A client that finds it starts as in §4.1: BLAKE3 is the judge. Other programs ignore a `meta`
-of a type they do not know.
+Client finding it starts as §4.1 (BLAKE3 judges). Other programs ignore unknown `meta` types.
 
 ---
 
 ## 7. News servers
 
-- Server addresses, account names and passwords belong to the user. They are never sent to a
-  peer and never put into a record, and a client MUST NOT write a password to a log or show
-  it in an error message.
-- A client asks for articles by message ID. Which servers it asks, in which order and with
-  how many connections is local policy.
-- An article that a server does not have is not a failure of any ed3k node and is reported to
-  none.
+- Server addresses, account names, passwords are the user's: never sent to a peer or put in a
+  record; a client MUST NOT write a password to a log or show it in an error message.
+- Articles asked by message ID; servers, order, connection count: local policy.
+- An article a server lacks is no failure of any ed3k node, reported to none.
 
 ---
 
@@ -319,10 +285,10 @@ of a type they do not know.
 | Case | Blamed |
 |---|---|
 | A block from an ed3k source fails under the member's root | that source (`Protocol.md` §12.3) |
-| §4.1: a block made of articles fails under the member's root | nobody in ed3k. The articles are damaged, or they are not the ones of this post |
-| §4.1: a complete member from Usenet does not give the root of the manifest | nobody. The link was wrong, and the client tells the user |
-| §4.2: an article passes its CRC-32 and its block fails under a claimed root, or its `=ybegin` gives another `size` | the publishers of the `ALIAS` records that named that root. The ed3k sources are not blamed: they sent the file they were asked for |
-| An `ALIAS` record of `nzb` whose manifest fails §3 or names another post id | the publisher of the record |
+| §4.1: a block made of articles fails under the member's root | nobody in ed3k. Articles damaged, or not this post's |
+| §4.1: a complete member from Usenet does not give the manifest's root | nobody. Link wrong; client tells the user |
+| §4.2: an article passes its CRC-32 and its block fails under a claimed root, or its `=ybegin` gives another `size` | publishers of the `ALIAS` records naming that root. Not ed3k sources: they sent the file asked for |
+| An `ALIAS` record of `nzb` whose manifest fails §3 or names another post id | the record's publisher |
 | A `PACKED` record whose archive does not give the file | its publisher ([`hoster.md`](hoster.md) §7) |
 
 ---
@@ -331,14 +297,14 @@ of a type they do not know.
 
 | | |
 |---|---|
-| Verification | the post root commits to every member root and to the article list. CRC-32 is an early check, never the last word in §4.1 |
-| Life of a post | the files outlive the articles |
-| A false claim in §4.2 | costs the blocks taken from ed3k sources until the first article disagrees. With a root made to agree where a client compares, and no repair files, it costs a file that is not the post. The publisher signed it and is ignored afterwards |
-| Hashing | every member is hashed with BLAKE3 once, which a node does for any file it shares |
-| Storage | the manifest, about 80 B per file, and the article list, about 45 B per article: 3 MiB for a post of 50 GiB |
-| Kad | one `ALIAS` record per post and one per file, next to the `SOURCE` records |
-| What a storing node learns | that a node has a post, and its post id in clear, from the `ALIAS` record ([`alias.md`](alias.md) §1). The id is a hash of the message IDs, so the node can test posts it knows |
-| What others learn | the message IDs of the post, from the article list. For a post under meaningless names they are all that an index sells. §6 shares them on purpose, unless the user holds posts back |
+| Verification | post root commits to every member root and the article list. CRC-32: early check, never the last word in §4.1 |
+| Life of a post | files outlive articles |
+| A false claim in §4.2 | blocks from ed3k sources until the first article disagrees. Root made to agree where clients compare, no repair files: a file that is not the post. Publisher signed it, ignored afterwards |
+| Hashing | each member BLAKE3-hashed once, as any shared file |
+| Storage | manifest ~80 B per file, article list ~45 B per article: 3 MiB for a 50 GiB post |
+| Kad | one `ALIAS` record per post and per file, beside `SOURCE` records |
+| What a storing node learns | that a node has a post, and its post id in clear, from the `ALIAS` record ([`alias.md`](alias.md) §1). Id = hash of message IDs → node can test posts it knows |
+| What others learn | the post's message IDs, from the article list; for meaninglessly named posts all an index sells. §6 shares them on purpose, unless the user holds posts back |
 | What a news server learns | nothing about ed3k |
 
 ---
@@ -347,28 +313,25 @@ of a type they do not know.
 
 | Alternative | Pro | Con |
 |---|---|---|
-| **The hash of the NZB file as the name** | one hash call; no parsing rules | every indexer writes another NZB for one post, so each would be a name of its own and no root would collect the publishers |
-| **The NZB file itself as the article list** | no second format | not canonical: two holders share two files with two roots. It also carries subject, poster and group names that the files do not need |
-| **Message IDs inside the manifest** | one file to fetch | 45 B per article: a large post passes the 4 MiB of a manifest |
-| **Byte ranges per article in the list** | a range leads to its article without a guess | a node that could not fetch an article does not know its range, and could not write the list. The article says it itself |
-| **A record per article**, from a message ID to root and offset | finds a file from a single article | hundreds of thousands of records per post |
-| **CRC-32 or the repair files' hashes as a name** (`ALIAS` of `md5`) | reuses [`alias.md`](alias.md) §4.1 | not every post has repair files; where it has, a client can publish that record too |
-| **Names from the repair files** in the canonical manifest | real names for posts with meaningless ones | two clients, one with the repair files and one without, would write two manifests |
-| **Articles served over ed3k**, by message ID | a node could pass on what it has before the file is whole | a second identity on the wire, and data that cannot be verified under the root (`Protocol.md` §7.4) |
+| **The hash of the NZB file as the name** | one hash call; no parsing rules | each indexer writes its own NZB per post → own name each, no root collects publishers |
+| **The NZB file itself as the article list** | no second format | not canonical: two holders, two files, two roots. Carries subject, poster, group names files don't need |
+| **Message IDs inside the manifest** | one file to fetch | 45 B per article: large post exceeds the manifest's 4 MiB |
+| **Byte ranges per article in the list** | range leads to its article without a guess | node unable to fetch an article doesn't know its range, can't write the list. Article says it itself |
+| **A record per article**, message ID → root and offset | finds a file from a single article | hundreds of thousands of records per post |
+| **CRC-32 or the repair files' hashes as a name** (`ALIAS` of `md5`) | reuses [`alias.md`](alias.md) §4.1 | not every post has repair files; where present, a client can publish that record too |
+| **Names from the repair files** in the canonical manifest | real names for meaninglessly named posts | two clients, one with repair files, one without, would write two manifests |
+| **Articles served over ed3k**, by message ID | node could pass on what it has before the file is whole | second wire identity; data not verifiable under the root (`Protocol.md` §7.4) |
 
 ---
 
 ## 11. Open points
 
-- Servers that want a group selected before they give an article. The group is not in the
-  list; a client has it from the NZB it started from, and not in §4.1.
-- A post that is repaired with fewer articles than it has: the file is whole, the list names
-  articles nobody can fetch. That is correct and of no use; a mark for dead articles would be
-  a local matter.
-- Test vectors for file id, post id, article list and canonical manifest of a post of two
-  files, one with a name that is not UTF-8, are in
-  [`tests/vectors-v1.md`](../tests/vectors-v1.md).
-- Whether part sizes that differ inside one file occur often enough to need more than "ask
-  and correct".
-- Posting to Usenet from ed3k is not specified.
+- Servers wanting a group selected before giving an article. Group not in list; client has it
+  from its starting NZB, not in §4.1.
+- Post repaired with fewer articles than it has: file whole, list names unfetchable articles;
+  correct, useless; marking dead ones would be local.
+- Test vectors (file id, post id, article list, canonical manifest) of a two-file post, one name
+  not UTF-8, in [`tests/vectors-v1.md`](../tests/vectors-v1.md).
+- Are differing part sizes within one file common enough to need more than "ask and correct"?
+- Posting to Usenet from ed3k not specified.
 - All numbers are first values.
