@@ -5,7 +5,7 @@ This is the specification of a modern file sharing protocol using protobuf with 
 It is inspired by eD2K. Its reference implementation, [eMuleQt](https://github.com/ModderMule/emule-qt),
 is fully compatible with the eD2K network.
 
-See [Protocol.md](./Protocol.md) for implementation details.
+See [Protocol.md](./Protocol.md) for implementation details. [See here for discussion.](https://github.com/ModderMule/emule-qt/discussions/91)
 
 **DRAFT VERSION: This spec is alpha and will change - please do NOT publish your implementations yet without prior contact and review via GitHub issues**
 
