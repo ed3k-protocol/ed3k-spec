@@ -104,8 +104,8 @@ May also answer: no resolver for this hoster, wait this long, human or login nee
 - **Accounts.** User may give the resolver a hoster login. Login data, session cookies and
   addresses handed out after login: never sent to a peer, never in a record or link, and
   MUST NOT be written to a log or shown in an error message.
-- A client MUST NOT solve a puzzle, wait out a timer or use an account for a link unless the
-  user allowed hoster downloads. Off by default.
+- A client MUST NOT solve a puzzle, wait out a timer or use an account for a link unless
+  hoster downloads are switched on. Client setting, user can switch it off; default up to client.
 - **Links used sparingly.** Many hosters allow one download at a time and a daily quota per
   address. ≤ 1 stream per hoster and account at a time *(initial)*; failed attempts per hoster
   counted with the limits of [`http-source.md`](http-source.md) §5: per file, over all files
