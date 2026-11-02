@@ -1198,7 +1198,7 @@ node IDs swapped         = H("ed3k v1 paid private key",    k ‖ cf617f4479e973
 ```
 
 **Key request, step 1** (subscription.md §6.1). Without a pass; the viewer holds the sample
-offer, from the channel file, so `offer_issued` is its `issued`:
+offer, from the purchase answer (`Ed3k-Offer`, subscription.md §9.1), so `offer_issued` is its `issued`:
 
 ```
 KeyRequest  = { scope = scope(1), offer_issued, private_proof }

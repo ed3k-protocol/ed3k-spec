@@ -75,7 +75,8 @@ message Channel {
 - Shared, published under its keywords and downloaded like any file ([`Protocol.md`](../Protocol.md) §10 and §12). Search
   finds channels as files; suggested name ends in `.ed3klive`.
 - Describes the channel, not a broadcast; changes only with the description. Of two files for
-  one `stream`, reader uses later `created`.
+  one `stream`, reader uses later `created`. Owner shares and publishes it while it keeps the
+  channel, on air or not (§11 finds channels off air too).
 
 ### 1.3 Links
 
@@ -179,7 +180,8 @@ channels, hence a baseline.
 - **Audio only** is a channel like any other, `media` = `audio/mp4`, no video track.
 - Other formats allowed, named in `media` and `codecs`: MPEG transport stream segments
   (`video/mp2t`, no init data), WebM, or newer codecs e.g. H.265 and AV1 inside MP4.
-- Viewer that can't play what `media` and `codecs` name says so, doesn't join.
+- Viewer that can't play what `media` and `codecs` name says so, doesn't join. One that can't
+  tell (unknown or empty string) leaves it to the player: local policy.
 - Producing/playing segments isn't protocol; no particular encoder or tool required.
 
 Baseline = what browsers, phones, common players decode w/o added software; the segment form
@@ -306,11 +308,16 @@ Data is never pushed. Node asks a neighbour whose `have` shows the segment.
   *(initial)*, and serve longest-standing ones first, so each segment leaves it several times
   before late joiners are served. Rate measurement: local policy.
 - Segment SHOULD be 1 to 4 s long. Shorter = less delay, more records and exchanges.
-- A segment over 4 MiB or init data over 256 KiB (§2.1) is not sent: nodes would drop it. The
-  next segment sent carries `gap`. A changed init is sent with `gap` too.
+- A segment over 4 MiB or init data over 256 KiB (§2.1) is not sent: nodes would drop it. Nor
+  is a segment naming init data not sent (not playable, §2.1). The next segment sent carries
+  `gap`. A changed init is sent with `gap` too.
 - Broadcast ends with an `end` record (§2.2). Broadcaster cut off and returning within 10 min
   *(initial)*, before viewers leave (§3.4), MAY continue with the next `seq` of the same
   `start`, and sets `gap`.
+- The user stopping the broadcast sends the `end` record. A quit of the client or a stopped
+  session is a cut, no `end`: a restart within the 10 min MAY continue as above, so the client
+  keeps `start`, the next `seq` and, in a paid channel, the epoch. Viewers see it interrupted
+  (§3.4) meanwhile; its `LIVE` records run out (§5.1).
 
 ---
 

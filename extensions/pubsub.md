@@ -240,7 +240,8 @@ The table's three time conditions (`issued`, both `expires` ones) are time check
 failing notice dropped, no neighbour fault.
 
 - Broadcaster sends a notice at start, every 5 min *(initial)* while running, one with `end` when
-  over. Each has strictly later `issued` than the previous, so none tie.
+  over. Each has strictly later `issued` than the previous, so none tie. A cut it may resume
+  ([`live.md`](live.md) §4) is not over: no `end`; notices stop and run out.
 - Notice says a broadcast runs; peers still found via `LIVE` ([`live.md`](live.md) §5); no proof
   any peer is reachable.
 - Notice **run out** when `expires` passed (`expires` < now): no longer held, not given to

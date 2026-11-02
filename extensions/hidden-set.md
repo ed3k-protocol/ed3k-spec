@@ -164,7 +164,8 @@ bool sealed = 9;              // the shared file is sealed with k_data; root and
 - Without `sealed`: ordinary file, downloadable by anyone knowing its root; same file as any
   other copy in the network.
 - With `sealed`: stored and shared sealed. Client opens it after download, or while reading
-  (cipher allows reading from any position).
+  (cipher allows reading from any position). The opened plain copy MUST NOT be shared: no
+  record, not served. Where either copy is kept is local.
 - A sealed member holds ≤ 256 GiB plain bytes, the cipher's one-nonce limit: `size` at most
   2^38 + 12 bytes. Reader refuses a manifest listing a larger one.
 - Sealed data doesn't compress; the rule of [`Protocol.md`](../Protocol.md) §12.3 then sends it

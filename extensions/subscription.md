@@ -128,7 +128,11 @@ message SignedOffer {
   chain's keys are dropped.
 - An epoch belongs to the chain with highest `base` not above it.
 - `pay_url`, `pass_url`, `report_url`: `https`, with a host, no user name or password; client
-  refuses other forms. Optional: a publisher selling by hand omits them.
+  refuses other forms. Optional: a publisher selling by hand omits them, keeping `price`.
+- **Stopping a sale**: a newer offer without `pay_url`, `pass_url` and `price`. `t0` and
+  `period` stay, also after a stop: a re-sale is a later offer with the same `t0` and `period`
+  (and a new season if the old one ran out; a gap only leaves epochs keyless). A new `t0` or
+  `period` needs a new scope (other channel or set `id`).
 - **Client checks the target** of each before opening, polling or posting, as
   [`http-source.md`](http-source.md) §5 checks a source: global unicast address, for first URL and
   every redirect, literal or resolved, through a proxy as there. Follows redirects only to `https`. Failing URL unused.
@@ -268,7 +272,8 @@ season seed.
   season (§4.5), gives new keys only to nodes made safe again.
 - A planned season's `SignedChain` reaches readers no earlier than 1 h *(initial)* before the
   epoch before its `base`: reader refuses it before then (§3). Travels with first keys, not in an
-  offer (§3).
+  offer (§3): online nodes get it in the last epoch of the old season; readers with the first key,
+  in that epoch's last 10 % (§6.2). The offer naming it is signed once `base` begins.
 - Publisher key (signs offers, chains, segment records, manifests) is separate. A thief with it
   can sign own passes, seasons, offers. With an own pass it gets every key of every season, later
   ones included, from any pass holder, until publisher moves to a new key; no successor key yet
@@ -317,7 +322,7 @@ message Pass {
 
 message SignedPass {
   bytes body = 1;             // a serialised Pass, verified over exactly these bytes
-  bytes key = 2;              // 32 B signer: the publisher of each scope, or an issuer of its offer
+  bytes key = 2;              // 32 B signer: for each scope, its publisher or one of `issuers` of its offer
   repeated Signature sigs = 3;    // over "ed3k v1 paid pass" ‖ body
 }
 ```
@@ -350,7 +355,9 @@ message SignedPass {
   issuer can't tell which node watches.
 - A multi-scope pass shows all its scopes to every node it's shown to; a client SHOULD tell the
   user before it first shows one. The offer names one scope, so a client can't know before the
-  pass arrives; a user declining keeps the pass unused.
+  pass arrives; a user declining keeps the pass unused. Asked once per set of scopes: a pass
+  whose scopes are a subset of a set the user accepted, renewal included, is used without
+  asking.
 - Renewal (§9.2) keeps the holder key. A client MAY make a new one per purchase.
 - A node MAY hold a pass under its anonymous key ([`hops.md`](hops.md) §1); holder key then shown
   under that key only, never the node key. Buying and polling `pass_url` (§9.1) aren't ed3k and
@@ -697,6 +704,7 @@ sealed bytes = nonce(12) ‖ ChaCha20(k_data, nonce, plain bytes)        RFC 843
   record; wire name = first 16 characters of the root in base32.
 - **Anyone may seed a sealed member**: bytes useless without key; every source helps. A passless
   node holding the sealed file shares it as any file.
+- The opened plain copy MUST NOT be shared, as [`hidden-set.md`](hidden-set.md) §4.2 says.
 
 ### 8.2 Catalogue
 
@@ -821,7 +829,9 @@ back, so any client can buy from any seller.
   failing pass.
 - Request carries no cookie, account or anything else; holder key is all the seller needs (pass
   useless without the private key).
-- With an issuer-signed pass, `pass_url` MUST also send the offer, serialised `SignedOffer` in
+- Other scopes of the pass are checked once followed (§9.3).
+- With an issuer-signed pass, `pass_url` MUST also send the offer of the scope bought (the `scope`
+  parameter), serialised `SignedOffer` in
   header `Ed3k-Offer` (base64): else buyer can't check the issuer (§5.2). With a publisher-signed
   pass it MAY. For a private channel or hidden set, this header, or step 1 of a key request to a
   pass holder (§6.1, §6.2), with `private_proof` for a private channel, is how a buyer gets its
@@ -830,7 +840,8 @@ back, so any client can buy from any seller.
 ### 9.2 Renewal
 
 - Last 48 h *(initial)* before `until`: client polls `pass_url` every 6 h *(initial)*, same holder
-  key. `200` with later `until` replaces held pass; `410` ends polling.
+  key, for a pass bought per §9.1; a pass from an `ed3k:pass` link or voucher (§9.3) only when
+  the user asks. `200` with later `until` replaces held pass; `410` ends polling.
 - So seller-side auto-renewal = row of short passes; cancellation takes effect at the held pass's
   end.
 
@@ -849,6 +860,10 @@ ed3k:pass?p=<SignedPass, base32>[&k=<private holder key, 32 B Ed25519 private ke
   is one pass for two people.
 - `ed3k:pass` link refused when `p` doesn't parse as a `SignedPass` or, with `k`, the key doesn't
   give `holder`.
+- A pass names scopes, not publishers. Client checks it per scope (§5.2 without proof) once it
+  follows the scope (a set or `ed3k:live` link) and knows its publisher, and for an issuer-signed
+  pass its offer; until then it holds the pass unused for that scope. A pass failing for a scope
+  isn't used there.
 
 ---
 

@@ -2355,7 +2355,9 @@ ranges are then void; ranges count from 0 on the new one. A `Block` cut short on
 stream isn't a protocol fault (§12.3). If uploader answers the new stream with an `Error`
 (`NOT_FOUND`, `BUSY`, or `MALFORMED` for a bad bid), the entry stays as it was, with the old file
 and its stream. While queued, a switch counts in the 30 min budget of an early return (below),
-connected or not; a slot holder switches freely.
+connected or not; a slot holder switches freely. A `FileRequest` answered with a short slot
+([`extensions/name.md`](extensions/name.md) §6.4) counts nowhere in that budget and changes no
+queue entry: file and position stay; coming back to the queued file after it is free too.
 
 **Stay or come back.** The first `FileStatus` to a queued downloader carries `recheck`; a later
 one carries it when it changes:
@@ -2840,7 +2842,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Queue: entry kept after time to come back, or after lost connection | 30 min |
 | Queue: ping interval, answer time | 30 min, 30 s |
 | Queue: `have` update to downloader with slot | 1 per 5 min |
-| Queue: early return for address or relay change, for another file, or for changed bid | 1 per 30 min, all together |
+| Queue: early return for address or relay change, for another file, or for changed bid (short slots not counted) | 1 per 30 min, all together |
 | Slot offer: wait, failures before offers stop; entry told to stay connected kept after failed offer | 30 s, 2; 30 min |
 | Upload slots, recommended minimum | 2 |
 | Slot: data per turn, longest turn | 16 MiB, 1 h |
@@ -2886,7 +2888,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Names, global: label; zones per target (per key / per site / in all), records kept per zone, records per answer, site count saturates at, claim stored again every; refused zones remembered per `CLAIM` target | 3–63 B; 2 / 8 / 64, 3, 16, 255, 20 h; 64 |
 | Names, friends and lists: names per `NameQuery`, queries answered per peer, pinned name asked of friends again; sets of lists followed, list file max, entries per list, `note` max | 16, 1 per 10 s, 1 per 24 h; 32, 4 MiB, 100,000, 256 B |
 | Names from the web: TXT record max, its query, links used per domain, `ed3k.json` max, its fetch, kept max | 1,024 B, 10 s, 4, 64 KiB, 10 s, 24 h |
-| Websites: member awaited, cache by default; short slots per uploader, member max, short slots per downloader and minute | 60 s, 2 GiB; 4, 256 KiB, 32 |
+| Websites: member awaited, cache by default; short slots per uploader, member max, short slots per downloader and minute; shown = last request within | 60 s, 2 GiB; 4, 256 KiB, 32; 10 min |
 | Other names: records per root and scheme per publisher; roots per target (per key / per site / in all); records kept per root; records per answer; roots tried per name; `entry`, `password` max; site count saturates at | 4; 2 / 8 / 64; 3; 16; 3; 255 B, 128 B; 255 |
 | Torrents: `info_size` max, sets tried per torrent | 32 MiB, 3 |
 | Usenet: article list max, sets tried per NZB, `nzb-file` records per post, `nzb-file` lookups per NZB | 32 MiB, 3, 256, 256 |

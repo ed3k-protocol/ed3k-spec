@@ -544,8 +544,12 @@ so the web server serves it as is ([`chaintube.md`](chaintube.md) §2).
 ### 6.1 What is a website
 
 A name or `ed3k:set` link leads to a website when its set's manifest has top-level member
-`index.html`, else `index.htm`. Client follows its head ([`file-set.md`](file-set.md) §5.3) while
-the site is shown or held (§6.4); that is not a set the user follows. Any
+`index.html`, else `index.htm`. Client MUST follow its head ([`file-set.md`](file-set.md) §5.3)
+while the site is shown (a request for it within the last 10 min *(initial)*), and MAY while it
+is only held (§6.4), how many is local policy; that is not a set the user follows. A held site not
+followed has its head checked (§5.3 step 1 there) when shown again, before a member is served.
+Storing the head again ([`file-set.md`](file-set.md) §5.2) is a follower's part only for a site
+followed. Any
 other set is shown as a set, for download ([`file-set.md`](file-set.md) §2.3).
 
 ### 6.2 The local server
@@ -601,7 +605,8 @@ there.
   downloads, and sent as blocks pass under the root, in file order, as the `Protocol.md` §12.6
   window does for media. Range requests answered from verified blocks. Member not there within
   60 s *(initial)* → 504. Same for a fetched set (§6.2) whose manifest is not there within 60 s.
-  Set neither held nor fetched, under §6.2, → 503.
+  Set neither held nor fetched, under §6.2, → 503. A bad block before the first byte is sent is
+  asked for again (60 s rule above); once the answer has begun, it is cut there.
 - Headers: `Content-Type` by member-name extension from a fixed table, else
   `application/octet-stream`; `X-Content-Type-Options: nosniff`; `Referrer-Policy: no-referrer`;
   `ETag` = member's root in base32; `Cache-Control:
@@ -635,6 +640,8 @@ Client's part: bytes and headers above.
   it belongs to that one file, ends when its stream closes, without the hold of §12.5, and is not
   kept for a `FileRequest` of another file (that one queues, or takes another short slot). ≤ 32
   *(initial)* short slots per minute per downloader from one uploader.
+- A request taking a short slot isn't an early return or switch of `Protocol.md` §12.5: not
+  counted in its 30 min budget; the downloader's queue entry, if any, keeps its file and position.
 
 ---
 

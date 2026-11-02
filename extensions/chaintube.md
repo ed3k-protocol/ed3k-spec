@@ -475,9 +475,16 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
     the account, at `to`, with `data` and `value`. Plus `verify` (`eth_call` at the forwarder)
     over the signed request: false → client does not hand it to the site. Nor when the request's
     `gas` is below the estimate (the inner call would run out and revert).
-  - Several providers asked: highest gas, the newest block's highest `timestamp`; a revert, a
-    `verify` false or another JSON-RPC error at any refuses the write. Only a transport failure
-    or timeout is asked again.
+  - Several providers asked: highest gas, the newest block's highest `timestamp`.
+- **Before a write is sent** (`eth_chainId`, pre-checks such as `canPost`, profile, the
+  `getVoteById` pre-read, estimate, `verify`): a revert, a `verify` false or another JSON-RPC
+  error at any provider refuses the write at once, whatever another provider does; a provider that
+  timed out is then not asked again. The refusal is shown as what it was. Only while no provider
+  refused is a transport failure or timeout asked again.
+- **After a write is sent**, its polls (receipt, getter at a final block, logs) are reads (§4.3):
+  providers must agree, as [`credit.md`](credit.md) §7.3. A JSON-RPC error at one provider (e.g.
+  `header not found` at a lagging node) = no answer from it yet, polled again; it never ends the
+  write. Only §4.4's done and failed rules end it.
 - **`setModerator`** has no own getter: `isModerator` is true via parents too. Done when its
   `ModeratorSet` log, `contentId`, `moderator`, `enabled` as written, is in the receipt at a final
   block; for a site-sent request (§10, *Who pays the fee*), when the newest `ModeratorSet` log of that `contentId` and
