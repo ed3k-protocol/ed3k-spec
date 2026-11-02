@@ -1388,6 +1388,24 @@ of [`extensions/ip-diversity.md`](extensions/ip-diversity.md), which hold for ta
 all times: if they ever tighten, the node rechecks the table and removes what no longer fits
 (§2.1 there).
 
+**Own network down.** Nothing above tells "my network is down" from "this contact is gone". So a
+node goes **offline** in a family once, for ≥ 2 min *(initial)*, no connection of that family
+completed and no datagram of it unmasked (§4.5) from an acceptable address (§8.2 (7), and (8) in
+a named network), while dials or requests to nodes of ≥ 4 *(initial)* different sites
+([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1) failed in it since the last one.
+
+- While offline in a family the node counts no failed attempt there and drops no contact; failed
+  attempts counted since that last connection or datagram are void.
+- Offline ends at the first such connection or datagram. The node then runs the maintenance above
+  on every bucket and contact of that family at once, spread over 5 min *(initial)* instead of the
+  hour.
+- Same maintenance after a local address change in the family (with the re-bucketing above) and
+  after resume from sleep, seen as a timer firing more than 2 min *(initial)* late.
+
+Without this a node whose uplink fails, or that wakes with a stale table, drops every contact
+within the hour and must bootstrap again ([`extensions/bootstrap.md`](extensions/bootstrap.md)),
+losing its oldest contacts, the ones an attacker can't replace quickly.
+
 **Contacts that dialled in.** A contact is *dialled-in* when the node first verified it on a connection the contact opened.
 At most half a bucket, 5 of K = 10 *(initial)*, may be dialled-in; a further one is not inserted.
 A dialled-in contact is inserted with the endpoint observed on its connection, address and port, not its `Hello`
@@ -2791,6 +2809,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Kad: nodes that must answer before lookup may stop, M (search / store) | 5 / 9 |
 | Kad: dialled-in contacts per bucket | 5 |
 | Kad: bucket refreshed after, contact verified again after, second attempt after failed one | 60 min, 60 min, 5 min |
+| Kad, own network down: offline after no connection or datagram for, with failed dials or requests to different sites at least; maintenance after offline, address change or sleep spread over; timer late by that shows sleep | 2 min, 4; 5 min; 2 min |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
 | Kad: records in one `Store` max; terms in `all` and `none` of `Query` together max | 256; 64 |
 | Source records: targets in `also`, max per request and per batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 4 h; 4 |
