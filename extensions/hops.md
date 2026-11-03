@@ -55,15 +55,25 @@ share and download under its anonymous key. Recommended: others' traffic covers 
 - A file MUST NOT be offered under both keys: two source records for the same rare files connect
   the keys. Records naming a file shared under anonymous key (keywords, notes, aliases,
   `MEMBER`) are published only under that key, through a path. A `MEMBER` record is published only
-  when file and set are shared under the same key.
+  when file and set are shared under the same key. An own set MUST NOT list a file the node shares
+  under the other key: client refuses it, offers sharing the set under the file's key.
+- A file shared under anonymous key SHOULD NOT also be shared or downloaded by the machine on
+  another network (eD2K/Kad1, BitTorrent, HTTP): sources there show its address and tie the key to
+  it. Client SHOULD warn the user who does so, or moves such a file to anonymous key.
 - What is done under anonymous key MUST go through a path: no direct connection, no HTTP
   source ([`http-source.md`](http-source.md)), no eD2K (`Protocol.md` §14), no answer in the local
   network ([`lan-discovery.md`](lan-discovery.md)).
+- Hiding off (no path): nothing under anonymous key is served or asked for; nothing falls back to
+  node key.
 - A client MUST show its user which files are shared under which key, and MUST ask before moving
   a file from one to the other.
 
 **How many hops.** User setting, 0 to 3, per direction. 0 = ed3k as is.
 
+- A client MAY let the user pick it per use instead (lookups, downloads, shares, rooms, …). All
+  uses share one anonymous key, so the key is as hidden as its shortest path in use; client SHOULD
+  tell the user. A use at 0 outwards runs under node key, as below; a download's lookups go under
+  the download's key.
 - With 0 hops outwards and more inwards, a node searches and downloads under its node key, as
   ed3k is; under its anonymous key it only shares. For that key's Kad requests it keeps one path
   without a gate, of as many hops as inwards, used for `HopLookup` alone (§2.1, §4.1). Sharing is

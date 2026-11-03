@@ -76,7 +76,8 @@ message Channel {
   finds channels as files; suggested name ends in `.ed3klive`.
 - Describes the channel, not a broadcast; changes only with the description. Of two files for
   one `stream`, reader uses later `created`. Owner shares and publishes it while it keeps the
-  channel, on air or not (§11 finds channels off air too).
+  channel, on air or not (§11 finds channels off air too). Giving up a channel (local policy):
+  owner stops sharing and publishing the file; deleting key and secret ends the channel for good.
 
 ### 1.3 Links
 

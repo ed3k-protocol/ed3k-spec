@@ -548,6 +548,8 @@ A name or `ed3k:set` link leads to a website when its set's manifest has top-lev
 while the site is shown (a request for it within the last 10 min *(initial)*), and MAY while it
 is only held (§6.4), how many is local policy; that is not a set the user follows. A held site not
 followed has its head checked (§5.3 step 1 there) when shown again, before a member is served.
+A check that can't complete, or finds a newer head whose manifest is refused, serves the held
+version.
 Storing the head again ([`file-set.md`](file-set.md) §5.2) is a follower's part only for a site
 followed. Any
 other set is shown as a set, for download ([`file-set.md`](file-set.md) §2.3).

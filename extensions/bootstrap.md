@@ -1,6 +1,7 @@
 # Extension: first contact (`bootstrap`)
 
-**Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-11-03). Implemented in packmule (fetch, shipped list, export, source
+pool). Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.2, §10.3 and §13.2. § = that document unless this one is named.
 **Capability:** none. One file format, one link; nothing changes between two nodes.
 
@@ -27,10 +28,17 @@ Client tries in order, stops when its lookups work:
 3. **`ed3k:node` links** the user opened (§13.2).
 4. **eD2K peers that also speak ed3k** (§14), for a client of both networks, and **index nodes
    advertised by eD2K servers** in ident or description
-   ([`docs/ed2k-tags.md`](../docs/ed2k-tags.md) section 2).
-5. **Node lists** (§2 to §4 of this document).
+   ([`docs/ed2k-tags.md`](../docs/ed2k-tags.md) section 2). A peer with a derived user hash
+   (§14.2) is dialled by its `obf_id` at its eD2K TCP port (§14.1) while the table holds < 10
+   *(initial)* contacts, each address once; handshake proves the node ID, as for any candidate.
+5. **Shipped node list**: a node list file (§2 of this document) that comes with the client, as
+   eMule ships `nodes.dat`. No request leaves the host for it. Used once, at the point where
+   lists would be fetched; never refused for its age (§2), so it lasts as long as the release.
+   Its nodes count as nodes of sources 1 to 5 below: a fetch follows only if it too gives
+   < 10 handshakes, at the next check.
+6. **Fetched node lists** (§2 to §4 of this document).
 
-Client auto-fetches node lists only when < 10 *(initial)* nodes from the sources above
+Client auto-fetches node lists only when < 10 *(initial)* nodes from sources 1 to 5
 completed a handshake, at most once per 6 h *(initial)*. Judged once every candidate of those
 sources was dialled, or 60 s *(initial)* after start, whichever first. Saved contacts count once
 loaded (also if none readable); LAN discovery once its first round ended: 2 s *(initial)* after
@@ -89,7 +97,11 @@ Reader refuses a list
 - whose `net_tag` isn't the client's own network's (another network's list is no use; public
   network lists must not lead into a test network),
 - whose `nodes4` isn't a multiple of 22 B, or `nodes6` not a multiple of 34 B,
-- whose `created` is > 30 days *(initial)* past or > 1 h future.
+- whose `created` is > 1 h future.
+
+A reader MAY refuse a list whose `created` is further past than a configured age, default
+30 days *(initial)*, the user may change it or turn it off. A shipped list (§1 source 5) is never
+refused for its age.
 
 A list naming > 200 *(initial)* nodes per family isn't refused; entries after a family's 200th
 are ignored. The 200 = first 200 entries as written, usable or not. An entry with port 0, an
@@ -133,7 +145,9 @@ A client MUST ask the user before adding a source from a link, showing the URL's
 **By hand.** User may open a node list file directly; doing so = decision to trust it: client checks the
 signature against the key in the file, plus the other §2 checks of this document. A client
 SHOULD be able to write such a file from its own verified contacts, signed with its node key, so
-one user can help another cut off from every source.
+one user can help another cut off from every source. The same export, from the saved contacts
+of a node that ran, makes the shipped list of a release (§1 source 5): at most 2 nodes per site,
+8 per block, 200 per family.
 
 ---
 
@@ -187,7 +201,7 @@ For source operators:
 |---|---|
 | **Source names only its own nodes**, to surround a newcomer | two sources; ≤ half the candidates from one; diversity limits; after first lookup the table comes from the network |
 | **False list at a real source** (server taken over) | the signature; signing key need not be on the server |
-| **Old list replayed** | `created` and the 30 days |
+| **Old list replayed** | `created` and the configured age; a shipped list is as old as its release, the user chose that release |
 | **Stolen signing key** | nothing in the protocol; client's next release removes the source |
 | **List naming a victim's address** many times, to make newcomers send to it | one entry per IP address used; newcomer sends one handshake; 50 nodes per list |
 | **Blocking the sources** | sources at several hosts; lists by hand (§3 of this document); every other way of §1 of this document |
@@ -213,7 +227,8 @@ uses a list received by hand, or a proxy.
 
 ## 8. Open points
 
-- Who runs the sources, and how a client decides which signers it ships.
+- Who runs the sources, and how a client decides which signers it ships. Until then the
+  shipped list (§1 source 5) and eD2K peers (§1 source 4) carry the first contact.
 - A second transport binding ([`docs/transport-bindings.md`](../docs/transport-bindings.md))
   needs a way to say which binding a listed node speaks. `NodeList` has no field yet;
   `Hello.bindings = 11` and `Peer.bindings = 6` are reserved for it (`Protocol.md` §5.4, §5.5).

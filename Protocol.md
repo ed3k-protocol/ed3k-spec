@@ -435,6 +435,11 @@ A node MUST limit the new connections it accepts from one peer.
   one whose client (its opener) has the lower node ID compared as bytes, open nothing new on the
   other, and close it with `CLOSED` once no exchange is open on it and ≥ 5 s *(initial)* passed
   since it lost: exchanges the peer opened on it before it knew can still be on their way.
+- **Same opener twice.** A node that lost state (restart) dials again while the peer still holds
+  the old connection: two of one family with one opener, which it MUST NOT open while it holds
+  one. Peer serves the new one once authenticated. Nothing arrived on the old one in the 5 s
+  *(initial)* after that → old one closed, its exchanges void; else new one closed with `CLOSED`.
+  The queue entry stays (§12.5).
 
 A node that sent bad blocks is banned likewise, for other times, and so is its host address
 (§12.3).
@@ -1390,17 +1395,25 @@ all times: if they ever tighten, the node rechecks the table and removes what no
 
 **Own network down.** Nothing above tells "my network is down" from "this contact is gone". So a
 node goes **offline** in a family once, for ≥ 2 min *(initial)*, no connection of that family
-completed and no datagram of it unmasked (§4.5) from an acceptable address (§8.2 (7), and (8) in
+completed and no datagram of it unmasked (§4.5 step 1 or 2 matched, whatever follows: also a
+failing QUIC open or a blocked host) from an acceptable address (§8.2 (7), and (8) in
 a named network), while dials or requests to nodes of ≥ 4 *(initial)* different sites
 ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §1) failed in it since the last one.
 
 - While offline in a family the node counts no failed attempt there and drops no contact; failed
   attempts counted since that last connection or datagram are void.
+- A second failed attempt in a row with no such connection or datagram of that family since the
+  first is held, not counted: it drops the contact at the next such connection or datagram, and is
+  void if the node goes offline first. Else two quick lookup timeouts drop a contact before
+  offline can be decided.
 - Offline ends at the first such connection or datagram. The node then runs the maintenance above
   on every bucket and contact of that family at once, spread over 5 min *(initial)* instead of the
   hour.
-- Same maintenance after a local address change in the family (with the re-bucketing above) and
-  after resume from sleep, seen as a timer firing more than 2 min *(initial)* late.
+- Same maintenance after a local address change in the family (routing ID changed, or the host
+  reports a new local address; the first address taken after none is no change, offline's end
+  covers it), with the re-bucketing above, and after resume from sleep, seen as a timer firing
+  more than 2 min *(initial)* late. Sleep restarts the 2 min silence; it doesn't end offline, only
+  the first such connection or datagram does.
 
 Without this a node whose uplink fails, or that wakes with a stale table, drops every contact
 within the hour and must bootstrap again ([`extensions/bootstrap.md`](extensions/bootstrap.md)),
@@ -2357,7 +2370,8 @@ stream isn't a protocol fault (§12.3). If uploader answers the new stream with 
 and its stream. While queued, a switch counts in the 30 min budget of an early return (below),
 connected or not; a slot holder switches freely. A `FileRequest` answered with a short slot
 ([`extensions/name.md`](extensions/name.md) §6.4) counts nowhere in that budget and changes no
-queue entry: file and position stay; coming back to the queued file after it is free too.
+queue entry: file and position stay; coming back to the queued file after it is no switch either.
+A sent-away entry asking for it before its come-back time is still early (below).
 
 **Stay or come back.** The first `FileStatus` to a queued downloader carries `recheck`; a later
 one carries it when it changes:
@@ -2545,7 +2559,7 @@ separate program next to an ordinary node, no further role (§11).
 | Usenet posts as file sets | none (`SETS`) | two schemes of `ALIAS`; field in manifest; article list file format | [`extensions/usenet.md`](extensions/usenet.md) |
 | Videos named on a chain | none (`SETS`) | field in manifest; `b3`, `sz`, `ipfs` in `ed3k:set` links, `ipfs` in `ed3k:file` links; set layout an IPFS gateway or web server can serve as is; `ed3k:set`, `ed3k:file` links for attachments of other entries; contracts on own chain, via RPC | [`extensions/chaintube.md`](extensions/chaintube.md) |
 | Shared filter lists | none | list file format | [`extensions/filter-list.md`](extensions/filter-list.md) |
-| First contact | none | node list file format; `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
+| First contact | none | node list file format (fetched and shipped); `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
 | Readable names | bit 20, `NAMES` | message types 44, 45; record kinds 14, 15; two fields in `Record`, one in `Store` and `KadAnswer`; name list file format; `ed3k:name` links; DNS record and file at a web server; local web server for websites | [`extensions/name.md`](extensions/name.md) |
 
@@ -2852,6 +2866,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | New connections accepted per minute: per node ID, per host address | 10, 30 |
 | Open connections with peers at one host address / in one site, max | 64 / 256 |
 | Ban after exceeding connection budget: node ID; host address (further connection is refused instead) | 24 h; none |
+| Same opener twice: old connection replaced when silent after new handshake for | 5 s |
 | Simultaneous dial: connection that lost is kept, min | 5 s |
 | Source exchange freshness | 1 h |
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
@@ -2896,7 +2911,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Videos on chain, shown max: title, tag, tags, comment; avatar picture max | 256 B, 64 B, 16, 8,192 B; 1 MiB |
 | Videos on chain, attachments: `media` value max, files per set, gateways per file; fetched unasked: manifest max, picture max, pictures per entry; picture refused above (side, pixels) | 512 B, 64, 3; 64 KiB, 1 MiB, 4; 16,384 px, 64 million |
 | Filter lists: list file max, sets of lists followed, list files per set, list files read in all | 4 MiB, 32, 64, 64 MiB |
-| First contact: saved contacts, fetch lists when fewer than N answered / max per first contact, list max, redirects followed, `created` max old, nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (max half from one list, for max), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
+| First contact: saved contacts, fetch lists when fewer than N answered / max per first contact, list max, redirects followed, `created` max old (default, configurable; shipped list none), nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (max half from one list, for max), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
 | Finding known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of record or request max ahead, record stored every, lookup of friend max, sealed values opened per search max | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of set; results until link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots max, time for payment (from `FileStatus` with `price` or `due`), bid raise (a lower bid any time), ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 10 min, 10 min |

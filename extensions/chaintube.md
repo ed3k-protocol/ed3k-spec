@@ -479,12 +479,16 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
 - **Before a write is sent** (`eth_chainId`, pre-checks such as `canPost`, profile, the
   `getVoteById` pre-read, estimate, `verify`): a revert, a `verify` false or another JSON-RPC
   error at any provider refuses the write at once, whatever another provider does; a provider that
-  timed out is then not asked again. The refusal is shown as what it was. Only while no provider
+  timed out is then not asked again. The refusal is shown as what it was, a revert with no
+  reason as a revert. Only while no provider
   refused is a transport failure or timeout asked again.
 - **After a write is sent**, its polls (receipt, getter at a final block, logs) are reads (§4.3):
   providers must agree, as [`credit.md`](credit.md) §7.3. A JSON-RPC error at one provider (e.g.
   `header not found` at a lagging node) = no answer from it yet, polled again; it never ends the
-  write. Only §4.4's done and failed rules end it.
+  write. Same for an answer that can't be used (bad body, too large), providers that disagree and
+  a full local queue. Only §4.4's done and failed rules end it. A client MAY stop polling (local
+  limit): write then shown as unknown, may still land, not as failed; not sent again unless the
+  user asks.
 - **`setModerator`** has no own getter: `isModerator` is true via parents too. Done when its
   `ModeratorSet` log, `contentId`, `moderator`, `enabled` as written, is in the receipt at a final
   block; for a site-sent request (§10, *Who pays the fee*), when the newest `ModeratorSet` log of that `contentId` and
