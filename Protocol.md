@@ -1441,6 +1441,7 @@ message KadRequest {
   Query  search = 4;          // present, also when empty: search for records of `kind`
   Store  store = 5;           // present: store records of `kind`; never together with `search`
   uint32 level = 6;           // KEYWORD: level the target was computed for (§10.1); 0 on Kad in version 1, 0 to 15 at an index node (§11)
+  // field 7 belongs to the optional extension for anonymous paths (§13.1)
 }
 
 message Query {
@@ -1493,6 +1494,7 @@ message KadAnswer {
   // field 18 belongs to the optional extension for other names of a file (§13.1)
   // field 19 belongs to the optional extension for links at file hosters (§13.1)
   // field 20 belongs to the optional extension for readable names (§13.1)
+  // fields 21 and 22 belong to the optional extension for anonymous paths (§13.1)
 }
 
 enum StoreResult {
@@ -2548,7 +2550,7 @@ separate program next to an ordinary node, no further role (§11).
 | Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
 | Publish and subscribe | bit 12, `PUBSUB` | message types 22, 23; record kind 7; field in `Record` | [`extensions/pubsub.md`](extensions/pubsub.md) |
 | Finding nodes in the local network | bit 13, `LAN` | message types 24, 25; multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
-| Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34 and 39; record kinds 11, 12; field in `Record` and `Store`, two in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
+| Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34 and 39; record kinds 11, 12; field in `Record`, `Store` and `KadRequest`, four in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
 | Credits | bit 16, `CREDIT` | message types 35 to 37; field in `FileRequest` and in `FileStatus`; ledger on own chain, via RPC | [`extensions/credit.md`](extensions/credit.md) |
 | Paid subscriptions | bit 18, `PAID` | message types 40, 41; fields in `Channel`, `LiveSegment`, `LiveJoin`, `LiveState`, `FileSet`, `Member`, `Sealed`, `TopicJoin`, `TopicState`, `TopicItem`; `paid` in `ed3k:live`, `ed3k:set` links; `ed3k:pass` links | [`extensions/subscription.md`](extensions/subscription.md) |
 | Hidden sets | none (`SETS`) | record kind 8; field in `Record` and in manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |

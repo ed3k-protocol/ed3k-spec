@@ -150,6 +150,7 @@ message KadRequest {          // type 3
   Query  search = 4;          // present, also when empty: search for records of `kind`
   Store  store = 5;           // present: store records of `kind`; never together with `search`
   uint32 level = 6;           // KEYWORD: level the target was computed for; 0 on Kad in version 1, 0 to 15 at an index node   Protocol.md §10.1, §11
+  bool   hops = 7;            // list leaf hops holding a relay reservation here   hops.md §2.5
 }
 
 message Query {
@@ -204,6 +205,8 @@ message KadAnswer {           // type 4
   repeated Signed aliases = 18;   // answer to a search of kind ALIAS          alias.md §1
   repeated HttpSource links = 19; // SOURCE search: links at file hosters; 16 per answer   hoster.md §2
   repeated Signed names = 20;     // answer to a search of kind NAME or CLAIM  name.md §3.2, §4.2
+  bytes  leaves4 = 21;        // n × 22 B compact nodes: leaf hops with a reservation here, endpoint as observed   hops.md §2.5
+  bytes  leaves6 = 22;        // n × 34 B; likewise
 }
 
 enum StoreResult {
@@ -908,6 +911,8 @@ message HopCreated {          // type 27
 message HopExtend {           // type 28. From the owner to the last hop, on the control stream
   bytes node = 1;             // compact node, 22 or 34 B: the hop to add      hops.md §2.2
   HopCreate create = 2;       // `path` is left empty; the last hop fills it in
+  bytes relays4 = 3;          // n × 22 B compact nodes: relays of a leaf hop, from the owner's hop list; empty = none   hops.md §2.5
+  bytes relays6 = 4;          // n × 34 B; likewise
 }
 
 message HopGate {             // type 29. Request and answer on the control stream
