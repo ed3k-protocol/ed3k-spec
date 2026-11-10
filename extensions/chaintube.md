@@ -480,13 +480,14 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
   `getVoteById` pre-read, estimate, `verify`): a revert, a `verify` false or another JSON-RPC
   error at any provider refuses the write at once, whatever another provider does; a provider that
   timed out is then not asked again. The refusal is shown as what it was, a revert with no
-  reason as a revert. Only while no provider
+  reason as a revert. A reason is `Error(string)`, a custom error or `Panic`; revert data that
+  doesn't decode is no reason. Only while no provider
   refused is a transport failure or timeout asked again.
 - **After a write is sent**, its polls (receipt, getter at a final block, logs) are reads (§4.3):
   providers must agree, as [`credit.md`](credit.md) §7.3. A JSON-RPC error at one provider (e.g.
   `header not found` at a lagging node) = no answer from it yet, polled again; it never ends the
-  write. Same for an answer that can't be used (bad body, too large), providers that disagree and
-  a full local queue. Only §4.4's done and failed rules end it. A client MAY stop polling (local
+  write. Same for an answer that can't be used (bad body, too large, a provider now on another chain),
+  providers that disagree and a full local queue; no chain configured any more is a local stop. Only §4.4's done and failed rules end it. A client MAY stop polling (local
   limit): write then shown as unknown, may still land, not as failed; not sent again unless the
   user asks.
 - **`setModerator`** has no own getter: `isModerator` is true via parents too. Done when its
@@ -494,7 +495,10 @@ Test deployment on Avalanche Fuji (chain ID 43113): content
   block; for a site-sent request (§10, *Who pays the fee*), when the newest `ModeratorSet` log of that `contentId` and
   `moderator` from the hand-over block has `enabled` as written. Same for the client's own
   transaction and one a site sent for it (§10, *Who pays the fee*).
-- **Failed write.** Receipt at a final block with status 0 = reverted: not done, reported once. A
+- **Failed write.** Receipt at a final block with status 0 = reverted: not done, reported once.
+  So is status 1 without the log the write must leave (a create's `ContentSet`, `CommentSet` or
+  `VoteSet` naming a new ID; `setModerator`'s `ModeratorSet`): the receipt is final, polling
+  changes nothing; shown as failed, no event. A
   site request via the forwarder (§10, *Who pays the fee*) leaves no trace on revert; forwarder keeps the nonce, request
   stays valid until its `deadline`. When a final block with `timestamp` later than `deadline` does
   not show the write, it is not done; `getNonce(from)` still at the request's `nonce` at that block

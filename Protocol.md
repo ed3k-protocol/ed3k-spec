@@ -437,9 +437,12 @@ A node MUST limit the new connections it accepts from one peer.
   since it lost: exchanges the peer opened on it before it knew can still be on their way.
 - **Same opener twice.** A node that lost state (restart) dials again while the peer still holds
   the old connection: two of one family with one opener, which it MUST NOT open while it holds
-  one. Peer serves the new one once authenticated. Nothing arrived on the old one in the 5 s
-  *(initial)* after that → old one closed, its exchanges void; else new one closed with `CLOSED`.
-  The queue entry stays (§12.5).
+  one. Peer serves the new one once authenticated (QUIC handshake done, key proven, §4.1).
+  Nothing arrived on the old one in the 5 s *(initial)* after that (no exchange opened, no data on
+  one; PINGs and ACKs don't count) → old one closed, its exchanges void; else new one closed with
+  `CLOSED`. Only the side that accepted both applies this. An opener that finds itself holding two
+  (a dial race) closes neither and keeps using the old one; the peer decides. A slot held on a
+  closed old one is taken away with it; the queue entry stays (§12.5).
 
 A node that sent bad blocks is banned likewise, for other times, and so is its host address
 (§12.3).
@@ -502,7 +505,7 @@ Types 1–63 keep the tag at one byte.
 | 23 | `TopicState` | both | optional, §13.1 |
 | 24 | `LanQuery` | request | optional, §13.1 |
 | 25 | `LanAnswer` | answer | optional, §13.1 |
-| 26–34 | `HopCreate`, `HopCreated`, `HopExtend`, `HopGate`, `HopLookup`, `HopLookupAnswer`, `HopStream`, `HopConnect`, `HopJoin` | between the nodes of a path | optional, §13.1 |
+| 26, 27, 29–34 | `HopCreate`, `HopCreated`, `HopGate`, `HopLookup`, `HopLookupAnswer`, `HopStream`, `HopConnect`, `HopJoin` (28 unused) | between the nodes of a path | optional, §13.1 |
 | 35 | `Receipt` | downloader → uploader | optional, §13.1 |
 | 36 | `CreditRelay` | request | optional, §13.1 |
 | 37 | `CreditRelayAnswer` | answer | optional, §13.1 |
@@ -1412,7 +1415,8 @@ a named network), while dials or requests to nodes of ≥ 4 *(initial)* differen
 - Same maintenance after a local address change in the family (routing ID changed, or the host
   reports a new local address; the first address taken after none is no change, offline's end
   covers it), with the re-bucketing above, and after resume from sleep, seen as a timer firing
-  more than 2 min *(initial)* late. Sleep restarts the 2 min silence; it doesn't end offline, only
+  more than 2 min *(initial)* late. Sleep restarts the 2 min silence and voids the failed sites
+  counted before it: they say nothing of the network after waking. It doesn't end offline, only
   the first such connection or datagram does.
 
 Without this a node whose uplink fails, or that wakes with a stale table, drops every contact
@@ -2550,7 +2554,7 @@ separate program next to an ordinary node, no further role (§11).
 | Live streams | bit 11, `LIVE` | message types 19 to 21; record kind 6; channel file format; `ed3k:live` links | [`extensions/live.md`](extensions/live.md) |
 | Publish and subscribe | bit 12, `PUBSUB` | message types 22, 23; record kind 7; field in `Record` | [`extensions/pubsub.md`](extensions/pubsub.md) |
 | Finding nodes in the local network | bit 13, `LAN` | message types 24, 25; multicast datagram outside any connection | [`extensions/lan-discovery.md`](extensions/lan-discovery.md) |
-| Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26 to 34 and 39; record kinds 11, 12; field in `Record`, `Store` and `KadRequest`, four in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
+| Anonymous paths | bits 14 and 15, `ANON` and `HOP` | message types 26, 27, 29 to 34 and 39; record kinds 11, 12; field in `Record`, `Store` and `KadRequest`, four in `KadAnswer` | [`extensions/hops.md`](extensions/hops.md) |
 | Credits | bit 16, `CREDIT` | message types 35 to 37; field in `FileRequest` and in `FileStatus`; ledger on own chain, via RPC | [`extensions/credit.md`](extensions/credit.md) |
 | Paid subscriptions | bit 18, `PAID` | message types 40, 41; fields in `Channel`, `LiveSegment`, `LiveJoin`, `LiveState`, `FileSet`, `Member`, `Sealed`, `TopicJoin`, `TopicState`, `TopicItem`; `paid` in `ed3k:live`, `ed3k:set` links; `ed3k:pass` links | [`extensions/subscription.md`](extensions/subscription.md) |
 | Hidden sets | none (`SETS`) | record kind 8; field in `Record` and in manifest; `s` in `ed3k:set` links | [`extensions/hidden-set.md`](extensions/hidden-set.md) |
@@ -2874,9 +2878,9 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: hops per direction, entry hops, kept for, paths outwards, gates | 0–3, 3, 30 days, 4, 4 |
 | Anonymous paths, hop: paths per neighbour, streams per path, further exchanges per path, held per stream and direction, base rate, lookups per path, dials per path / per neighbour | 8, 64, 65, 256 KiB, 16 KiB/s, 20 per minute, 4 / 16 per minute |
 | Anonymous paths: `ANON` records per target (in total / per host / per site), `GATE` lifetime and renewal, session idle time, failed `GATE` lookups or gates dialled per file and hour | 64 / 4 / 8, 1 h and 45 min, 10 min, 4 |
-| Anonymous paths: dials caused by `HopExtend`/`HopConnect` (relay dials and punches included) whose handshake did not complete within 10 s, or still pending, per destination host (IPv4 /32, IPv6 /64) and hour; per neighbour host address: paths, dials per minute, failed dials (wrong node ID, refused punch) per hour | 8; 16, 32, 8 |
-| Anonymous paths: hops known before path is built, reach new hop or `HopConnect` node within, status frame awaited (after `HopStream` or `HopJoin` / after `HopConnect`), `HopJoin` per gate and host, give and take measured over, relays per family in `HopConnect` | 20, 10 s, 10 s / 30 s, 10 per minute, 7 days, 2 |
-| Anonymous paths: answer awaited by last hop to its `HopCreate`; by owner after `HopCreate` or `HopGate` / after `HopExtend`; refused session not opened again to that node ID for | 10 s; 10 s / 30 s; 60 s |
+| Anonymous paths: dials caused by a build or `HopConnect` (relay dials and punches included) whose handshake did not complete within 10 s, or still pending, per destination host (IPv4 /32, IPv6 /64) and hour; per neighbour host address: paths, dials per minute, failed dials (wrong node ID, refused punch) per hour | 8; 16, 32, 8 |
+| Anonymous paths: hops known before path is built, reach `next` of a build or `HopConnect` node within, status frame awaited (after `HopStream` or `HopJoin` / after `HopConnect`), `HopJoin` per gate and host, give and take measured over, relays per family in `HopConnect` | 20, 10 s, 10 s / 30 s, 10 per minute, 7 days, 2 |
+| Anonymous paths: `HopCreated` awaited by a hop from next hop; held back by last hop; awaited by owner after `HopCreate` / answer after `HopGate`; seen build `e` kept, build `time` off by at most; refused session not opened again to that node ID for | 30 s; random 0–1 s; 60 s / 10 s; 20 min, 10 min; 60 s |
 | Anonymous paths: next message of session handshake awaited; `HopLookup` answered by last hop at latest / awaited by owner | 10 s; 60 s / 70 s |
 | Anonymous paths: replay window for stream numbers of path and of session, PING on path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries requester takes from one node, max | 1,000; 100 and 10,000 |

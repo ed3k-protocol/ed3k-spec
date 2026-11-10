@@ -315,7 +315,7 @@ I2P.
 
 | iMule, through I2P | ed3k, through [`hops`](../extensions/hops.md) |
 |---|---|
-| Hops inwards and outwards set apart (`inbound.length`, `outbound.length`) | 0 to 3 hops for each direction, the node's own choice (`hops.md` §1) |
+| Hops inwards and outwards set apart (`inbound.length`, `outbound.length`) | off or 0 to 3 hops for each direction, the node's own choice (`hops.md` §1); at 0 the node is its own last hop (§2.6 there) |
 | A peer is reached by its destination; a lease set in the netDb says where its tunnels end | an `ANON` record names a source by node ID, a `GATE` record names its gates (`hops.md` §4.3). The same split as destination and lease set |
 | 2 tunnels per direction and session | up to 4 paths outwards and 4 gates (`hops.md` §2.1) |
 | Kad lookups through tunnels | `HopLookup`: the last hop sees what is searched, not by whom (`hops.md` §4.1) |

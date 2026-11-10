@@ -1,14 +1,14 @@
 # Extension: anonymous paths (`hops`)
 
-**Status:** draft 0.2 (2026-11-09: leaves as hops, §2.5; 0.1 2026-10-12). Not implemented. Optional in wire version 1. **The key agreement and ciphers of §2.3 and §3.2 are a first design and need review by professionals before anyone relies on them.**
+**Status:** draft 0.2 (2026-11-09: leaves as hops, §2.5; path built in one message, §2.2; deniable 0 hops, §2.6; 0.1 2026-10-12). Not implemented. Optional in wire version 1. **The key agreement and ciphers of §2.3 and §3.2 are a first design and need review by professionals before anyone relies on them.**
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §9.4, §9.5, §10.1, §10.3 and §10.7. § = this document unless a document is named.
-**Capability:** bit 14, `ANON`; bit 15, `HOP`. Message types 26 to 34 and 39. Record kinds 11 and 12. One field in `Record`, one in `Store`, one in `KadRequest`, four in `KadAnswer`.
+**Capability:** bit 14, `ANON`; bit 15, `HOP`. Message types 26, 27, 29 to 34 and 39 (28 unused). Record kinds 11 and 12. One field in `Record`, one in `Store`, one in `KadRequest`, four in `KadAnswer`.
 **Required of every `ROUTER`:** storing and returning the record kinds `ANON` and `GATE`, and accepting `signer` in a `Store` (§4). The rest is optional.
-**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Hop keys* and *Hop session*.
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Hop keys* (build keys and a slot included) and *Hop session*.
 
 In ed3k every peer sees its peer's address, and every storing node sees who stores and who
 searches. This extension lets a node put **0 to 3 other nodes** between itself and the rest; each
-node chooses the number for itself.
+node chooses the number for itself. At 0 it still looks like a hop forwarding for someone (§2.6).
 
 - A hiding node builds **paths**. It picks every node of a path itself and wraps what it sends in
   one encryption layer per node. A node on a path, a **hop**, knows the node before and after it
@@ -50,17 +50,21 @@ own node ID (`Protocol.md` §6.1). Everything it does through a path it does und
   uploaders remember of it.
 
 **One machine, two nodes.** The same machine MAY be a hop under its node key (a `ROUTER`, or a
-leaf of §2.5) and share and download under its anonymous key. Recommended: others' traffic covers its own.
+leaf of §2.5) and share and download under its anonymous key. A hiding node SHOULD be a hop
+where it can: others' traffic covers its own, and a node not setting `HOP` is known as owner by its
+first hop (§6). A client turns `HOP` on by default while hiding is on and the node is open or `cone`
+(§2.5), before its first own path.
 
 - A file MUST NOT be offered under both keys: two source records for the same rare files connect
   the keys. Records naming a file shared under anonymous key (keywords, notes, aliases,
-  `MEMBER`) are published only under that key, through a path. A `MEMBER` record is published only
+  `MEMBER`) are published only under that key, through a path (at 0 hops, §2.6). A `MEMBER` record is published only
   when file and set are shared under the same key. An own set MUST NOT list a file the node shares
   under the other key: client refuses it, offers sharing the set under the file's key.
 - A file shared under anonymous key SHOULD NOT also be shared or downloaded by the machine on
   another network (eD2K/Kad1, BitTorrent, HTTP): sources there show its address and tie the key to
   it. Client SHOULD warn the user who does so, or moves such a file to anonymous key.
-- What is done under anonymous key MUST go through a path: no direct connection, no HTTP
+- What is done under anonymous key MUST go through a path, or at 0 hops as §2.6 says: no direct
+  connection, no HTTP
   source ([`http-source.md`](http-source.md)), no eD2K (`Protocol.md` §14), no answer in the local
   network ([`lan-discovery.md`](lan-discovery.md)).
 - Hiding off (no path): nothing under anonymous key is served or asked for; nothing falls back to
@@ -68,22 +72,25 @@ leaf of §2.5) and share and download under its anonymous key. Recommended: othe
 - A client MUST show its user which files are shared under which key, and MUST ask before moving
   a file from one to the other.
 
-**How many hops.** User setting, 0 to 3, per direction. 0 = ed3k as is.
+**How many hops.** User setting per direction: off, or 0 to 3. Off = ed3k as is, under node key.
+0 = no hop, but under anonymous key, node being its own last hop and gate (§2.6).
 
 - A client MAY let the user pick it per use instead (lookups, downloads, shares, rooms, …). All
   uses share one anonymous key, so the key is as hidden as its shortest path in use; client SHOULD
-  tell the user. A use at 0 outwards runs under node key, as below; a download's lookups go under
+  tell the user. A use set off outwards runs under node key, as below; a download's lookups go under
   the download's key.
-- With 0 hops outwards and more inwards, a node searches and downloads under its node key, as
+- With outwards off and inwards on, a node searches and downloads under its node key, as
   ed3k is; under its anonymous key it only shares. For that key's Kad requests it keeps one path
-  without a gate, of as many hops as inwards, used for `HopLookup` alone (§2.1, §4.1). Sharing is
+  without a gate, of as many hops as inwards, used for `HopLookup` alone (§2.1, §4.1); at 0
+  inwards it runs them itself (§2.6). Sharing is
   serving: under that key it sends no `FileRequest`, no search, and no `SlotOffer`
   (`Protocol.md` §12.5), having no path to reach a downloader. Its downloaders stay connected or
   come back when `recheck` says.
 
 | Hops | A single hop knows | It takes to connect address and deed |
 |---|---|---|
-| 0 | | peer sees it |
+| off | | peer sees it |
+| 0 | | peer sees a last hop or gate and can only guess it is the owner (§2.6) |
 | 1 | both ends | that one hop |
 | 2 | one end each | both hops together |
 | 3 | one end, or neither | the first and the last together |
@@ -104,8 +111,8 @@ hop furthest from owner is the **last hop**.
   (sampling near own routing ID) and first-contact lookups don't count.
 - Hops of one path, owner, and a stream's destination node MUST be in different **sites** and
   SHOULD be in different **blocks** ([`ip-diversity.md`](ip-diversity.md) §1).
-- A last hop MAY refuse a `HopConnect` or `HopExtend` whose `node` is in its own site, with
-  `Error{DENIED}`.
+- A last hop MAY refuse a `HopConnect` whose `node` is in its own site, with `Error{DENIED}`; a
+  hop, a build record whose `next` is, with `status` `DENIED` (§2.2).
 - **Entry hops.** Owner picks 3 *(initial)* `ROUTER` hops and uses one of them as first hop of every path,
   for 30 days *(initial)*. With a new first hop per path an owner would sooner or later pick a
   hostile first and last hop at once. Tor does this for the same reason.
@@ -116,71 +123,79 @@ hop furthest from owner is the **last hop**.
 - An owner MUST NOT send `HopLookup` (§4.1) on a path with a gate, and SHOULD NOT open a
   `HopConnect` there: those streams would tie the gate to the owner's outward activity. A path
   built to become a gate counts as one from its first `HopCreate`, before its `HopGate`.
-- A node with 0 hops inwards has no gate: a gate at the node itself would show its address under
-  anonymous key. Without a gate, B can't open a stream to a hidden A (§3.3): an uploader can't
+- A node with inwards off has no gate. At 0 inwards a `ROUTER` is its own gate (§2.6); a leaf
+  can't be one (§2.5) and has none either. Without a gate, B can't open a stream to a hidden A (§3.3): an uploader can't
   offer it a slot (`Protocol.md` §12.5), and A comes back by itself when `recheck` says.
 
 ### 2.2 Building
 
-A path is built one hop at a time. Owner asks first hop directly, every further hop through
-path so far, so that hop never sees owner.
+A path is built in one message. Owner seals one record per hop into a fixed-size **build**. Each
+hop opens its own record and passes the build on; on the way back each adds its answer. Every hop
+sees one build of one size, whatever the path's length and its place in it, so no hop learns its
+place from the build, except last hop, whose record says so.
 
 ```protobuf
 message HopCreate {           // type 26. First frame of an exchange between two neighbours
   bytes path = 1;             // 8 B, random, chosen by the sender; names the path on this connection only
-  bytes e = 2;                // 32 B, X25519 public value made by the owner for this hop alone
+  bytes build = 3;            // 768 B: 3 slots of 256 B (§2.3)
+  // field 2 unused (was `e`, draft 0.1)
 }
 
 message HopCreated {          // type 27
-  bytes f = 1;                // 32 B, X25519 public value made by the hop for this path
-  bytes proof = 2;            // 32 B (§2.3)
+  bytes build = 3;            // 768 B: the build on its way back (§2.3)
+  // fields 1 and 2 unused (were `f` and `proof`, draft 0.1)
 }
 
-message HopExtend {           // type 28. From the owner to the last hop, on the control stream
-  bytes node = 1;             // compact node, 22 or 34 B: the hop to add
-  HopCreate create = 2;       // `path` is left empty; the last hop fills it in
-  bytes relays4 = 3;          // n × 22 B compact nodes: relays of a leaf hop (§2.5), from the owner's hop list; empty = none
-  bytes relays6 = 4;          // n × 34 B; likewise
-}
+// type 28 unused (was `HopExtend`, draft 0.1)
 ```
 
-1. Owner opens an exchange to first hop and sends `HopCreate`. Hop answers `HopCreated` or
-   `Error{BUSY}`. Exchange stays open: it is the path's **control stream** on this link,
-   stream number 0 (§2.4).
-2. To add a hop, owner sends `HopExtend` on control stream. Last hop connects to `node` as to
-   any node, through a punch where `relays4` or `relays6` name relays (§3.1), opens an exchange, sends `HopCreate` with a `path` of its own, and passes the
-   `HopCreated` back to owner as a frame on control stream, in its own layer and those of
-   the hops before it (new hop has no layer yet). From then on it forwards. A path MUST NOT be
-   extended while it carries a stream other than control stream: a later-added hop has no
-   layer on those streams. Owner closes them first, or builds a new path.
-3. Owner checks `proof` (§2.3). Wrong proof = new hop isn't the node owner chose; owner closes
-   path. Owner knows its first hop by connection key (`Protocol.md` §4.1), and checks its
-   `proof` all the same.
+**Slots.** A build has 3 slots, one per hop. Owner puts each hop's record in a slot drawn at
+random and fills unused slots with random bytes. Record and answer: §2.3.
 
-- **`node`**, here and in `HopConnect` (§3.1), MUST be a global unicast address on the public
-  network (`Protocol.md` §8.2 (7)). A private address is a dial target only in a named network
-  (`net_id` not empty, `Protocol.md` §4.3). Any other `node` is answered `Error{MALFORMED}` and not
-  dialled.
-- A hop unable to reach `node` within 10 s *(initial)*, 20 s *(initial)* when it punches (§3.1), answers
-  `Error{NOT_FOUND}`. A last hop with
-  no answer to its `HopCreate` 10 s *(initial)* after sending closes that exchange and answers
-  `Error{NOT_FOUND}`.
-- Owner closes path with no answer 10 s *(initial)* after a `HopCreate` or `HopGate`, 30 s
-  *(initial)* after a `HopExtend`, or 40 s *(initial)* after one naming relays.
+1. Owner opens an exchange to first hop and sends `HopCreate` with the build. Exchange stays
+   open: it is the path's **control stream** on this link, stream number 0 (§2.4).
+2. A hop finds its record, the slot starting with its node ID, and opens it (§2.3). It overwrites its own slot with random bytes and runs its build layer over the other
+   two (§2.3).
+3. Record says *pass on*: hop connects to `next` as to any node, through a punch where the record
+   names relays (§3.1), opens an exchange and sends `HopCreate` with a `path` of its own and the
+   build. Record says *end*: hop is last hop.
+4. **On the way back.** A hop writes its answer into its own slot (§2.3) and sends the build back
+   in `HopCreated`. Last hop does so after step 2, holding it back a random 0 to 1 s *(initial)*
+   so the wait tells a hop little about the rest of path (§6); any other hop when next hop's
+   `HopCreated` arrives or that link failed. A failed next link goes into the answer as `status`;
+   the hop answers all the same.
+5. Owner opens every answer (§2.3). All `status` 0 = path built. Else no path: owner closes
+   control stream, replaces the hop the failed link leads to, and builds anew. An answer that
+   doesn't open: that hop isn't the node owner chose, or a hop before it changed the slot; owner
+   closes path and builds anew with other hops after the first. Owner knows its first hop by
+   connection key (`Protocol.md` §4.1), and opens its answer all the same.
+
+- **A hop refusing the build** answers `Error` instead of `HopCreated`, which ends the exchange:
+  `BUSY` above a limit (§5); `MALFORMED` for a `path` not 8 B or in use on that connection,
+  whichever neighbour chose it, a `build` not 768 B, no slot naming it, a record that doesn't open
+  or breaks §2.3, a `time` more than 10 min *(initial)* from its clock, an `e` it saw before, or an
+  all-zero `ss1` or `ss2`. Previous hop puts the code in its own answer as `status`; owner,
+  refused by first hop, has no path.
+- **Replays.** A hop keeps the `e` of every record it opened for 20 min *(initial)*. A replayed
+  build would build the same path again and show its hops.
+- **`next`** and its relays, here and in `HopConnect` (§3.1), MUST be global unicast addresses on
+  the public network (`Protocol.md` §8.2 (7)). A private address is a dial target only in a named
+  network (`net_id` not empty, `Protocol.md` §4.3). Any other: `status` `MALFORMED`, not dialled.
+  A `next` in the hop's own site MAY get `status` `DENIED` (§2.1).
+- **`status`**, an `ErrorCode` (`Protocol.md` §5.6): 0 = built; `NOT_FOUND` = `next` not reached
+  within 10 s *(initial)*, 20 s *(initial)* when punching, or no `HopCreated` from it 30 s
+  *(initial)* after the `HopCreate`; `BUSY` = a dial limit (§5); `MALFORMED`, `DENIED` as above;
+  else the `Error` next hop answered, unchanged. A timeout can name an earlier link than the one
+  that stalled; owner replaces that hop all the same.
+- Owner closes path with no `HopCreated` 60 s *(initial)* after its `HopCreate`, or no answer
+  10 s *(initial)* after a `HopGate`.
+- **Length capped by the format.** A build holds 3 records and a hop without one refuses it: no
+  path is longer than 3 hops, none is extended later. A path wanting another hop is built anew.
 - Everything on control stream after `HopCreated` is in layers (§2.3).
-- **Control stream is a sequence of requests and answers.** Owner sends one request frame
-  (`HopExtend`, `HopGate`) and waits for its answer before the next. An `Error` on the control
-  stream doesn't close it: path stays as it was, and the answering hop is still last hop. When
-  the new hop answers the `HopCreate` of a `HopExtend` with an `Error`, last hop closes that
-  exchange and passes the `Error` back as the answer. An `Error` answering the first `HopCreate`
-  ends exchange: no path. Another frame type from owner is answered
-  `Error{UNSUPPORTED}`, except an `Error`, which gets no answer (`Protocol.md` §5.6); an
-  unparseable frame closes path (§2.3).
-- Answered `Error{MALFORMED}` (the `HopStream` as status frame): a `HopCreate` whose `path` isn't
-  8 B or is in use on that connection, whichever neighbour chose it, or whose `e` isn't 32 B; a
-  `HopExtend` whose `create.path` isn't empty; a `HopExtend` while path carries a stream other
-  than control stream; and, at last hop, a `HopStream` while a `HopExtend` of path
-  awaits its answer.
+- **Control stream is a sequence of requests and answers.** After `HopCreated` owner's only
+  request is `HopGate` (§3.1); it waits for the answer before the next. An `Error` on control
+  stream doesn't close it. Another frame type from owner is answered `Error{UNSUPPORTED}`, except
+  an `Error`, which gets no answer (`Protocol.md` §5.6); an unparseable frame closes path (§2.3).
 - **Keeping a path alive.** Both neighbours of a path link send a QUIC PING every 20 s *(initial)*
   while control stream is open (`Protocol.md` §4.1: `max_idle_timeout` is 30 s, and whoever
   wants a connection kept sends the PING). The PINGs also keep a leaf hop's NAT mapping (§2.5). A
@@ -190,24 +205,58 @@ message HopExtend {           // type 28. From the owner to the last hop, on the
 
 ### 2.3 Keys and layers
 
-Per hop owner makes a fresh X25519 pair `(x, e)`; hop makes `(y, f)`. Hop's node key is
-used for X25519 via the conversion of `Protocol.md` §6.4.
+Per hop owner makes a fresh X25519 pair `(x, e)`; hop makes `(y, f)` when it opens its record.
+Hop's node key is used for X25519 via the conversion of `Protocol.md` §6.4.
 
 ```
-ss1   = X25519(x, converted node key of the hop)        the hop computes X25519(its converted private key, e)
-ss2   = X25519(x, f)                          the hop computes X25519(y, e)
-k     = H("ed3k v1 hop", ss1 ‖ ss2 ‖ e ‖ f ‖ node key of the hop)        32 bytes
-proof = H("ed3k v1 hop proof", k)
-k_out = H("ed3k v1 hop out", k)               for bytes that move away from the owner
-k_in  = H("ed3k v1 hop in", k)                for bytes that move towards the owner
+ss1          = X25519(x, converted node key of the hop)         the hop computes X25519(its converted private key, e)
+kr ‖ ka ‖ kb = H("ed3k v1 hop build", ss1 ‖ e ‖ node key of the hop)          96 bytes
+ss2          = X25519(x, f)                                     the hop computes X25519(y, e)
+k            = H("ed3k v1 hop", ss1 ‖ ss2 ‖ e ‖ f ‖ node key of the hop)      32 bytes
+k_out        = H("ed3k v1 hop out", k)                          for bytes that move away from the owner
+k_in         = H("ed3k v1 hop in", k)                           for bytes that move towards the owner
 ```
 
-- Hop's node key in the derivation of `k` is the Ed25519 key as sent in the handshake (32 B), not
+**A slot**, 256 B:
+
+```
+record (owner → hop)   to(16) ‖ e(32) ‖ seal(kr, body(192))                  to = the hop's node ID
+answer (hop → owner)   random(48) ‖ seal(ka, status(1) ‖ f(32) ‖ zero(159))
+seal(k, m)             = ChaCha20-Poly1305(k, nonce 0, m, empty AAD)          as §3.2: RFC 8439, 16-byte tag
+```
+
+| Body bytes | Field | |
+|---|---|---|
+| 0 | `end` | 1 = hop is last hop, 0 = pass on |
+| 1–8 | `time` | Unix seconds, big-endian, when owner made the build |
+| 9–43 | `next` | length(1) ‖ compact node of 22 or 34 B, zero-padded to 34. Length 0 when `end` = 1 |
+| 44–183 | `relays` | 4 × (length(1) ‖ compact node zero-padded to 34): relays of `next` (§3.1, §2.5), ≤ 2 per family; length 0 = none |
+| 184–191 | | zero |
+
+A record breaks this when `end` is neither 0 nor 1, a length is not 0, 22 or 34, `end` = 0 has
+no `next`, `end` = 1 has a `next` or a relay, or a padding byte isn't 0 (§2.2: `MALFORMED`).
+
+**Build layer.** A hop runs over each slot but its own
+
+```
+ChaCha20(key = kb, nonce = 0x00000000 ‖ slot index(8, big-endian), counter from 0)      slot index 0 to 2
+```
+
+Owner runs the build layers of hops 1 to j−1 over hop j's slot before sending, so hop j finds its
+record as sealed. On the way back no hop touches a slot but its own; owner reads every answer as
+written.
+
+- Hop's node key in `kr ‖ ka ‖ kb` and `k` is the Ed25519 key as sent in the handshake (32 B), not
   the converted one; the converted key is used for `ss1` alone.
 - Both sides MUST refuse an all-zero `ss1` or `ss2`.
-- `ss1` proves hop holds the key owner chose; `ss2` keeps `k` safe if that key is taken
-  later. Hop learns nothing about owner.
-- Owner MUST NOT use one `e` for two hops. Hop deletes `y` and `k` when path ends.
+- Only the holder of the hop's node key opens the record and seals the answer: an answer that
+  opens proves the hop and its `f`. `ss2` keeps `k` safe if that key is taken later. Hop learns
+  nothing about owner.
+- **The record is not forward secret.** It is sealed under `ss1` alone. Whoever recorded a build
+  and later takes a hop's node key reads that hop's `next` and relays: the path's layout, not its
+  traffic.
+- Owner MUST NOT use one `e` for two hops. `kr`, `ka` each seal one message, `kb` runs over one
+  build. Hop deletes `kr ‖ ka ‖ kb` after answering, `y` and `k` when path ends.
 
 **Layers.** Every path stream (§2.4) is encrypted once per hop, in each direction:
 
@@ -215,19 +264,18 @@ k_in  = H("ed3k v1 hop in", k)                for bytes that move towards the ow
 ChaCha20(key = k_out or k_in of the hop, nonce = 0x00000000 ‖ stream number(8, big-endian), counter from 0)      RFC 8439
 ```
 
-Key stream runs over the whole stream in that direction. On control stream, stream
-number is 0, and a hop's layer starts, counter at 0, at the first byte after that hop's
-`HopCreated`; on any other stream a layer starts at the first byte after `HopStream` in the
-opener's direction, and at the first byte after the link's status frame (§2.4) in the other. At
-last hop that is the first byte of the status frame of `HopConnect`, or of the
-`HopLookupAnswer`.
+Key stream runs over the whole stream in that direction. On control stream, stream number is 0,
+and every hop's layer starts, counter at 0, at the first byte after `HopCreated` on each link; on
+any other stream a layer starts at the first byte after `HopStream` in the opener's direction,
+and at the first byte after the link's status frame (§2.4) in the other. At last hop that is the
+first byte of the status frame of `HopConnect`, or of the `HopLookupAnswer`.
 
 - Away from owner: owner applies the last hop's layer first and the first hop's last; each hop
   removes its own.
 - Towards owner: each hop adds its own; owner removes all.
 - **There is no tag on a layer.** The next hop can't notice a hop changing bytes; it's noticed at
-  the end: a new hop fails its `proof`, and a session checks every record (§3.3). A last hop
-  reading an unparseable frame closes path.
+  the end: a session checks every record (§3.3). Record and answer of a build are sealed. A last
+  hop reading an unparseable frame closes path.
 - A stream MUST be closed before 256 GiB have passed in one direction, the cipher's limit for one
   nonce.
 
@@ -323,13 +371,39 @@ it instead.
 
 A leaf hop therefore sits only on paths of 2 hops or more.
 
-**Reaching it.** Owner names the leaf's relay in `HopExtend.relays4` or `relays6`, by the relay's
-family; last hop punches through it as §3.1 says. Site and block rules (§2.1) take the leaf's
+**Reaching it.** Owner names the leaf's relays in `relays` of the record of the hop before it
+(§2.3); that hop punches through one as §3.1 says. Site and block rules (§2.1) take the leaf's
 address from its entry.
 
 **Limits.** A leaf hop is a punch target once per new neighbour. Its relays forward ≤ 30 punches a
 minute for it, and it starts ≤ 30 a minute (`Protocol.md` §9.4, §9.5). That bounds its new
 neighbours; §5 bounds the rest, as for any hop.
+
+### 2.6 Zero hops
+
+At 0 hops a node puts no hop in between but still acts under its anonymous key: outwards it is its
+own last hop, inwards its own gate. A peer sees what it sees of a hop forwarding for an owner
+behind it, and from one session can't tell the two apart. Deniable, not hidden: nobody stands in
+between.
+
+- **Only while it sets `HOP`** (§1) and forwards for others: without paths through it, every
+  session from it would be its own. A client offers 0 only then, and tells the user it is
+  deniable, not hidden. While node doesn't set `HOP` (§2.5, §5), its 0-hop uses go over 1 hop.
+- **Outwards** it does for itself what a last hop does on `HopConnect` and `HopLookup`: sends
+  `HopJoin` itself (§3.1) and opens the session (§3.2) under anonymous key; runs its lookups as
+  §4.1 says of last hop, with its limits and refusals, storing with `signer`. Its own Kad requests
+  then look like those it runs for owners.
+- **Inwards**, `ROUTER` only (a leaf hop is never a gate, §2.5): it picks a gate value for itself
+  as a last hop does on `HopGate` (§3.1) and lists itself with that value as the one gate of its
+  `GATE` record (§4.3). A `HopJoin` with that value makes node itself the other end. The limits of
+  §3.1 apply as to any gate.
+- **Hold.** A peer can time a session against a direct connection to the node; a real last hop or
+  gate adds at least one link. So node holds back every byte it sends in a 0-hop session, and the
+  status frame of a `HopJoin` to its own gate, by a delay drawn once per session from round-trip
+  times it measures to its `HOP` neighbours. Costs latency, not rate.
+- **Left over** (§6): the key keeps one last hop and one gate for as long as it uses 0 hops, where
+  an owner's change with its paths and its `GATE` record lists up to 4; whoever watches the node's
+  links sees no path carrying its sessions.
 
 ---
 
@@ -361,19 +435,19 @@ message HopGate {             // type 29. Request and answer on the control stre
 
 **Outwards.** Owner opens a stream and sends `HopConnect`. Last hop connects to `node` (an address
 as §2.2 asks; else `Error{MALFORMED}`), opens an exchange, sends `HopJoin` with the same `gate`,
-and copies both ways. Dials caused by `HopExtend` and `HopConnect` are limited per path, per
+and copies both ways. Dials caused by builds (§2.2) and `HopConnect` are limited per path, per
 neighbour, per neighbour host and per destination host (§5). A `HopConnect` to a `node` the last
 hop already has a connection with in that family is no dial, as an already-connected relay is
-none (below). A node hiding behind 0 hops sends `HopJoin` itself.
+none (below). A node at 0 hops sends `HopJoin` itself (§2.6).
 
-- **A node that is not open**, in `HopConnect` and in `HopExtend` (§2.2). Owner copies `relays4`
-  and `relays6` from `node`'s `Peer` record, or for a leaf hop from its hop list (§2.5),
+- **A node that is not open**, in `HopConnect` and as `next` of a build record (§2.3). Owner copies
+  `relays4` and `relays6` from `node`'s `Peer` record, or for a leaf hop from its hop list (§2.5),
   ≤ 2 *(initial)* each (`Protocol.md` §10.3); more, or a length not a multiple of 22 or 34 B, is
-  `Error{MALFORMED}`. When `node` has relays in a family, last hop reaches it there as any node
+  `Error{MALFORMED}` (in a record: `status` `MALFORMED`). When `node` has relays in a family, last hop reaches it there as any node
   reaches a leaf: sends `Punch` through one of them and dials (`Protocol.md` §9.4, §9.5). A failed
-  punch is a failed dial (table below). One `HopConnect` or `HopExtend` counts as one dial for §5, whether `node`
+  punch is a failed dial (table below). One `HopConnect` or `next` counts as one dial for §5, whether `node`
   is dialled directly or via a punch; each further punch attempt counts one more. Each relay is an
-  address as §2.2 asks of `node`; else `Error{MALFORMED}`. A relay dial counts only in the row per
+  address as §2.2 asks of `next`; else `Error{MALFORMED}`. A relay dial counts only in the row per
   destination host, at the relay's host; a relay last hop is already connected to is no dial.
   A punch the relay refuses (`Error{NOT_FOUND}`, `Error{UNSUPPORTED}` or `Error{DENIED}` on the
   `Punch` exchange; `Error{BUSY}` is no refusal) counts as a failed dial of the asking neighbour
@@ -381,8 +455,7 @@ none (below). A node hiding behind 0 hops sends `HopJoin` itself.
 
 **Inwards.** An owner wanting to be reached sends `HopGate` on a path's control stream. Last hop
 answers with a gate value and is from then on a **gate** of owner. A second `HopGate` on a path
-gets the same gate value. A `HopExtend` on a path with a gate → `Error{MALFORMED}`: the gate is the
-last hop.
+gets the same gate value. A path is never extended (§2.2), so the gate stays its last hop.
 
 - A node receiving `HopJoin` with a gate value it gave opens a stream with an odd number on that
   path and copies. Unknown value → `Error{NOT_FOUND}`.
@@ -401,7 +474,7 @@ are, like `HopStream`, followed by raw bytes.
 |---|---|---|---|
 | `HopStream` | neighbour that received it, on that link, without a layer | it accepted stream for itself | §2.4 |
 | `HopConnect` | last hop, on stream towards owner. The frame is in the path's layers, as every byte of that stream | `node` answered its `HopJoin` with `HopOk` | `NOT_FOUND` when `node` can't be reached within 10 s *(initial)*, 20 s *(initial)* when it punches; `MALFORMED` for a `node` §2.2 refuses; `DENIED` for a `node` in its own site (§2.1); `BUSY` without `retry_after` above a dial limit (§5); else the `Error` `node` gave, unchanged |
-| `HopJoin` | node that received it, without a layer | with a gate value: its path neighbour answered the `HopStream` with `HopOk`. Without one: at once | `NOT_FOUND` for an unknown gate value; `BUSY` with `retry_after` above 0 above the limit; a failed stream on path is a reset |
+| `HopJoin` | node that received it, without a layer | with a gate value: its path neighbour answered the `HopStream` with `HopOk`. Without one: at once. At 0 hops held as §2.6 says | `NOT_FOUND` for an unknown gate value; `BUSY` with `retry_after` above 0 above the limit; a failed stream on path is a reset |
 
 Last hop reads the status frame of the `HopJoin` it sent and doesn't copy it: owner gets the one of
 `HopConnect`. After `HopOk` the two ends talk; hops and gates in between copy bytes.
@@ -560,7 +633,8 @@ message HopLookupAnswer {     // type 31
   `links` or `sealed`: those records are bound to connection (`Protocol.md` §10.3) and would
   name last hop as source. Likewise refuses a `store` with a signed record and no `signer`,
   which would be counted under its own key. Searches of any kind go over a path; which stores do
-  follows from these refusals.
+  follows from these refusals: every other store passes, e.g. `HEAD`, `HIDDEN`, `PART` and
+  `MEMBER` with `signer`.
 - It answers `Error{DENIED}` to a `HopLookup` of kind `NONE`. A node under its anonymous key keeps
   no routing table (§1) and takes its hops from its own lookups (§2.1).
 - It allows 20 *(initial)* lookups per minute and path; `Error{BUSY}` above that.
@@ -680,14 +754,14 @@ A hop spends its own upload on strangers' data and decides how much.
 | Exchanges on connection to one neighbour | 64 opened by peer (`Protocol.md` §4.1), plus 65 per path between them, in both directions: its 64 streams and control stream. Hop raises it on sending `HopCreated`, neighbour that sent `HopCreate` on reading it. When path ends each lowers it again by granting no new exchange until the peer's open ones are below the limit |
 | Held per stream and direction | 256 KiB |
 | Lookups per path | 20 per minute |
-| Dials (`HopExtend`, `HopConnect`) per path / per neighbour; a `node` already connected is none (§3.1) | 4 / 16 per minute |
-| Dials caused by `HopExtend`/`HopConnect` whose QUIC handshake didn't complete within 10 s, or still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
+| Dials (`next` of a build, `HopConnect`) per path / per neighbour; a `node` already connected is none (§3.1) | 4 / 16 per minute |
+| Dials caused by a build or `HopConnect` whose QUIC handshake didn't complete within 10 s, or still pending, relay dials and punches included, per destination host (IPv4 /32, IPv6 /64), over all paths and neighbours | 8 per hour |
 | Paths and dials per neighbour host address | 16 paths; 32 dials per minute |
 | Failed dials per neighbour host address: a wrong node ID, or a punch the relay refused | 8 per hour |
 | `HopJoin` per gate and host | 10 per minute |
 
 A path counts for neighbour that sent its `HopCreate`, and that neighbour's host, from that
-`HopCreate` until path ends, whatever its state, also while being extended.
+`HopCreate` until path ends, whatever its state, also while being built.
 
 A dial whose QUIC handshake completed within those 10 s doesn't count in the per-destination-host
 row, whatever node ID answered. A hop gives up a dial after 10 s (§2.2); it then counts for the
@@ -722,7 +796,11 @@ base rate and what is free.
 | | |
 |---|---|
 | A peer, or a storing node | sees a gate or a last hop instead of the address |
-| A single hop | sees its two neighbours and how much flows. Can't read it, doesn't know its place in path, except a last hop, which sees where a stream goes, and a gate |
+| A single hop | sees its two neighbours and how much flows. Can't read it. Learns from the build (§2.2) only whether it is last hop; a last hop also sees where a stream goes, and a gate. Its place otherwise follows only from the rows below |
+| A hop asked by a node not setting `HOP` | knows that node is the owner: only an owner or a hop sends `HopCreate`. A hiding node that can be a hop sets `HOP` by default (§1); left are leaves behind a `symmetric` or `unknown` NAT (§2.5) |
+| A hop that isn't last, asked by a leaf hop | knows the leaf is the owner: a leaf is never first hop (§2.5), and a path has ≤ 3 hops |
+| An entry hop | sees one neighbour build all its paths through it for 30 days (§2.1). A neighbour that builds often but forwards little for others is likely an owner. Tor's guards know their clients the same way |
+| A hop timing the build | the answer comes back after the rest of the path and last hop's random hold of up to 1 s (§2.2). One build tells little; over many, the shortest waits still hint at hops after it, most to an entry hop, which sees an owner's builds for 30 days |
 | A last hop | reads the lookups it runs: targets, search words, records stored. Not for whom |
 | A last hop, or a gate | reads `sid` on every further stream of a session (§3.2), so it can tell which paths carry one session and link their last hops |
 | The first and last hop of a path together | match a path by timing and volume. Limit of every design of this kind, and file sharing makes it easy: flows are large and long |
@@ -733,6 +811,8 @@ base rate and what is free.
 | The crowd | is the nodes using paths. A small network hides little |
 | A gate | is known to everyone and can be flooded. Owner replaces it |
 | Anonymous key, taken later | names the node's past records. Path and session keys are gone |
+| A hop's node key, taken later | with a recorded build, shows that hop's next hop and relays (§2.3). Layer and session keys are gone |
+| At 0 hops (§2.6) | a peer sees a last hop or gate and, from one session, bytes or timing, can't tell it from an owner behind one. Over time: the key keeps one last hop and one gate, an owner's change with its paths; one gate in its `GATE` record where an owner lists up to 4; no path feeding its sessions to whoever watches its links. Deniable, not hidden |
 | With 1 hop | hop knows everything. It's a relay for a pair that can't be hole-punched (`Protocol.md` §9.4), not anonymity |
 | Speed | each hop re-uploads every byte. A path is as fast as its slowest hop is willing to be |
 
@@ -764,8 +844,10 @@ was run. Broader comparison: [`docs/neoloader-comparison.md`](../docs/neoloader-
 | **Owner picks, with layers**, in place of relays that pick | no hop sees both ends; owner spreads hops over networks and sets their number | owner needs a hop list; a path losing a hop is gone |
 | **Reliable streams on every link**, in place of unreliable packets with a QUIC connection inside | needs nothing version 1 lacks; loss repaired where it happens; a full hop slows sender instead of dropping | one slow hop holds its path; a hop keeps per-stream state; a session is a second secure channel to get right |
 | **Each side its own half**, in place of a meeting node | hop count is each node's own choice and cost; one hop also serves unpunchable pairs | up to 6 hops between two hidden nodes; one more record and lookup per hidden source |
+| **Path built in one message**, in place of one hop at a time (Tor's extend) | every hop sees one build of one size; slots in random order: no hop but the last learns its place from it, an owner from its neighbour's view no more than a hop. One round trip. Length capped at 3 by the format | record readable later by whoever takes a hop's node key (§2.3); one failed hop fails the build; a hop keeps seen `e` against replays |
+| **Deniable 0 hops**, in place of 0 = node key | a node paying for no hop still can't be named from one session: it looks like a last hop or gate; its own lookups like those it runs for owners | needs `HOP`; one last hop and gate for the key over time; held bytes cost latency |
 | **Voluntary, give and take**, in place of a duty | nobody carries strangers' data against its will | capacity depends on users turning it on |
-| **Leaves behind a cone NAT as hops**, in place of `ROUTER`s only | NATed nodes add capacity and earn give and take instead of only using it; Tribler lets every punchable peer relay ([`docs/tribler-comparison.md`](../docs/tribler-comparison.md) §4.2) | one punch per extend; a path dies with a leaf's mapping; leaves are found through their relays' listings |
+| **Leaves behind a cone NAT as hops**, in place of `ROUTER`s only | NATed nodes add capacity and earn give and take instead of only using it; Tribler lets every punchable peer relay ([`docs/tribler-comparison.md`](../docs/tribler-comparison.md) §4.2) | one punch per leaf hop of a build; a path dies with a leaf's mapping; leaves are found through their relays' listings |
 
 **Alternatives**
 
@@ -777,6 +859,7 @@ was run. Broader comparison: [`docs/neoloader-comparison.md`](../docs/neoloader-
 | **Lookups walked by owner**, one session per node | last hop reads less | 8 to 12 sessions through path per lookup |
 | **Gates in every source record**, with no `GATE` record | one lookup less | every source record re-stored when a gate changes |
 | **Signed entries in `anon`** | a false entry is seen without a session | ~100 bytes per source instead of 16 |
+| **One hop at a time, with dummy extends** | record forward secret; a failed hop replaced in place | an entry hop sees the same owner for 30 days and learns its place from the average count; slower |
 | **A new first hop for every path** | no hop sees a node for long | a hostile first and last hop at once becomes a matter of time |
 | **Padding and delays** | sizes and times say less | throughput, which this extension is for |
 
@@ -786,9 +869,12 @@ was run. Broader comparison: [`docs/neoloader-comparison.md`](../docs/neoloader-
 
 - **Review of the cryptography** (§2.3, §3.2, §3.3). Key agreement follows the pattern Tor uses
   for its hops, the session a signed key exchange, but the text here is new.
-- Layers have no tag, and the frames a last hop reads (`HopExtend`, `HopConnect`, `HopLookup`) can
-  be changed by an earlier hop guessing their content. A new hop and a session are safe by `proof`
-  and by the node-ID check. A lookup is not.
+- Layers have no tag, and the frames a last hop reads (`HopConnect`, `HopLookup`) can be changed by
+  an earlier hop guessing their content. A build is sealed per hop, a session safe by the node-ID
+  check. A lookup is not.
+- **The build record is not forward secret** (§2.3): sealed under the hop's node key alone. Forward
+  secrecy for it needs the hop's fresh key first, i.e. one hop at a time, which a hop can count.
+  To revisit with the review.
 - Where a node gets hops more trustworthy than a Kad sample: signed lists, as for first contact
   ([`bootstrap.md`](bootstrap.md)), or the key puzzle ([`key-puzzle.md`](key-puzzle.md)).
 - Anonymous keys cost nothing, and a storing node's limits count last hop. The key puzzle
@@ -800,11 +886,6 @@ was run. Broader comparison: [`docs/neoloader-comparison.md`](../docs/neoloader-
   `Protocol.md` §10.3). A hiding node can only use sources setting the capability. Making it a duty
   would put session of §3 into the core. To revisit once it's known how many nodes set it.
 - Give and take reaches one link and starts at nothing between two nodes that never met.
-- **No cap on path length at a hop.** A hop can't read the control stream, so it can't tell how
-  long a path is. A path looping through one hop many times is bounded only by the
-  per-neighbour limits of §5 (8 paths, 16 per host). Candidate: a hop closes a path whose control
-  stream carried more than 1 KiB *(initial)* away from the owner; it carries only `HopExtend`
-  (under 200 B each, relays included) and `HopGate`. Tribler counts `relay_early` cells, 8 per circuit.
 - **Leaf hops** (§2.5): never first hop or gate for now. To revisit with measured punch success
   and path lifetime through leaf hops; their share of the hop list (half) is a first value.
 - Friends under an anonymous key not looked at.

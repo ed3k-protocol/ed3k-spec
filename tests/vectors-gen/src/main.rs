@@ -240,9 +240,21 @@ fn main() {
     let f = x25519_base(&y); assert_eq!(hx(&f), "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
     let ss1 = x25519(&x, &conv_pub); assert_eq!(ss1, x25519(&conv_priv, &e));
     let ss2 = x25519(&x, &f); assert_eq!(ss2, x25519(&y, &e)); assert_eq!(hx(&ss2), "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+    let mut kb3 = [0u8; 96];
+    blake3::Hasher::new_derive_key("ed3k v1 hop build").update(&cat(&[&ss1, &e, &pk1])).finalize_xof().fill(&mut kb3);
+    let (kr, ka, kb): ([u8; 32], [u8; 32], [u8; 32]) = (kb3[..32].try_into().unwrap(), kb3[32..64].try_into().unwrap(), kb3[64..].try_into().unwrap());
+    println!("kr {}\nka {}\nkb {}", hx(&kr), hx(&ka), hx(&kb));
+    // record: end = 1, time = t0, no next, no relays
+    let mut body = vec![0u8; 192]; body[0] = 1; body[1..9].copy_from_slice(&t0.to_be_bytes());
+    let rec = cat(&[&node_id[..16], &e, &aead(&kr, &[0u8; 12], &body)]); assert_eq!(rec.len(), 256);
+    println!("record body {}", hx(&body[..9])); wrap("record", &rec);
+    let mut ab = vec![0u8; 192]; ab[1..33].copy_from_slice(&f);
+    let ans = cat(&[&[0u8; 48][..], &aead(&ka, &[0u8; 12], &ab)]); assert_eq!(ans.len(), 256);
+    wrap("answer (random part zero)", &ans);
+    for si in [0u64, 2] { let n = cat(&[&[0u8; 4], &si.to_be_bytes()]); println!("build layer slot {si}: {}", hx(&chacha(&kb, &n, &[0u8; 16]))); }
     let kh = h("ed3k v1 hop", &cat(&[&ss1, &ss2, &e, &f, &pk1]));
-    let (pr, ko, ki) = (h("ed3k v1 hop proof", &kh), h("ed3k v1 hop out", &kh), h("ed3k v1 hop in", &kh));
-    println!("ss1 {}\nss2 {}\nk {}\nproof {}\nk_out {}\nk_in {}", hx(&ss1), hx(&ss2), hx(&kh), hx(&pr), hx(&ko), hx(&ki));
+    let (ko, ki) = (h("ed3k v1 hop out", &kh), h("ed3k v1 hop in", &kh));
+    println!("ss1 {}\nss2 {}\nk {}\nk_out {}\nk_in {}", hx(&ss1), hx(&ss2), hx(&kh), hx(&ko), hx(&ki));
     for (key, sn) in [(&ko, 0u64), (&ki, 0), (&ko, 5)] { let n = cat(&[&[0u8; 4], &sn.to_be_bytes()]); println!("keystream stream {sn}: {}", hx(&chacha(key, &n, &[0u8; 16]))); }
 
     println!("\n== live");

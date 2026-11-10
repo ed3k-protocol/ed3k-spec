@@ -107,7 +107,9 @@ May also answer: no resolver for this hoster, wait this long, human or login nee
 - A client MUST NOT solve a puzzle, wait out a timer or use an account for a link unless
   hoster downloads are switched on. Client setting, user can switch it off; default up to client.
 - **Links used sparingly.** Many hosters allow one download at a time and a daily quota per
-  address. ≤ 1 stream per hoster and account at a time *(initial)*; failed attempts per hoster
+  address. ≤ 1 stream per hoster at a time without an account or with a free one *(initial)*;
+  with a premium account, the hoster's limit for that account as the resolver knows it, capped
+  by the client *(local)*; failed attempts per hoster
   counted with the limits of [`http-source.md`](http-source.md) §5: per file, over all files
   per pair (who named the link, hoster's address), and over all files and namers together.
   Namer of a manifest link = the manifest; of a Kad-answer link = target and answering node.
@@ -337,7 +339,7 @@ output file has the root in `id`.
 | Verification | every block under the root where an ed3k node has the file; else whole file at the end |
 | A dead link | costs one request. A file in ed3k outlives the link it came from |
 | Dependence | on code tracking each hoster's pages; breaks on page change, no protocol rule fixes that |
-| Speed | one stream per hoster, a wait before it, a daily quota: hoster's terms |
+| Speed | free: one stream per hoster, a wait before it, a daily quota; premium: the account's limit. Hoster's terms |
 | Law and terms | programmatic fetching is against many hosters' terms; between user and hoster. Protocol only names links |
 
 ---

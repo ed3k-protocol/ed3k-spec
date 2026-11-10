@@ -20,7 +20,7 @@
 //  13 ReachTest       14 Browse          15 BrowseAnswer    16 Chat
 //  17 SlotOffer       18 ChatAck         19 LiveJoin        20 LiveState
 //  21 LiveGet         22 TopicJoin       23 TopicState      24 LanQuery
-//  25 LanAnswer       26 HopCreate       27 HopCreated      28 HopExtend
+//  25 LanAnswer       26 HopCreate       27 HopCreated      28 (unused)
 //  29 HopGate         30 HopLookup       31 HopLookupAnswer 32 HopStream
 //  33 HopConnect      34 HopJoin         35 Receipt         36 CreditRelay
 //  37 CreditRelayAnswer 38 BadBlock      39 HopOk          40 KeyRequest
@@ -900,20 +900,16 @@ message LanAnswer {           // type 25
 
 message HopCreate {           // type 26. First frame of an exchange between two neighbours
   bytes path = 1;             // 8 B, random, chosen by the sender; names the path on this connection only, in both directions   hops.md §2.2
-  bytes e = 2;                // 32 B, X25519 public value made by the owner for this hop alone
+  reserved 2;                 // was `e`, draft 0.1
+  bytes build = 3;            // 768 B: 3 slots of 256 B, one record per hop    hops.md §2.2, §2.3
 }
 
 message HopCreated {          // type 27
-  bytes f = 1;                // 32 B, X25519 public value made by the hop for this path   hops.md §2.2
-  bytes proof = 2;            // 32 B                                          hops.md §2.3
+  reserved 1, 2;              // were `f` and `proof`, draft 0.1
+  bytes build = 3;            // 768 B: the build on its way back, an answer per hop   hops.md §2.2, §2.3
 }
 
-message HopExtend {           // type 28. From the owner to the last hop, on the control stream
-  bytes node = 1;             // compact node, 22 or 34 B: the hop to add      hops.md §2.2
-  HopCreate create = 2;       // `path` is left empty; the last hop fills it in
-  bytes relays4 = 3;          // n × 22 B compact nodes: relays of a leaf hop, from the owner's hop list; empty = none   hops.md §2.5
-  bytes relays6 = 4;          // n × 34 B; likewise
-}
+// type 28 unused (was HopExtend, draft 0.1)
 
 message HopGate {             // type 29. Request and answer on the control stream
   bytes gate = 1;             // answer: 8 B, random, chosen by the last hop   hops.md §3.1
