@@ -109,6 +109,7 @@ message ReachTest {           // type 13
 message Relay {               // type 12
   bool   reserve = 1;         // request: true = hold a slot, false = release   Protocol.md §9.4
   uint32 ttl = 2;             // answer: seconds the slot is held without traffic
+  bool   hop = 3;             // request: the leaf forwards for others' paths   hops.md §2.5
 }
 
 message Punch {               // type 11

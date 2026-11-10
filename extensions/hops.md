@@ -2,7 +2,7 @@
 
 **Status:** draft 0.2 (2026-11-09: leaves as hops, §2.5; path built in one message, §2.2; deniable 0 hops, §2.6; 0.1 2026-10-12). Not implemented. Optional in wire version 1. **The key agreement and ciphers of §2.3 and §3.2 are a first design and need review by professionals before anyone relies on them.**
 **Extends:** [`Protocol.md`](../Protocol.md) §2, §5.1, §9.4, §9.5, §10.1, §10.3 and §10.7. § = this document unless a document is named.
-**Capability:** bit 14, `ANON`; bit 15, `HOP`. Message types 26, 27, 29 to 34 and 39 (28 unused). Record kinds 11 and 12. One field in `Record`, one in `Store`, one in `KadRequest`, four in `KadAnswer`.
+**Capability:** bit 14, `ANON`; bit 15, `HOP`. Message types 26, 27, 29 to 34 and 39 (28 unused). Record kinds 11 and 12. One field in `Record`, one in `Store`, one in `KadRequest`, one in `Relay`, four in `KadAnswer`.
 **Required of every `ROUTER`:** storing and returning the record kinds `ANON` and `GATE`, and accepting `signer` in a `Store` (§4). The rest is optional.
 **Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Hop keys* (build keys and a slot included) and *Hop session*.
 
@@ -164,7 +164,8 @@ random and fills unused slots with random bytes. Record and answer: §2.3.
    so the wait tells a hop little about the rest of path (§6); any other hop when next hop's
    `HopCreated` arrives or that link failed. A failed next link goes into the answer as `status`;
    the hop answers all the same.
-5. Owner opens every answer (§2.3). All `status` 0 = path built. Else no path: owner closes
+5. Owner opens every answer (§2.3), from first hop on, up to the first with `status` not 0: hops
+   after it wrote none. All `status` 0 = path built. Else no path: owner closes
    control stream, replaces the hop the failed link leads to, and builds anew. An answer that
    doesn't open: that hop isn't the node owner chose, or a hop before it changed the slot; owner
    closes path and builds anew with other hops after the first. Owner knows its first hop by
@@ -185,7 +186,8 @@ random and fills unused slots with random bytes. Record and answer: §2.3.
 - **`status`**, an `ErrorCode` (`Protocol.md` §5.6): 0 = built; `NOT_FOUND` = `next` not reached
   within 10 s *(initial)*, 20 s *(initial)* when punching, or no `HopCreated` from it 30 s
   *(initial)* after the `HopCreate`; `BUSY` = a dial limit (§5); `MALFORMED`, `DENIED` as above;
-  else the `Error` next hop answered, unchanged. A timeout can name an earlier link than the one
+  else the `Error` next hop answered, unchanged; one reading as `UNKNOWN` (`Protocol.md` §5.6),
+  which would read as built, goes in as `NOT_FOUND`. A timeout can name an earlier link than the one
   that stalled; owner replaces that hop all the same.
 - Owner closes path with no `HopCreated` 60 s *(initial)* after its `HopCreate`, or no answer
   10 s *(initial)* after a `HopGate`.
@@ -334,6 +336,9 @@ bool hops = 7;                // list leaf hops holding a relay reservation here
 // in KadAnswer:
 bytes leaves4 = 21;           // n × 22 B compact nodes: leaf hops with a reservation here, endpoint as this node observes it
 bytes leaves6 = 22;           // n × 34 B; likewise
+
+// in Relay (Protocol.md §9.4):
+bool hop = 3;                 // request: the leaf sets HOP
 ```
 
 **Who.** A leaf MAY set `HOP` while `cone` (`Protocol.md` §9.2) in a family where it holds relay
@@ -343,12 +348,17 @@ reservations (§9.4 there).
   (`Protocol.md` §9.5). Not `unknown` either.
 - A leaf no longer `cone` in such a family clears `HOP` on new connections, as `ROUTER` is cleared
   (`Protocol.md` §2). Its paths end when its mapping does (§2.2).
+- **Telling its relays.** Its reservation connections predate `HOP`, and `caps` shows only on new
+  connections (`Protocol.md` §2). So a leaf sends `Relay{reserve, hop}` again on each reservation
+  connection whenever its `HOP` changes: `hop` set when it turns `HOP` on, clear when off. Relay
+  answers it as a repeat of the reservation (§9.4 there: one slot per leaf, no new limit check)
+  and keeps the last `hop` with the slot.
 
 **Listed by its relays.** A leaf is in no routing table, so lookups never meet it. Its relays name
 it instead.
 
 - A node answering a `KadRequest` with `hops` set lists, in `leaves4` and `leaves6`, leaves that
-  hold a reservation with it in that family and whose `Hello` on that connection showed `HOP`.
+  hold a reservation with it in that family and whose last `Relay` on it set `hop`.
   ≤ 4 *(initial)* per family, picked at random per answer. Endpoint = what it observes on that
   connection, never the leaf's claim.
 - Listing is optional. A relay having this extension SHOULD list; a node without it ignores
@@ -361,6 +371,9 @@ it instead.
 - It takes ≤ 1 *(initial)* leaf per answer, so no single relay fills the list. It punches the leaf
   through the answering node (`Protocol.md` §9.5) and keeps it when its `Hello` shows `HOP` and
   `nat` = 2. The answering node is noted as the leaf's relay.
+- Owner already connected to the leaf in that family (e.g. as its relay): no punch, and that
+  connection's `Hello` predates `HOP`. Owner keeps the leaf on the listing alone; as its relay,
+  on the leaf's `Relay{hop}`. A build the leaf refuses, or whose link to it fails, drops it.
 - Leaves make up ≤ half *(initial)* of the hop list. A leaf whose punch failed, or whose relay
   refused it, leaves the list.
 
@@ -393,7 +406,9 @@ between.
   `HopJoin` itself (§3.1) and opens the session (§3.2) under anonymous key; runs its lookups as
   §4.1 says of last hop, with its limits and refusals, storing with `signer`. Its own Kad requests
   then look like those it runs for owners.
-- **Inwards**, `ROUTER` only (a leaf hop is never a gate, §2.5): it picks a gate value for itself
+- **Inwards**, `ROUTER` only (a leaf hop is never a gate, §2.5). A leaf setting `HOP` has no gate
+  at 0 inwards (§2.1) and so shares nothing under its anonymous key; client tells its user so. A
+  `ROUTER` picks a gate value for itself
   as a last hop does on `HopGate` (§3.1) and lists itself with that value as the one gate of its
   `GATE` record (§4.3). A `HopJoin` with that value makes node itself the other end. The limits of
   §3.1 apply as to any gate.
@@ -545,15 +560,15 @@ records following the three messages of §3.2.
   empty record ends stream, and exchange counts as reset.
 - Record with `len` below 16 or above 16,400, or failing its check, ends stream.
 - A session has no observed address, so a `Store` with `source` over it is answered `REJECTED`
-  (`Protocol.md` §10.3); a hiding node publishes `ANON` and `GATE` records through a `HopLookup`
-  (§4).
+  (`Protocol.md` §10.3), its `also` targets too; so is `sealed` (friends under an anonymous key:
+  §8). A hiding node publishes `ANON` and `GATE` records through a `HopLookup` (§4).
 - Nor has a session an address family. A `KadRequest` over it is answered as on a connection in a
   family where node adopted no endpoint (`Protocol.md` §10.3): no contacts and not
   `responsible`, so only an index node answers with records. Limits counting a host address count
   the host of node that sent the `HopJoin`, per gate; limits count per node ID as well. A
   session node opened itself counts at the address its last hop dialled: the endpoint of
   `node` in its `HopConnect`, or the gate's `Gate.node`. A session via one of the node's own
-  gates counts under that gate, as one host. A hiding node uses `HopLookup` for Kad (§4.1).
+  gates counts under that gate, as one host, site and block. A hiding node uses `HopLookup` for Kad (§4.1).
 - Where `Protocol.md` §5.5 closes a connection with `PROTOCOL`, a side ends session: resets
   the session's other streams, except a direction whose empty record it already sent, reads none
   of them further, and forgets `sid`. Records aren't acknowledged end to end, so a responder
