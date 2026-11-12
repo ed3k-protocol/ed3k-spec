@@ -301,3 +301,8 @@ user had opened them:
   when that is not the eMule UDP socket: the keepalives then have to come from it too.
 - A hole punch over IPv6 through the `0x60`–`0x62` request would need an address field of
   16 bytes there.
+- Suggested wording for Protocol.md §9.2 "Unasked connections": "sent nothing to" should
+  name traffic outside ed3k too. A client with an eD2K stack that greets a host over eD2K
+  has sent to it; a node of that host that seeds from the hello (`bootstrap.md` §1 source 4)
+  dials back at once, and its connection is no evidence for `open`. One implementation took
+  such a dial plus one real unasked connection for `open`.
