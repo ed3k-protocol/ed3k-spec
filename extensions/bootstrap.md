@@ -28,12 +28,15 @@ Client tries in order, stops when its lookups work:
 3. **`ed3k:node` links** the user opened (§13.2).
 4. **eD2K peers that also speak ed3k** (§14), for a client of both networks, and **index nodes
    advertised by eD2K servers** in ident or description
-   ([`docs/ed2k-tags.md`](../docs/ed2k-tags.md) section 2). A peer with a derived user hash
+   ([`docs/ed2k-signals.md`](../docs/ed2k-signals.md) section 3). A peer with a derived user hash
    (§14.2) is dialled by its `obf_id` at its eD2K TCP port (§14.1) while the table holds < 10
    *(initial)* contacts, `ROUTER` or not, each address once; handshake proves the node ID, as for
    any candidate. Such a peer whose `Hello` lacks `ROUTER` or `nat = 1` isn't inserted
    (§10.2) but asked like a LAN peer: a lookup starting at it, for its routing ID with every bit
-   flipped (each contact it knows is closer to that than itself, §10.3).
+   flipped (each contact it knows is closer to that than itself, §10.3). A node that **dials
+   in** while the table holds < 10 contacts and does not enter it is asked the same way, each
+   address once, ≤ 16 *(initial)* such lookups at a time: a client whose user hash is not
+   derived cannot be dialled from eD2K, but can dial a peer whose hash is.
 5. **Shipped node list**: a node list file (§2 of this document) that comes with the client, as
    eMule ships `nodes.dat`. No request leaves the host for it. Used once, at the point where
    lists would be fetched; never refused for its age (§2), so it lasts as long as the release.

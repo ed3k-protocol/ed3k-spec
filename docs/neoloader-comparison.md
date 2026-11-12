@@ -356,7 +356,7 @@ Considered and not adopted:
 |---|---|
 | A keyword `topfiles<year>cw<week>` that lists popular files without a search word | One target that everybody publishes to and everybody reads. It is the most crowded keyword by design and the first place for spam |
 | File requests by any hash type (eD2K, BitTorrent) | §7.4 keeps every ed3k request on `root`, so that there is one identity to verify against |
-| Source records under an eD2K hash that also name the ed3k node | Covered by the Kad tag in [`ed2k-tags.md`](ed2k-tags.md) |
+| Source records under an eD2K hash that also name the ed3k node | Covered by the Kad tag in [`ed2k-signals.md`](ed2k-signals.md) section 3 |
 | Availability bitmap that halves its resolution until it fits in 1 KB | A 100 GiB file is 3.2 KiB of bitmap at 4 MiB pieces, and bodies are compressed (§5.3) |
 | Lookup tracing (each hop adds its ID) | A diagnostic aid; it would add a field to `KadAnswer` for no protocol use |
 | A typed list of alias hashes in every file record, instead of the single `ed2k` field | The field is expected to be dropped (§7.4). Other names are looked up, not carried along ([`extensions/alias.md`](../extensions/alias.md) §7) |

@@ -2055,9 +2055,9 @@ checks the equation with the cofactor, which §10.7 doesn't. A node MAY answer a
 byte-identical to the one it holds `OLDER` without re-verifying.
 
 Index nodes found from a configured list, a link (§13.2) or an eD2K server advertising
-one ([`docs/ed2k-tags.md`](docs/ed2k-tags.md)). Index nodes are optional for the network and for
+one ([`docs/ed2k-signals.md`](docs/ed2k-signals.md) section 3). Index nodes are optional for the network and for
 a client. An eD2K server running an index node MAY list some of its ed3k sources on eD2K too
-([`docs/ed2k-tags.md`](docs/ed2k-tags.md) §6).
+([`docs/ed2k-signals.md`](docs/ed2k-signals.md) section 9).
 
 **One index node at a time.** A client SHOULD publish and search at one index node of its list
 at a time, over one connection, moving to another of the list when it's unreachable. Records
@@ -2725,15 +2725,16 @@ LowID source: hash known, address not; the hint then says the file is worth look
 - **Explicit tags.** A tag in eD2K hello, Kad source record, extended source exchange, server
   login and eD2K link can state ed3k support outright (user hash is only a hint). Not part of
   this spec, as a dual-protocol client works without them. Proposal with tag numbers checked
-  against existing clients: [`docs/ed2k-tags.md`](docs/ed2k-tags.md).
+  against existing clients: [`docs/ed2k-signals.md`](docs/ed2k-signals.md) sections 3 to 5;
+  an ed3k bit in the hello option word, kept as an idea, in section 6.
 - **Signals not used.** Considered: free bits in connect-options byte, hello option tags and Kad
   option tag; fixed marker bytes in the user hash; Kad record mapping user hash to node ID; blind
   port probing. None reaches a peer before first connection, through legacy servers and legacy
   relaying clients, and carries the node ID. Comparison:
-  [`docs/ed2k-signal-comparison.md`](docs/ed2k-signal-comparison.md).
+  [`docs/ed2k-signals.md`](docs/ed2k-signals.md) section 7.
 - **eD2K callbacks as a punch signal.** An eD2K server's rendezvous gives two firewalled
   dual-protocol clients each other's mapped UDP endpoint and user hash, as §9.5 needs; Kad buddy
-  callback does not. Not part of this spec; [`docs/ed2k-tags.md`](docs/ed2k-tags.md) section 5
+  callback does not. Not part of this spec; [`docs/ed2k-signals.md`](docs/ed2k-signals.md) section 8
   has comparison and a procedure.
 
 ### 14.4 Using both networks for one file
