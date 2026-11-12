@@ -30,7 +30,10 @@ Client tries in order, stops when its lookups work:
    advertised by eD2K servers** in ident or description
    ([`docs/ed2k-tags.md`](../docs/ed2k-tags.md) section 2). A peer with a derived user hash
    (§14.2) is dialled by its `obf_id` at its eD2K TCP port (§14.1) while the table holds < 10
-   *(initial)* contacts, each address once; handshake proves the node ID, as for any candidate.
+   *(initial)* contacts, `ROUTER` or not, each address once; handshake proves the node ID, as for
+   any candidate. Such a peer whose `Hello` lacks `ROUTER` or `nat = 1` isn't inserted
+   (§10.2) but asked like a LAN peer: a lookup starting at it, for its routing ID with every bit
+   flipped (each contact it knows is closer to that than itself, §10.3).
 5. **Shipped node list**: a node list file (§2 of this document) that comes with the client, as
    eMule ships `nodes.dat`. No request leaves the host for it. Used once, at the point where
    lists would be fetched; never refused for its age (§2), so it lasts as long as the release.
@@ -148,6 +151,8 @@ SHOULD be able to write such a file from its own verified contacts, signed with 
 one user can help another cut off from every source. The same export, from the saved contacts
 of a node that ran, makes the shipped list of a release (§1 source 5): at most 2 nodes per site,
 8 per block, 200 per family.
+A router (Protocol.md §9.2) writing such a file from its live table lists itself first, at the
+public endpoint of each family it is open in; a seed node's file thus names that seed.
 
 ---
 
@@ -172,6 +177,8 @@ of a node that ran, makes the shipped list of a release (§1 source 5): at most 
   of this document). So one list can't supply every seed of the first lookup. Afterwards table
   fills by lookups; lists not used again.
 - A listed node that doesn't answer is dropped, no second attempt.
+- Client skips an entry naming its own node ID or one of its adopted public endpoints (a list
+  it wrote itself, e.g. the shipped list of a seed node); never dialled.
 - List belongs to one network ([`Protocol.md`](../Protocol.md) §4.3); a node of another doesn't
   answer. A closed network's name or `net_id` is never in a list; `net_tag` hashes `net_id` under
   its own context (§2 of this document).

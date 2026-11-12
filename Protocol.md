@@ -1017,8 +1017,7 @@ naming it whatever their port.
 While no endpoint has the lead, a node adopts its own socket's address and port where no NAT can
 be in front: if address acceptable (§8.2 (7)) and operator declared node open in that family
 (below), or a private address in a named network (§6.3), where no report counts. Else a
-network's first routers have no routing ID and answer every `KadRequest` without contacts
-(§10.3).
+network's first routers have no routing ID and are responsible for no target (§10.3).
 
 **Advertised endpoint.** `cone` node advertises in `Hello` its adopted endpoint with the mapped
 port (a punch aims there). Other classes: adopted endpoint if any; else best-known address
@@ -1523,7 +1522,10 @@ Rules:
 - A node returns up to 16 *(initial)* verified contacts per requested family closer to the target than
   itself; none if it knows none closer. "Itself" = its routing ID for the public endpoint it adopted
   (§9.2) in the connection's family, for `nodes4` and `nodes6` alike. None adopted in that family
-  → no contacts, `responsible` not set, unless index node: an index node is responsible for every
+  → routing ID of the endpoint the requester's `Hello.observed` names in that family, if acceptable
+  (what the requester judges by, below), so a leaf without own address still serves a first
+  contact ([`extensions/bootstrap.md`](extensions/bootstrap.md) §1); neither → no contacts. Either
+  way `responsible` not set, unless index node: an index node is responsible for every
   target whether or not it adopted an endpoint (§11); only its contacts need the routing ID.
 - Every node, leaf too, answers a `KadRequest` with contacts it knows. Only a `ROUTER` `open` in
   the connection's family (§9.2), or an index node (§11), is responsible.
