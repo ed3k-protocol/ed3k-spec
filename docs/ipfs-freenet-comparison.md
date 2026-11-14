@@ -60,7 +60,7 @@ answered on its own, and a publisher walks its sorted targets once per 4 h.
 | | IPFS sweep | ed3k |
 |---|---|---|
 | Region | a prefix of the keyspace with at least 20 peers | the span of the closest set a lookup ended with |
-| What a batch holds | all records of the region | the targets inside that span, at most 256 per request |
+| What a batch holds | all records of the region | the targets inside that span, at most 256 per request, not one stored in the last 2 h or waiting for its own lookup |
 | Who decides that a node is the right one | the publisher, from its picture of the region | the storing node, per target: it answers `FAR` when it is not responsible |
 | A target the batch missed | covered by the next region | gets a lookup of its own when fewer than 4 nodes stored it |
 | Period | 22 h, records live about twice that | 4 h, records live 5 h |

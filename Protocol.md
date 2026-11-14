@@ -1738,8 +1738,9 @@ and §2.3. A lookup that can't reach R nodes within those limits ends with fewer
    Lookup ends with a closest set.
 3. To each node of that set sends one more request for the same target, with the following
    targets in `also`: those whose distance to the target is smaller than the target's distance
-   to the set's furthest node, at most 256 *(initial)*, in sorted order. Next batch starts after
-   the last of them.
+   to the set's furthest node, at most 256 *(initial)*, in sorted order; left out: a target
+   stored successfully less than 2 h *(initial)* ago, and one waiting for its own lookup
+   (step 4). Next batch starts after the last of them.
 4. Target that fewer than 4 *(initial)* nodes answered `STORED` gets its own lookup, unless the
    others answered `REJECTED` or `OLDER` (any other node would too). `BUSY` is transient: no
    reason for own lookup; target keeps its deadline (below). Otherwise go on with next target.
@@ -2838,7 +2839,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Kad, own network down: offline after no connection or datagram for, with failed dials or requests to different sites at least; maintenance after offline, address change or sleep spread over; timer late by that shows sleep | 2 min, 4; 5 min; 2 min |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
 | Kad: records in one `Store` max; terms in `all` and `none` of `Query` together max | 256; 64 |
-| Source records: targets in `also`, max per request and per batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 4 h; 4 |
+| Source records: targets in `also`, max per request and per batch; target stored less long ago rides along in no batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 2 h; 4 h; 4 |
 | Diversity, per host / site / block: bucket, answer | 1 / 2 / 4 |
 | Diversity, per host / site / block: lookup, counted over its closest set | 1 / 2 / half of R (2 for a search, 4 for a store) |
 | Diversity, closest set | as the lookup ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.3) |
