@@ -61,6 +61,10 @@ message FileInfo {
   uint32 set_files = 8;       // number of files, inner sets included; 0 = not a set   file-set.md §3
   uint64 set_size = 9;        // sum of their sizes                            file-set.md §3
   uint32 partial = 10;        // sources known to the sender that hold the file in part   Protocol.md §10.3
+  string artist = 11;         // media tags, optional, at most 128 B of UTF-8 each      Protocol.md §5.4
+  string album = 12;
+  string title = 13;
+  string codec = 14;          // at most 32 B
 }
 
 // ---------------------------------------------------------------------------------------
@@ -183,6 +187,7 @@ message Store {
 message Note {
   uint32 rating = 1;          // 1..5, 0 = none                                Protocol.md §10.3
   string text = 2;            // at most 512 B of UTF-8                        Protocol.md §10.7
+  string nick = 3;            // optional, at most 64 B of UTF-8; empty under the anonymous key   Protocol.md §10.7
 }
 
 message KadAnswer {           // type 4
@@ -217,6 +222,7 @@ enum StoreResult {
   REJECTED = 3;               // failed a check (Protocol.md §10.7), or over a limit per address or per publisher on what is held
   FAR = 4;                    // a target of `also` this node is not responsible for
   OLDER = 5;                  // a newer or winning record is held; nothing changed
+  DECLINED = 6;               // not held by this node's own policy; says nothing about the record, the target or other nodes   Protocol.md §10.3
 }
 
 // ---------------------------------------------------------------------------------------

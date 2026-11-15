@@ -77,6 +77,7 @@ alternatives.
 | D14 | Keyword target includes a level, store answered per record, so crowded keywords can later spill to further levels w/o wire change | §10.1, §10.8 |
 | D15 | One Kad request may store source records for many targets: publishing costs lookups by network size, not file count | §10.3, §10.4 |
 | D16 | A non-public network has a name entering the obfuscation key; nodes of two networks cannot read each other's datagrams | §4.3 |
+| D17 | A storing node MAY decline records by own policy, per record, answered `DECLINED`; publisher then stores elsewhere | §10.3, §10.4 |
 
 ---
 
@@ -617,8 +618,16 @@ message FileInfo {
   uint32 bitrate = 7;         // kbit/s, 0 = unknown
   // fields 8 and 9 belong to the optional file set extension (§13.1)
   uint32 partial = 10;        // sources known to the sender that hold the file in part (§10.3)
+  string artist = 11;         // media tags, all optional, at most 128 B of UTF-8 each; empty = unknown
+  string album = 12;
+  string title = 13;
+  string codec = 14;          // at most 32 B, e.g. `h264`, `mp3`
 }
 ```
+
+Media tags (`duration`, `bitrate`, `artist` to `codec`) are what the publisher read from the file,
+a claim like the name: a client shows them, never checks them. Too long → record fails its size check
+(§10.7). Ones the publisher doesn't know stay out.
 
 Compact byte strings replace `repeated` sub-messages where a list is long with fixed-size
 elements: a compact IPv4 node is 22 bytes vs ~30 as a sub-message (eMule Kad: 25).
@@ -1476,6 +1485,7 @@ message Store {
 message Note {
   uint32 rating = 1;          // 1..5, 0 = none
   string text = 2;            // at most 512 B of UTF-8
+  string nick = 3;            // publisher's name as it wants it shown; optional, at most 64 B of UTF-8
 }
 
 message KadAnswer {
@@ -1508,6 +1518,7 @@ enum StoreResult {
   REJECTED = 3;               // failed a check (§10.7), or over a limit per address or per publisher on what is held
   FAR = 4;                    // a target of `also` this node is not responsible for
   OLDER = 5;                  // a newer or winning record is held under this target; nothing changed (§10.7)
+  DECLINED = 6;               // this node won't hold it by own policy (§10.3); says nothing about the record, the target or other nodes
 }
 ```
 
@@ -1555,7 +1566,8 @@ Rules:
      an unknown `kind`, or a non-responsible node (below). `level` ignored for kinds other than
      `KEYWORD`; a `KEYWORD` search with `level` above 15 is answered as by a non-responsible
      node. A responsible node answers `Error{MALFORMED}` to a `Store` holding no record of `kind`.
-  4. Each record, answered in `results` (below, §10.7).
+  4. Each record, answered in `results` (below, §10.7). A record the node declines (**Declining**
+     below) MAY be answered `DECLINED` before its checks.
 - `want = 0` asks for records only: no contacts returned. For a requester already knowing the
   responsible nodes, e.g. an index node's client (§11).
 - **Paging.** Each node pages search results in its own order, not choosable by a publisher:
@@ -1579,7 +1591,7 @@ Rules:
   sets the extension's capability: a kind coming into use later needs no network upgrade. Each
   kind's content and storing-node checks are in its defining document; a `ROUTER` implements
   those checks for every kind (§13.1). A `ROUTER` answering a version-1 kind as not responsible
-  does not conform, though a lookup goes on past it; the unknown-kind rule (below) is for kinds
+  does not conform, though a lookup goes on past it (declining records, below, is allowed); the unknown-kind rule (below) is for kinds
   added after version 1. An index node without `ROUTER` stores the kinds it chooses (§11).
 - **`HEAD` and `MEMBER`**: file-set record kinds. Every `ROUTER` MUST store and return them,
   whether or not it sets `SETS`. Content, checks: [`extensions/file-set.md`](extensions/file-set.md)
@@ -1621,6 +1633,17 @@ Rules:
   contacts and `responsible = false`, never stored data. A requester MUST ignore `sources`,
   `files`, `notes`, `results` and every extension record field in an answer whose `responsible`
   is false.
+- **Declining.** A responsible node MAY refuse to hold any record by own policy (operator's
+  legal duties, filter lists, a whole kind): by root, eD2K hash, keyword, name, publisher key or
+  site, kind. Answered `DECLINED` per record; rest of the `Store` handled as usual. It MAY also
+  leave held records out of search answers; `offset` and `more` then count only what it
+  returns. It MUST NOT give a policy refusal as `FULL`, `BUSY`, `REJECTED` or `OLDER`, nor answer
+  as non-responsible for it: those tell the publisher something about the target or every node
+  (§10.4, §10.8). `responsible`, contacts, `load` and `spill` stay as without the policy;
+  a declined record counts for neither `load` nor `spill` nor `sites`. Why: a storing node holds
+  names, hashes and addresses, never content, but its operator may still not want to, or may not
+  be allowed to, index some of them. K = 10 nodes share a target, so a few declining nodes cost
+  redundancy, not findability. Index node: §11.
 - **The requester follows closer nodes.** Whenever an answer has contacts closer than the answerer,
   the requester MUST continue to them, whether or not it said `responsible`. Only the closest
   verified nodes hold the payload; a farther node's answer is a waypoint.
@@ -1698,7 +1721,7 @@ Rules:
    - the R closest verified candidates have all answered and no still-queryable candidate is
      closer to the target than the furthest of them. R = 4 for a search, 8 for a store
      *(initial)*. These R nodes = **closest set**, whether or not they said `responsible`; a
-     store is judged over those that did, ignoring `BUSY` ones (§10.8). Every queried responsible
+     store is judged over those that did, ignoring `BUSY` and `DECLINED` ones (§10.8). Every queried responsible
      node performs the operation, so more nodes than the closest set hold a store; it's still judged
      over the closest set;
    - at least M nodes answered in this lookup. M = 5 for a search, 9 for a store *(initial)*.
@@ -1719,6 +1742,9 @@ lookup with no candidate left to query ends with fewer than M answers.
   another host, site or block than the nodes that ended the walk.
 - M doesn't change the closest set. A node asked for this reason joins it only if among the R
   closest.
+- **Declined stores.** A store lookup whose closest set has fewer than 4 *(initial)* `STORED`
+  for a record, `DECLINED` among the rest, MAY send that record to up to 4 *(initial)* more
+  responsible nodes next in distance, not yet asked. They don't join the closest set.
 
 Queried node not answering within 5 s *(initial)*, counted from the first packet sent to it: failed for
 this lookup, counts one failed attempt (§10.2). Node answering with an `Error`: failed for this
@@ -1742,8 +1768,9 @@ and §2.3. A lookup that can't reach R nodes within those limits ends with fewer
    stored successfully less than 2 h *(initial)* ago, and one waiting for its own lookup
    (step 4). Next batch starts after the last of them.
 4. Target that fewer than 4 *(initial)* nodes answered `STORED` gets its own lookup, unless the
-   others answered `REJECTED` or `OLDER` (any other node would too). `BUSY` is transient: no
-   reason for own lookup; target keeps its deadline (below). Otherwise go on with next target.
+   others answered `REJECTED` or `OLDER` (any other node would too). `DECLINED` is not such an
+   answer: one node's policy. `BUSY` is transient: no reason for own lookup; target keeps its
+   deadline (below). Otherwise go on with next target.
 
 - **Deadline.** Each target is stored again at most 4 h *(initial)* after its last successful
   store, so every record is renewed before its 5 h end. Store succeeded when 4 nodes answered
@@ -1881,7 +1908,7 @@ the day: `HIDDEN` ([`extensions/hidden-set.md`](extensions/hidden-set.md) §3).
 | Signature | valid under the connection's key, or under `signer` | valid under `keys[key]` |
 | `expires` | later than now, and at most the kind's lifetime plus 1 h *(initial)* ahead | later than now minus 1 h *(initial)* |
 | Content | `file` for `KEYWORD`, `note` for `NOTE`, and no other of `Record` fields 1–3; extension fields (4 and up, §13.1) and unknown fields allowed and ignored for these kinds | same |
-| Size | `file.name` 1 to 255 bytes UTF-8; `file.root` 32 bytes; `file.ed2k` empty or 16 bytes (§0); `note.rating` 0 to 5, `note.text` at most 512 *(initial)* bytes UTF-8; `Signed` at most 1 KiB *(initial)* as measured above | same |
+| Size | `file.name` 1 to 255 bytes UTF-8; `file.root` 32 bytes; `file.ed2k` empty or 16 bytes (§0); `file.artist`, `file.album`, `file.title` at most 128 bytes UTF-8 each, `file.codec` at most 32; `note.rating` 0 to 5, `note.text` at most 512 *(initial)* bytes UTF-8, `note.nick` at most 64 bytes UTF-8; `Signed` at most 1 KiB *(initial)* as measured above | same |
 | Keyword | one keyword of `file.name` (§10.1) gives the request's target at its `level` | one keyword of `file.name` gives the searched target |
 | Count | one record per publisher and file under a keyword; one note per publisher and target (note carries no root: bound to `root[0..16)`, the target) | duplicates by publisher and file, or publisher and target for a note, merged |
 
@@ -1901,7 +1928,10 @@ failing record. No unsigned keyword or note records. Storing node deletes a reco
 `expires`.
 
 Publisher's node ID, `H("ed3k v1 node id", key)[0..16)`, is the record's author: what a
-client counts once, ignores or trusts. Why this helps against spam, and where not:
+client counts once, ignores or trusts. `note.nick` is a claim, as in `Hello` (§5.5): anyone can
+pick any name, so a client shows it with part of the publisher's node ID. A note under the
+anonymous key ([`extensions/hops.md`](extensions/hops.md) §1) has an empty `nick`; so has a
+`FileStatus.note` sent under it. Why this helps against spam, and where not:
 [`docs/signed-records.md`](docs/signed-records.md).
 
 ### 10.8 Keyword load
@@ -1943,6 +1973,7 @@ nodes. Version 1 bounds that:
   1 from another site adds one to that site. So a renewal by rule 1 from a site at its limit,
   holding no record of that file, is `REJECTED`; the kept record stays as it was, with its site,
   until it expires.
+- `DECLINED` = own policy (§10.3): not `FULL`, no `spill`, takes no place, counts for no limit.
 - `FULL` = target has no room. Record over a per-address or per-publisher limit → `REJECTED`:
   says nothing about the target, doesn't set `spill`, no reason for own lookup for the target
   (§10.4).
@@ -1968,7 +1999,9 @@ nodes. Version 1 bounds that:
   most 40.
 - Refused record offered again at next refresh, not earlier. No back-off longer than that.
 - Store outcome judged over closest-set members (§10.4) that said `responsible`, ignoring those
-  answering `BUSY`. Stored if one answered `STORED`, else refused.
+  answering `BUSY` or `DECLINED`, and over further nodes of **Declined stores** (§10.4). Stored if
+  one answered `STORED`, else refused. A node that declined is offered the record again at the
+  next refresh at the earliest.
 
 **Searcher**
 
@@ -2003,7 +2036,7 @@ Index node = node with the `INDEX` capability: an eD2K server without a protocol
 Differences from a Kad node: `responsible` for **every** target, also before adopting an
 endpoint (§9.2, §10.3); never needs the iterative walk; MAY keep a `SOURCE` record past its
 lifetime while the publishing connection stays open; MAY apply own admission policy with
-`Error{DENIED}` or `{BUSY}`. Such a kept `SOURCE` record goes at connection close or lifetime
+`Error{DENIED}` or `{BUSY}` per request, `DECLINED` per record (§10.3). Such a kept `SOURCE` record goes at connection close or lifetime
 end, whichever is later; past its lifetime it yields to a further node's record before the
 target answers `FULL` (§10.8). Kinds stored like `SOURCE` (`LIVE`, `SUB`, `FRIEND`) aren't kept
 so: they end with their lifetime, since the short lifetime is what shows a node left a stream
@@ -2840,6 +2873,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
 | Kad: records in one `Store` max; terms in `all` and `none` of `Query` together max | 256; 64 |
 | Source records: targets in `also`, max per request and per batch; target stored less long ago rides along in no batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 2 h; 4 h; 4 |
+| Declined stores: `STORED` answers below which further nodes are asked; further nodes max | 4; 4 |
 | Diversity, per host / site / block: bucket, answer | 1 / 2 / 4 |
 | Diversity, per host / site / block: lookup, counted over its closest set | 1 / 2 / half of R (2 for a search, 4 for a store) |
 | Diversity, closest set | as the lookup ([`extensions/ip-diversity.md`](extensions/ip-diversity.md) §2.3) |
@@ -2851,7 +2885,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias and claim, live, subscriber, gate, head and hidden head and part and name | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
 | Search answer: keyword records, notes, sources and anonymous sources together max; paging secret replaced every | 100, 100, 100; 24 h |
 | Keyword target: records kept per file, files per publisher key / per publisher site; notes per file target, in all / per publisher host / per publisher site | 3, 1,000 / 2,000; 64 / 4 / 8 |
-| Source record and `FileRequest`: relays per family max (used); records per file target (and per `LIVE` or `SUB` target) max; note text max | 2; 10,000; 512 B |
+| Source record and `FileRequest`: relays per family max (used); records per file target (and per `LIVE` or `SUB` target) max; note text max, note nick max; media tag `artist`, `album`, `title` max, `codec` max | 2; 10,000; 512 B, 64 B; 128 B, 32 B |
 | Keyword: files per target (level size), levels in use, highest level accepted **(wire)** | 100,000, 1, 15 |
 | Keyword: minimum length (protocol / suggested default), keywords published per file | 2 bytes / 3 bytes, 40 |
 | Signed record: maximum size, clock tolerance | 1 KiB, 1 h |

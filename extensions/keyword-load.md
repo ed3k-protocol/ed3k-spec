@@ -25,7 +25,7 @@ A file is published under the keywords `Protocol.md` §10.1 selects, as in versi
 | Level in the keyword target | §10.1 | `H("ed3k v1 keyword", level(1) ‖ word)`; version 1: level 0 on Kad, every level at an index node |
 | `KadRequest.level` | §10.3 | level sender computed the target for; storing node checks a keyword of the name gives the target at that level (§10.7) |
 | `KadAnswer.load` | §10.3 | files held under this target, % of level size |
-| `KadAnswer.results` | §10.3 | one per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER` |
+| `KadAnswer.results` | §10.3 | one per stored record: `STORED`, `FULL`, `BUSY`, `REJECTED`, `OLDER`, `DECLINED` |
 | `KadAnswer.spill` | §10.3 | node answered `FULL` for this target within last record lifetime |
 | `KadAnswer.sites` | §10.3 | per returned file, publisher sites node counted; 0 = not counted |
 
@@ -119,7 +119,7 @@ outranking.
 ## 3. Publisher
 
 Publisher remembers one level L per (file, keyword), starting at 0. Outcome of a store at one
-level is taken over storing nodes that answered `responsible`, ignoring `BUSY` and `REJECTED`:
+level is taken over storing nodes that answered `responsible`, ignoring `BUSY`, `REJECTED` and `DECLINED`:
 
 - **placed:** at least half answered `STORED` or `OLDER` (both = node holds the file)
 - **full:** otherwise
