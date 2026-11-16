@@ -352,7 +352,8 @@ reservations (§9.4 there).
   connections (`Protocol.md` §2). So a leaf sends `Relay{reserve, hop}` again on each reservation
   connection whenever its `HOP` changes: `hop` set when it turns `HOP` on, clear when off. Relay
   answers it as a repeat of the reservation (§9.4 there: one slot per leaf, no new limit check)
-  and keeps the last `hop` with the slot.
+  and keeps the last `hop` with the slot. A `ROUTER` holding reservations leaves `hop` clear:
+  lookups meet it as a `ROUTER` (§2.1).
 
 **Listed by its relays.** A leaf is in no routing table, so lookups never meet it. Its relays name
 it instead.
@@ -373,7 +374,8 @@ it instead.
   `nat` = 2. The answering node is noted as the leaf's relay.
 - Owner already connected to the leaf in that family (e.g. as its relay): no punch, and that
   connection's `Hello` predates `HOP`. Owner keeps the leaf on the listing alone; as its relay,
-  on the leaf's `Relay{hop}`. A build the leaf refuses, or whose link to it fails, drops it.
+  on the leaf's `Relay{hop}`, until a `Relay` clears `hop` or the slot ends. A build the leaf
+  refuses, or whose link to it fails, drops it.
 - Leaves make up ≤ half *(initial)* of the hop list. A leaf whose punch failed, or whose relay
   refused it, leaves the list.
 
