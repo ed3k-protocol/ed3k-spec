@@ -71,7 +71,7 @@ that both sides send once per connection. Keys a client does not know are ignore
   (`torrent.md` §4.2). It saves the Kad lookup, and it comes from a peer that provably has
   the torrent.
 - **Private torrents:** a client MUST NOT send either key on a connection for a torrent that
-  is marked private (`torrent.md` §6.3).
+  is marked private, unless its user shared it (`torrent.md` §6.3).
 
 No new message type is needed. A proposal would be one page.
 

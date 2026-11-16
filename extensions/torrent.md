@@ -1,6 +1,6 @@
 # Extension: torrents as file sets (`torrent`)
 
-**Status:** draft 0.1 (2026-10-12). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-11-16). Not implemented. Optional in wire version 1.
 **Extends:** [`file-set.md`](file-set.md) §1, §3, [`alias.md`](alias.md) §2, [`Protocol.md`](../Protocol.md) §7.4, §13.2, §14.4. § = this document unless a document is named.
 **Capability:** none of its own; a node using it sets `SETS`. Two `ALIAS` schemes, one manifest field, one `ed3k:file` link parameter.
 **Required of every `ROUTER`:** nothing beyond the `ALIAS` record of [`alias.md`](alias.md).
@@ -76,7 +76,7 @@ Two nodes completing one torrent must reach one manifest; canonical form leaves 
   - whose info dictionary is not strict bencoding: each dictionary's keys ascending by bytes,
     each once; each integer and string length in its one decimal form, no leading zero, `+` or
     `-0`; nothing after the end. Reader doesn't repair it,
-  - marked private (§6.3),
+  - marked private and not shared by its user (§6.3),
   - whose paths or counts break a rule of [`file-set.md`](file-set.md) §2.1 or §2.2,
   - with a symbolic link (attribute `l`),
   - hybrid, whose version 1 list without padding files doesn't name the file tree's files with
@@ -103,7 +103,7 @@ Client holding manifest with `torrent` and info dictionary checks, before using 
 | Count | one member per non-padding dictionary file |
 | Hybrid | hybrid torrent: version 1 list, without padding files, names the file tree's files with same paths and lengths in same order |
 | Order, size, path | member *i* has the length and path of file *i* |
-| Not private | dictionary not marked private |
+| Not private | dictionary not marked private, or private and shared by this client's user (§6.3) |
 
 - Any failure: plain set for this client; BitTorrent not used for it.
 - All hold → each member has a place in the torrent's **piece space**: version 1, files in a
@@ -147,8 +147,8 @@ don't match: client says so, keeps data as checked, not verified (above).
 User gave a `.torrent` or a magnet link without ed3k link. **Torrent hashes are the judge**; a
 manifest found in Kad is a claim.
 
-1. Search `ALIAS` records for the infohash (§5) once holding the info dictionary, if torrent not
-   private (§6.3): for a magnet link after metadata exchange, not before.
+1. Search `ALIAS` records for the infohash (§5) once holding the info dictionary, unless the
+   torrent is private and not shared (§6.3): for a magnet link after metadata exchange, not before.
 2. Per set found: download manifest, §3 checks. At most 3 *(initial)* sets per torrent, most
    publisher sites first.
 3. Add each member's ed3k sources; blocks verified under member's root as always, verified for
@@ -195,10 +195,10 @@ Complete member passing both hashes = ordinary shared ed3k file at once, before 
   dictionary (§4.2 step 5). Members verified under BLAKE3 alone don't suffice: proves manifest,
   not infohash; publishing on that ground repeats a false claim as one's own (publisher rule of
   [`alias.md`](alias.md)).
-- MUST NOT publish for a private torrent.
+- MUST NOT publish for a private torrent its user did not share (§6.3).
 - **Downloaded torrent is published,** whether started from `.torrent`, magnet link or torrent
   root: node sharing the set and meeting the rules above publishes the record. Non-private =
-  public by nature; no setting holds it back. Sole exception: private flag (§6.3).
+  public by nature; no setting holds it back. Private: only by the user's choice (§6.3).
 
 Canonical manifest → honest publishers all name one root, collecting their sites.
 
@@ -230,11 +230,33 @@ BitTorrent's DHT.
 ### 6.3 Private torrents
 
 Info dictionary marked private → torrent asks that its data stay with the peers its tracker names.
+Client honours that unless its user chose otherwise.
+
+**Not shared** (the rule without that choice):
 
 - Client MUST NOT search or publish an `ALIAS` record for it, MUST NOT take ed3k sources for
   it.
 - MUST NOT share the info dictionary on ed3k.
 - Sharing downloaded files on ed3k as ordinary files: user's choice, as for any file.
+
+**Shared.** User MAY choose that private torrents join ed3k like any other. Then this document
+applies unchanged: canonical manifest (§2), §3 passes the flag, search (§4.2), records (§5),
+info dictionary shared.
+
+- Only by a setting the user turns on that names private torrents, never derived from another
+  (e.g. one sharing all files). Client SHOULD show the costs below where the setting is.
+- Choice binds the chooser only. A client that didn't make it fails §3 on such a manifest: a
+  plain set, members ordinary files; it searches and publishes nothing for the torrent.
+- Turned off: client stops publishing its `ALIAS` records (held ones expire, [`alias.md`](alias.md)
+  §1), stops sharing info dictionary and manifest, takes no new ed3k sources. Its files follow
+  the user's file sharing as above.
+
+| Cost of sharing | |
+|---|---|
+| Tracker's closed swarm | open: anyone finding the set downloads the files over ed3k without the tracker |
+| Infohash | in clear in Kad (`ALIAS` `id`, [`alias.md`](alias.md) §1): storing nodes and searchers learn that the private torrent exists |
+| Tracker statistics | bytes moved over ed3k not reported; a tracker's rules may forbid it |
+| Signal to the swarm | [`docs/torrent-signal.md`](../docs/torrent-signal.md) §2.2 keys, if sent, reach the private swarm's peers |
 
 ---
 
