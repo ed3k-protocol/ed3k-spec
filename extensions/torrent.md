@@ -186,6 +186,8 @@ Complete member passing both hashes = ordinary shared ed3k file at once, before 
 - Target, signature, lifetime, storing-node rules: [`alias.md`](alias.md) §1 and §3; storing
   node needs no torrent knowledge.
 - Hybrid: two infohashes → two targets; publisher stores under both.
+- Archive volumes among members: `PACKED` and contents records of [`hoster.md`](hoster.md) §6,
+  §6.1 apply; `PACKED` `root` = the torrent set.
 
 **Publisher**
 

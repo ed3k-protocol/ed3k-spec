@@ -39,7 +39,7 @@ message Alias {
   uint32 set_files = 7;       // SET and PACKED: as in FileInfo (file-set.md §3)
   uint64 set_size = 8;
   string entry = 9;           // PACKED: path of the file inside the archive, "/" between components; absent = the only file
-  string password = 10;       // PACKED: password of the archive, if it has one
+  string password = 10;       // PACKED, and SET of `b3`: password of the archive, if it has one
 
   enum Relation {
     SAME = 0;                 // the bytes that `id` names are the file `root`
@@ -78,7 +78,7 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
 | `btih` | 20 B infohash, version 1 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
 | `btmh` | 32 B infohash, version 2 or hybrid torrent | `SET` | [`torrent.md`](torrent.md) §5 |
 | `url` | 32 B hash of a link in canonical form | `SAME`, `SET` | [`hoster.md`](hoster.md) §4 |
-| `b3` | 32 B BLAKE3 root of a file | `PACKED` | [`hoster.md`](hoster.md) §6 |
+| `b3` | 32 B BLAKE3 root of a file: `PACKED` the output, `SET` an archive's first volume | `PACKED`, `SET` | [`hoster.md`](hoster.md) §6, §6.1 |
 | `nzb` | 32 B hash of a Usenet post's message IDs | `SET` | [`usenet.md`](usenet.md) §1 |
 | `nzb-file` | 32 B hash of the message IDs of one file of a post | `SAME` | [`usenet.md`](usenet.md) §1 |
 
@@ -166,6 +166,7 @@ root; an alias only adds sources. One started from a foreign name is judged by t
 | `SET` (`btih`, `btmh`) | manifest fits the torrent; data passes under torrent hashes ([`torrent.md`](torrent.md) §3, §4.2) | false once a piece fails under the torrent while its blocks pass under the roots |
 | `SET` and `SAME` (`nzb`, `nzb-file`) | manifest fits the article list; articles agree with roots ([`usenet.md`](usenet.md) §3, §4.2) | false once an article passes its own checksum while its block fails under the root |
 | `PACKED` | archive, unpacked, gives the file `id` names ([`hoster.md`](hoster.md) §6) | archive is a download of its own |
+| `SET` (`b3`) | archive, unpacked, gives the manifest's members, no more ([`hoster.md`](hoster.md) §6.1) | each member a download of its own, verified under its root |
 
 ### 4.1 A hash of the whole file
 
@@ -242,6 +243,6 @@ How networks fit; last column: where specified, or not.
 - `FileInfo.ed2k` (`Protocol.md` §7.4) and scheme `ed2k` say the same twice; when the field
   goes, the record remains.
 - Search for one scheme's relation only? Today a target holds one scheme by construction.
-- Reverse record, root → names. `MEMBER` does it for sets ([`file-set.md`](file-set.md) §6);
-  nothing for plain names.
+- Reverse record, root → names. `MEMBER` does it for sets ([`file-set.md`](file-set.md) §6),
+  `b3` `SET` for archives ([`hoster.md`](hoster.md) §6.1); nothing for plain names.
 - All numbers are first values.

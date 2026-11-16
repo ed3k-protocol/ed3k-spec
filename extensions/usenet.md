@@ -224,6 +224,8 @@ Most posts hold an archive in volumes, often meaninglessly named, sometimes pass
   Its `root` = post set's manifest; non-volume members left aside when unpacking. `password`
   carries the password, where the NZB or its source told one.
 - So a file search finds a post holding it; NZB holder learns the output before download ends.
+- **What the archive holds** = contents record of [`hoster.md`](hoster.md) §6.1, keyed by the
+  first volume's member root: NZB holder sees the entries before downloading.
 - Repair files are members too: useful when taking bytes from Usenet, useless with every block
   verified under roots.
 
@@ -250,6 +252,7 @@ other rows.
 | `ALIAS` of `nzb-file` | file id → member, per member. At most 256 *(initial)* per post; a client needing more finds them through the set | only a node that decoded that member's articles itself, ≥ 1 passing CRC-32: a member rebuilt from repair files alone has nothing tying file id to bytes |
 | `MEMBER` | each member → post set ([`file-set.md`](file-set.md) §6): a download started from one file finds the article list | every node sharing both |
 | `PACKED` | where the node unpacked the archive itself | only a node that decoded the articles itself |
+| `ALIAS` of `b3`, `SET` (contents) | where the node read the archive itself ([`hoster.md`](hoster.md) §6.1) | any node holding the post's volumes verified |
 
 - **Downloaded post is published:** sharing a post's files = sharing manifest and article list
   too, and publishing the records above.

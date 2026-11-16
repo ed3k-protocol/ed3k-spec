@@ -298,6 +298,53 @@ output file has the root in `id`.
 - `password` is public (record anyone can read): password of an archive shared anyway, not a
   user secret.
 
+### 6.1 Contents
+
+`PACKED` goes from a file to archives; a user holding links, an NZB or a torrent of volumes wants
+the other way: what is inside, before downloading. A second `b3` record:
+
+| Field | Value |
+|---|---|
+| `id` | root of the archive's **first volume**: the one an unpacker opens (`.part1.rar`, `.rar` of the old naming, `.7z.001`, `.zip`); one-volume archive = the file |
+| `rel` | `SET` |
+| `root`, `size`, `name` | the **contents manifest** (below) |
+| `set_files`, `set_size` | its member count, sum of sizes |
+| `password` | archive password, if any; public as for `PACKED` |
+
+Keyed by a volume, not a manifest: the same volumes from links, a post set
+([`usenet.md`](usenet.md) §5) or a torrent set ([`torrent.md`](torrent.md)) meet on one target.
+
+**Contents manifest**, canonical form (as [`torrent.md`](torrent.md) §2):
+
+| Field | Value |
+|---|---|
+| `files` | regular-file entries, ascending by path bytes; path = archive path, format's separator replaced by `/` |
+| `Member.name`, `Member.dir` | path's last component, its directory |
+| `Member.root`, `Member.size` | root and size of the entry's bytes |
+| `dirs` | every directory of every path, ancestors included, each once; by first use in `files`, parent before children |
+| Everything else | absent |
+
+Serialisation: canonical (`Protocol.md` §0), 8 bytes of a manifest + `SetFile` with `body` only.
+No contents manifest, no record, for an archive with a path breaking
+[`file-set.md`](file-set.md) §2.1 or §2.2, or an entry it could not read. A member's path is its
+`entry` in a `PACKED` record. An entry that is an archive itself gets its own record, by its root.
+
+**Publisher.** Read every entry of the archive itself, from volumes each verified under its root.
+Shares the contents manifest, renews the record while it does; need not hold the volumes or the
+entries.
+
+**Searcher**
+
+- From a link: `url` `SAME` (§4) of the first volume's link → its root → `b3` `SET`. From a post
+  set or torrent set: the first volume's member root → `b3` `SET`.
+- Fetches the contents manifest; shows members, lets the user choose (`file-set.md` §2.3).
+- Chosen members download by root like any file, verified under their roots. A member without
+  sources: the archive is downloaded, unpacking only the chosen ones.
+- **Unpacking is the check**, as for `PACKED`: once the client unpacks the archive, an entry
+  whose root differs from its member, or an entry missing from the manifest, or a member missing
+  from the archive → claim false, publisher ignored. A false list costs a wrong choice, never a
+  wrong byte.
+
 ---
 
 ## 7. Who is blamed
@@ -309,6 +356,7 @@ output file has the root in `id`.
 | An `ALIAS` record of scheme `url` whose root fails for bytes from that link | record publisher |
 | A sealed chunk at a hoster | as in [`http-source.md`](http-source.md) §6 |
 | An archive that does not give the file | publisher of the `PACKED` record |
+| An archive that does not give the contents manifest | publisher of the `b3` `SET` record |
 | A volume that fails under its root | block sender, as for any file |
 | The hoster | never by the protocol. Client keeps its own failure count per hoster |
 
@@ -369,8 +417,6 @@ output file has the root in `id`.
   it.
 - **Passing on a hoster's checksum** as an `ALIAS` record of `md5` or `sha1`
   ([`alias.md`](alias.md) §4.1).
-- **A record from an archive to its contents,** for a user holding the volumes who wants to know
-  before unpacking.
 - Test vectors for `canonical` (§4): [`tests/vectors-v1.md`](../tests/vectors-v1.md).
 - Whether `NEEDS_USER` should say which of its four causes applied: it would tell an uploader more, and
   a peer something about the user.
