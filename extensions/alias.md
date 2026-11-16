@@ -97,6 +97,13 @@ target = H("ed3k v1 alias", len(scheme) as 1 byte ‖ scheme ‖ id)[0..16)
   belong together: it holds the complete file under the root and computed the name from those bytes (an
   earlier hash of the file counts while its size and modification time are unchanged), or verified the same
   bytes under both (`Protocol.md` §14.4). Scheme documents say what this means for set, archive.
+- **Deleted file.** A file it held verified and deleted after its own use (archive volumes after
+  unpacking, repair files) keeps the condition above ≤ 365 *(initial)* days from deletion, while
+  the name still delivers the bytes: the name's own network asked ≥ once per 7 *(initial)* days
+  (`url`: resolver checks the link, [`hoster.md`](hoster.md) §3; `nzb-file`: sampled articles
+  still on a news server). Check finds them gone → records end; check can't tell → kept.
+  Deleted by the user → end at once. No `SOURCE` for it: the root may have no ed3k source, the
+  name's network delivers it and the root verifies those bytes.
 - It publishes ≤ 4 *(initial)* records per root and scheme.
 
 **Storing node**

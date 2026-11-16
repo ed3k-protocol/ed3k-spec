@@ -255,7 +255,9 @@ other rows.
 | `ALIAS` of `b3`, `SET` (contents) | where the node read the archive itself ([`hoster.md`](hoster.md) §6.1) | any node holding the post's volumes verified |
 
 - **Downloaded post is published:** sharing a post's files = sharing manifest and article list
-  too, and publishing the records above.
+  too, and publishing the records above. Volumes and repair files deleted after unpacking keep
+  their `nzb-file` and `PACKED` records ([`alias.md`](alias.md) §3 "Deleted file"), checked
+  against the news servers.
 - **Holding posts back:** setting, default off. On → no article list shared, no `ALIAS` of
   `nzb` or `nzb-file` published, so nothing sent leads to the articles.
   **Files shared all the same,** each under its root with `SOURCE` and `KEYWORD`, like any file.

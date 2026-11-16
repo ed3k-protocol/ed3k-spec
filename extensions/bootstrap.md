@@ -33,7 +33,13 @@ Client tries in order, stops when its lookups work:
    *(initial)* contacts, `ROUTER` or not, each address once; handshake proves the node ID, as for
    any candidate. Such a peer whose `Hello` lacks `ROUTER` or `nat = 1` isn't inserted
    (§10.2) but asked like a LAN peer: a lookup starting at it, for its routing ID with every bit
-   flipped (each contact it knows is closer to that than itself, §10.3). A node that **dials
+   flipped (each contact it knows is closer to that than itself, §10.3). Its routing ID = the one
+   it judges by (§10.3): of the address it advertises in its `Hello` in the connection's family,
+   taken as sent even where §5.5 would put the observed address there (a claim, used only as a
+   target); in a named network at a private address, its node ID (§6.3). A LAN peer on the
+   public network is reached at a private address, which has no routing ID; one advertising no
+   address there has adopted none and returns no contacts (the requester's observed address is
+   private too, §10.3), so it is not asked. A node that **dials
    in** while the table holds < 10 contacts and does not enter it is asked the same way, each
    address once, ≤ 16 *(initial)* such lookups at a time: a client whose user hash is not
    derived cannot be dialled from eD2K, but can dial a peer whose hash is.

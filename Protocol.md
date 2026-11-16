@@ -1745,6 +1745,15 @@ lookup with no candidate left to query ends with fewer than M answers.
 - **Declined stores.** A store lookup whose closest set has fewer than 4 *(initial)* `STORED`
   for a record, `DECLINED` among the rest, MAY send that record to up to 4 *(initial)* more
   responsible nodes next in distance, not yet asked. They don't join the closest set.
+  - **Further nodes** = candidates past the closest set's furthest member, closest first, never
+    queried in this lookup. Nodes the walk already asked past the set (α, minimum walk) stored the
+    record too, but count neither in the verdict nor as further nodes.
+  - One round: ≤ 4 asked once; one answering not `responsible` (or `FAR` for an `also` target)
+    is ignored, not replaced.
+  - Diversity limits of the closest set ([`extensions/ip-diversity.md`](extensions/ip-diversity.md)
+    §2.3) count over the set plus further nodes.
+  - A batch (below) uses the further nodes of the lookup whose closest set it went to: request
+    target = first target of the batch still short, the rest in `also`.
 
 Queried node not answering within 5 s *(initial)*, counted from the first packet sent to it: failed for
 this lookup, counts one failed attempt (§10.2). Node answering with an `Error`: failed for this
@@ -2883,6 +2892,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held, `NAME` records held | 1,024 / 4,096, 64 / 256, 1,024 / 4,096 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families, relays and gates), per host / site / block; per host and hour over all files | 2 / 4 / 8; 8 |
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias and claim, live, subscriber, gate, head and hidden head and part and name | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
+| `ALIAS` of a deleted file ([`extensions/alias.md`](extensions/alias.md) §3): kept after deletion max; its name checked at least every | 365 days; 7 days |
 | Search answer: keyword records, notes, sources and anonymous sources together max; paging secret replaced every | 100, 100, 100; 24 h |
 | Keyword target: records kept per file, files per publisher key / per publisher site; notes per file target, in all / per publisher host / per publisher site | 3, 1,000 / 2,000; 64 / 4 / 8 |
 | Source record and `FileRequest`: relays per family max (used); records per file target (and per `LIVE` or `SUB` target) max; note text max, note nick max; media tag `artist`, `album`, `title` max, `codec` max | 2; 10,000; 512 B, 64 B; 128 B, 32 B |

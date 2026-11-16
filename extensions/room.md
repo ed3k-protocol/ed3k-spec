@@ -575,6 +575,8 @@ RoomProof.sig = Ed25519 signature by the member key over
   it holds no post of room, also after a restart that kept none. A returning joiner thus
   gets what it missed plus the hour before, whatever authors' clocks, and sends back only that
   hour, not its whole history. Node with `since` 0 gets the whole history, sends no post.
+- Node MAY keep its history across a restart, with the admits, bans and `KeyDrop`s it holds
+  and its `since`; kept items pass §4.4 checks again when taken back, posts past 24 h dropped.
 - History posts pass §2.5 and §4.4 checks like any other, except the rate.
 - Members hold history, only while in room; a room whose members all leave keeps
   nothing. Nobody else stores posts: no store for offline members, as for chat

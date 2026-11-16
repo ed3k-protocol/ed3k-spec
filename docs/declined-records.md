@@ -45,7 +45,4 @@ Same rules as index node (§11). Records held when the lists change are dropped.
 
 ## 3. Not built yet
 
-- §10.4 "Declined stores" MAY on the publisher side (store to up to 4 more responsible nodes
-  when fewer than 4 `STORED` and some `DECLINED`): a lookup needs to keep candidates beyond
-  its closest set for that.
 - A UI to edit the lists and show what's loaded.

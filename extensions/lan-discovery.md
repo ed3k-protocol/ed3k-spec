@@ -76,7 +76,9 @@ Neither group nor port is registered.
   (§2 of this document).
 - A node without Kad contacts also dials a LAN peer for first contact
   ([`bootstrap.md`](bootstrap.md) §1). Every node answers `KadRequest` with contacts it knows
-  (§10.3), so a leaf LAN peer serves too. Rule §3 of this document holds: the LAN peer
+  (§10.3), so a leaf LAN peer serves too. Asked for its routing ID with every bit flipped, that
+  ID taken from the address its `Hello` advertises ([`bootstrap.md`](bootstrap.md) §1 source 4),
+  never from its private address. Rule §3 of this document holds: the LAN peer
   itself does not enter the routing table.
 - An announce proves nothing; the handshake does (T1): a LAN peer whose key does not give the
   announced node ID is dropped. A false announce costs one LAN dial.

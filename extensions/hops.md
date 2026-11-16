@@ -374,8 +374,9 @@ it instead.
   `nat` = 2. The answering node is noted as the leaf's relay.
 - Owner already connected to the leaf in that family (e.g. as its relay): no punch, and that
   connection's `Hello` predates `HOP`. Owner keeps the leaf on the listing alone; as its relay,
-  on the leaf's `Relay{hop}`, until a `Relay` clears `hop` or the slot ends. A build the leaf
-  refuses, or whose link to it fails, drops it.
+  on the leaf's `Relay{hop}`, until a `Relay` clears `hop` or the slot ends. Then it drops only
+  itself as the leaf's relay: an entry for the leaf learned from another relay's listing keeps
+  that relay noted and stays. A build the leaf refuses, or whose link to it fails, drops it.
 - Leaves make up ≤ half *(initial)* of the hop list. A leaf whose punch failed, or whose relay
   refused it, leaves the list.
 

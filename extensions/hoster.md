@@ -178,7 +178,8 @@ id        = H("ed3k v1 url", canonical)                          32 B
 **Publisher.** Publishes `SAME` when ≥ 1 block fetched from the link verified under the root
 (block hashes from ed3k, `Protocol.md` §12.4), or the whole file from the link gave the root,
 or it uploaded the file there itself. A node sharing the file does so unless it holds
-links back (§4.1). `SET`: when it expanded the link itself and holds every member.
+links back (§4.1); so does one that deleted it after unpacking ([`alias.md`](alias.md) §3
+"Deleted file"). `SET`: when it expanded the link itself and holds every member.
 
 **Searcher**
 
@@ -264,8 +265,9 @@ Nothing in the manifest marks it as an archive.
 Target computed from the output file's root, so a source search for a file can find archives
 holding it.
 
-**Publisher.** Publishes only when it unpacked the archive itself, holds every volume, and the
-output file has the root in `id`.
+**Publisher.** Publishes only when it unpacked the archive itself, holds every volume (or held
+them: deleted after unpacking, [`alias.md`](alias.md) §3 "Deleted file"), and the output file
+has the root in `id`.
 
 **Searcher**
 
@@ -341,8 +343,10 @@ entries.
 - Chosen members download by root like any file, verified under their roots. A member without
   sources: the archive is downloaded, unpacking only the chosen ones.
 - **Unpacking is the check**, as for `PACKED`: once the client unpacks the archive, an entry
-  whose root differs from its member, or an entry missing from the manifest, or a member missing
-  from the archive → claim false, publisher ignored. A false list costs a wrong choice, never a
+  whose root or size differs from its member, or an entry missing from the manifest, or a member missing
+  from the archive → claim false, publisher ignored. So is a manifest that, fetched and verified
+  under the record's root, doesn't parse or breaks the canonical form above; one not fetched
+  (no source) proves nothing. A false list costs a wrong choice, never a
   wrong byte.
 
 ---
