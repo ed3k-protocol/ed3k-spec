@@ -2892,7 +2892,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Diversity, over all targets, per host / site: `HEAD` and `HIDDEN` records held, `GATE` records held, `NAME` records held | 1,024 / 4,096, 64 / 256, 1,024 / 4,096 |
 | Diversity: failed or pending dials per file and hour (source endpoints of both families, relays and gates), per host / site / block; per host and hour over all files | 2 / 4 / 8; 8 |
 | Record lifetimes: source (also anonymous) and friend, keyword, note, member and alias and claim, live, subscriber, gate, head and hidden head and part and name | 5 h, 24 h, 24 h, 24 h, 10 min, 60 min, 1 h, up to 7 days |
-| `ALIAS` of a deleted file ([`extensions/alias.md`](extensions/alias.md) §3): kept after deletion max; its name checked at least every | 365 days; 7 days |
+| `ALIAS` of a deleted file ([`extensions/alias.md`](extensions/alias.md) §3): its name checked at least every; MAY end by age after | 7 days; 365 days |
 | Search answer: keyword records, notes, sources and anonymous sources together max; paging secret replaced every | 100, 100, 100; 24 h |
 | Keyword target: records kept per file, files per publisher key / per publisher site; notes per file target, in all / per publisher host / per publisher site | 3, 1,000 / 2,000; 64 / 4 / 8 |
 | Source record and `FileRequest`: relays per family max (used); records per file target (and per `LIVE` or `SUB` target) max; note text max, note nick max; media tag `artist`, `album`, `title` max, `codec` max | 2; 10,000; 512 B, 64 B; 128 B, 32 B |
