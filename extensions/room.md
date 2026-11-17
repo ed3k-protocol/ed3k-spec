@@ -1,6 +1,6 @@
 # Extension: rooms (`room`)
 
-**Status:** draft 0.1 (2026-10-27). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-11-18: media, owner-set history, §2.6, §4.6). Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.3 and §13, [`chat.md`](chat.md), [`pubsub.md`](pubsub.md) §2 and §5, [`live.md`](live.md) §10. § = this document unless a document is named.
 **Capability:** bit 19, `ROOM`. Message types 42 and 43. `ed3k:room` links.
 **Required of every `ROUTER`:** nothing. Rooms use record kind `SUB` of [`pubsub.md`](pubsub.md) §5, which every `ROUTER` already stores.
@@ -15,8 +15,10 @@ between them. A **room** carries posts among many members.
   nobody on the way can change it.
 - Each member signs with its own **member key** for that room, never its node key; its posts
   aren't tied to what its node shares, nor to its other rooms.
-- Members keep posts of the **last day** and give them to a member joining or coming back. Only
-  room members keep them: no Kad node and no stranger stores a post.
+- Members keep posts of the **last day**, or as long as owner sets (up to 30 days), and give
+  them to a member joining or coming back. Only room members keep them: no Kad node and no
+  stranger stores a post.
+- A post MAY carry an **image or video** (§2.6), fetched from room neighbours only.
 - Owner names **moderators**: they admit and ban members, and in a closed room hand out keys.
 - A room is **public**, **private** or **closed**:
 
@@ -151,6 +153,9 @@ message RoomInfo {
   bool   closed = 6;          // only admitted members join, read and post (§2.2, §3.2)
   bool   moderated = 7;       // only admitted members post and are listed present; everyone may read
   bytes  banned = 8;          // n × 16 B member IDs banned for good, ascending, each once; at most 4,096 (initial)
+  uint64 media_max = 9;       // largest media file of a post, bytes (§2.6); 0 = no media
+  uint32 keep_hours = 10;     // history members keep (§4.3); 0 = 24
+  uint32 keep_posts = 11;     // posts members keep (§4.3); 0 = 1,000
 }
 ```
 
@@ -162,6 +167,12 @@ message RoomInfo {
   as content failure.
 - Content check fails on a `mods` key that is room key, not 32 bytes, or twice; and on an
   unsorted or repeated `banned`.
+- **Media and history limits read, never fail.** `media_max` above 16 MiB *(initial)* reads as
+  16 MiB. `keep_hours` 0 reads as 24, below 24 as 24, above 720 (30 days) *(initial)* as 720.
+  `keep_posts` 0 reads as 1,000, below 1,000 as 1,000, above 10,000 *(initial)* as 10,000. A
+  later version may raise a cap without a fault at older nodes. A node without room info, or
+  one that predates these fields, reads 0, 24 and 1,000.
+- Owner sets `media_max` to allow media; 6.5 MiB is a sensible default for emoji and memes.
 - **Changes take effect at once.** A key dropped from `mods` signs nothing more that counts, and
   its admits, bans, lifts and `KeyDrop`s stop counting (§2.2, §2.3, §3.2); one arriving later is
   dropped, as from any non-moderator (§4.4). Owner dropping a moderator re-admits members it
@@ -276,6 +287,7 @@ message RoomPost {
 message RoomText {
   string text = 1;            // 1 to 4,096 B of UTF-8
   bytes  reply_to = 2;        // 16 B id of the post this one answers; absent = none
+  RoomMedia media = 3;        // an image or video shown with the post (§2.6); absent = none
 }
 ```
 
@@ -303,6 +315,47 @@ post id = H("ed3k v1 room post", room ‖ body)[0..16)          body = RoomItem.
 - Node that can't open `sealed` (lacks that generation's key) still keeps and passes on the
   post, once it holds a `KeyDrop` of it (§3.2); reads it once it has the key.
 - `reply_to` naming no held post is shown as answer to a post node lacks.
+
+### 2.6 Media
+
+```protobuf
+message RoomMedia {
+  bytes  root = 1;            // 32 B, the file's root (Protocol.md §7) as transferred
+  uint64 size = 2;            // bytes, 1 to the room's media_max
+  string type = 3;            // media type (RFC 6838), at most 64 B: "image/png", "video/mp4", ...
+  string name = 4;            // file name, at most 255 B of UTF-8, no path
+  bytes  key = 5;             // private and closed room: 32 B file key; absent in a public room
+  uint32 width = 6;           // pixels, a hint for layout; 0 = not told
+  uint32 height = 7;
+}
+```
+
+A post MAY carry one file to show with it: emoji, a meme, a short clip.
+
+- **`text` stays required** (1 to 4,096 B, §2.5). Author puts a caption or the file name there:
+  a client not reading `media`, or not showing it, shows that text.
+- **Media is checked when used, never as content.** A `media` with `root` ≠ 32 B, `size` 0 or
+  above the room's `media_max`, `type` or `name` over its limit, `key` present in a public room,
+  or absent or ≠ 32 B in a room with a secret, is ignored: the post is kept, passed on and shown
+  as text. So is any `media` in a room whose `media_max` is 0. Ignored media is neither fetched nor
+  served (§4.6). No fault: the relaying neighbour may predate this section, and room info may
+  have changed since.
+- **In a room with a secret the file is sealed** with its own key, so a holder of the root alone
+  reads nothing:
+
+```
+as transferred = ChaCha20(key, nonce = 12 zero bytes, file)          RFC 8439, counter from 0; key = 32 random bytes per file
+```
+
+  Same length as the file. Zero nonce safe: `key` is new per file. No tag: `root` fixes every byte
+  as transferred, and the signed post fixes `root` and `key`. `key` travels inside `sealed`
+  (§3), so only those reading the post open the file.
+- In a public room the file is transferred as it is.
+- **Media is no shared file.** A node MUST NOT publish source records ([`Protocol.md`](../Protocol.md)
+  §10.3) or any other record for media, nor answer a `FileRequest` for it without `room` (§4.6),
+  unless its user shares that file anyway. A source record would tie the author's member key to
+  its node (§1.1); an answer without `room` would tell anyone knowing a root who holds it.
+- `type` and `width`/`height` are the author's claims; client decides by the bytes (§6).
 
 ---
 
@@ -427,9 +480,10 @@ holds, as `KeyDrop`s of those generations: gives a new member history (§4.3). W
 new member reads only what's posted after it joined.
 
 **Keys are forgotten.** Node deletes a generation's key once it holds no post under it and a
-later generation began ≥ 1 h *(initial)* ago; at latest 48 h *(initial)* after a later
-generation began. Whoever later takes a member's key or disk reads at most what's posted in its
-current generation and the two days before.
+later generation began ≥ 1 h *(initial)* ago; at latest `keep_hours` + 24 h after a later
+generation began (48 h with the default history). Whoever later takes a member's key or disk
+reads at most what's posted in its current generation and the history before: owner choosing a
+longer history (§4.3) chooses that exposure too.
 
 ---
 
@@ -560,9 +614,15 @@ RoomProof.sig = Ed25519 signature by the member key over
 
 ### 4.3 History
 
-- Node keeps a room's posts of the last 24 h *(initial)* by `sent`, ≤ 1,000 *(initial)*, the
-  newest, kept as they arrived, `sealed` included. Drops posts with older `sent`; remembers post ids
-  dropped for age 1 h *(initial)* longer.
+- Node keeps a room's posts of the last `keep_hours` by `sent`, ≤ `keep_posts`, the newest
+  (§2.1: 24 h and 1,000 unless owner sets more), kept as they arrived, `sealed` included. Drops
+  posts with older `sent`; remembers post ids dropped for age 1 h *(initial)* longer. **History
+  window** = `keep_hours` of the room info node holds.
+- A node MAY keep less than room info asks, e.g. for disk; it SHOULD keep what is asked. A node
+  that predates `keep_hours` keeps 24 h and drops older posts as a time check (§4.4), no fault.
+- **The store for offline members** is this history: a member back within the window gets what
+  it missed from any neighbour (`since` below), as long as one member stayed in room. A room
+  wanting that always runs a member that stays online, e.g. owner's headless node.
 - **First answer carries history:** every held post with `sent` ≥ `since` minus 1 h
   *(initial)*, oldest first, after the other items. The hour = clock tolerance of §2: an
   author's clock may be that far off the joiner's. A first answer not fitting one frame (with
@@ -579,7 +639,7 @@ RoomProof.sig = Ed25519 signature by the member key over
   and its `since`; kept items pass §4.4 checks again when taken back, posts past 24 h dropped.
 - History posts pass §2.5 and §4.4 checks like any other, except the rate.
 - Members hold history, only while in room; a room whose members all leave keeps
-  nothing. Nobody else stores posts: no store for offline members, as for chat
+  nothing. Nobody else stores posts, unlike chat, which stores nothing at all
   ([`chat.md`](chat.md) §2).
 
 ### 4.4 Receiving an item
@@ -594,7 +654,7 @@ private room form (§2.5) is a rule. Then:
 | valid, not new | drops it. Normal: items arrive via several neighbours |
 | valid, dropped by a rule of §2 or §3 (banned author, author not admitted, generation behind, post of the other form of a room with a secret, signer not a moderator, a limit per room or per neighbour) | drops it, doesn't pass it on. No fault of neighbour, which may not have known |
 | fails its signature or content check | drops it, closes exchange, refuses that node as neighbour of any room for 24 h *(initial)* |
-| fails a time check (`issued` or `sent` ahead, `expires` passed, post older than history) | drops it. Clocks differ: no fault of neighbour |
+| fails a time check (`issued` or `sent` ahead, `expires` passed, post older than history window) | drops it. Clocks differ: no fault of neighbour |
 
 - **Rate of an author.** Node passes on ≤ 20 *(initial)* posts per author key and minute, drops
   the rest without fault (value of [`chat.md`](chat.md) §2); ≤ 1 presence per member key and
@@ -626,6 +686,47 @@ private room form (§2.5) is a rule. Then:
   ([`ip-diversity.md`](ip-diversity.md) §1 and §2).
 - **A node is in at most 16 rooms** *(initial)*. Own limit: the 16 topics of
   [`pubsub.md`](pubsub.md) §2.3 don't count towards it.
+
+### 4.6 Fetching media
+
+A member gets the file of a post's `media` (§2.6) from **its neighbours of that room**, with the
+file stream of [`Protocol.md`](../Protocol.md) §12, on the connection of the room exchange.
+
+```protobuf
+// FileRequest (Protocol.md §12.1), field 10:
+  bytes room = 10;            // 16 B: media of this room (room.md §4.6); absent = a regular request
+```
+
+- Downloader sends `FileRequest` with `root` and `room` only to a peer it has a room exchange of
+  that room with, on that exchange's connection. Never through Kad sources or a stranger: the
+  author doesn't learn who reads, and room media stays inside room.
+- **Uploader serves** a `FileRequest` with `room` when: requester is its neighbour of that room on
+  this connection; it holds a post of that room whose `media` names `root`, valid by §2.6;
+  `size` ≤ the room's `media_max`; it holds the whole file. Otherwise `Error{NOT_FOUND}`, also
+  for a node in no such room: says nothing of other files.
+- **Media slot.** A served request gets `FileStatus` with `rank` = 0 at once: a slot beside the
+  regular ones and the short slots of [`name.md`](name.md) §6.4, with its rules. Belongs to that
+  file, ends with its stream without the hold of [`Protocol.md`](../Protocol.md) §12.5, counts
+  in no queue entry or 30 min budget. ≤ 8 *(initial)* media slots at once; beyond →
+  `Error{BUSY}` with `retry_after`.
+- **Media budget.** Uploader takes a served file's `size` from a bucket of bytes holding at most
+  64 MiB *(initial)*, refilled at 180 KiB/s *(initial)*, over all rooms. A request whose `size`
+  the bucket doesn't hold → `Error{BUSY}`, `retry_after` = time until it does. So any hour
+  carries ≤ 64 MiB + 648 MiB: ≤ 200 KiB/s on average, with bursts. At the 16 MiB cap that is
+  ≥ 44 full-size files an hour. Per neighbour ≤ 30 *(initial)* media requests a minute, `BUSY`
+  beyond. Media slots count towards the upload rate the node allows, like any slot.
+- `want_sources` ignored, `sources` empty: a member's sources are its neighbours.
+- Blocks, hashes, bad blocks: [`Protocol.md`](../Protocol.md) §12.2 to §12.4 unchanged. A bad
+  block from a neighbour counts as any; a neighbour stays a neighbour.
+- **Downloader** asks its neighbours in turn; `NOT_FOUND` or `BUSY` → next. None has it: asks
+  again when a neighbour joins, else every 60 s *(initial)*, for ≤ 10 min *(initial)*, then
+  stops until its user asks.
+- **Holder.** Node SHOULD keep media it fetched or posted while it holds a post naming it, and
+  serve it; MAY drop it earlier to bound its disk, then answers `NOT_FOUND`. In a room with a
+  secret it keeps the file as transferred (sealed), opening it to show. Media thus spreads
+  hop by hop from author through members that showed it.
+- A neighbour predating this section ignores field 10 and answers as for any file: mostly
+  `NOT_FOUND`, else a queue place, which downloader leaves (closes the stream) and goes on.
 
 ---
 
@@ -659,7 +760,13 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 
 - Client shows posts as plain text; follows no link and fetches nothing a post names until the
   user asks: a post naming a file only its author shares would tell author who reads the
-  room.
+  room. Media of §2.6 is the exception: it comes from neighbours (§4.6), who already see
+  the member's posts, so fetching it tells nobody new.
+- **Showing media.** Client MAY fetch and show media at once. It SHOULD decide the format by the
+  bytes, not `type`; show only formats it decodes safely (PNG, JPEG, GIF, WebP; video only if
+  the user allows); never run scripts (no SVG); cap pixels and frames before decoding; play video
+  muted. It SHOULD let the user turn showing off, then show `text` and fetch on a click, and MAY
+  limit fetches per room and hour, then show further media as a click to fetch.
 - Client shows a member by nick plus part of its member ID, so same-nick members are told apart;
   marks moderators' posts.
 - Posts shown in `sent` order; a post whose `sent` is far from arrival time MAY be marked.
@@ -689,6 +796,10 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 | **Fill the room's Kad target** with records of non-member nodes | Wasted dials, limited as for false sources ([`ip-diversity.md`](ip-diversity.md) §2.5) |
 | **A moderator turns against room** | Can admit, ban other members and hand keys to whom it wants, until owner drops it from `mods`; its admits, bans and `KeyDrop`s then stop counting (§2.1, §3.2). Can't ban owner's other moderators. Owner key can change everything |
 | **Owner key is taken** | Nothing helps; no successor key (§11) |
+| **Flood media** | Author rate (§4.4) × `media_max`; each uploader's media budget (§4.6) bounds what it sends; clients limit fetches per room and hour (§6) |
+| **A file that attacks the decoder** | Client decodes by bytes, few formats, capped size (§6); showing can be off |
+| **Find who holds a media file** | `FileRequest` without `room`, or from a non-neighbour: `NOT_FOUND` (§4.6). No source records |
+| **Unlawful media** | Members that show media hold it on disk; a moderator bans, `media_max` 0 turns media off; client MAY not fetch without a click |
 | **Two moderators start a generation at once** | Every node takes the same one (§3.2); nothing lost |
 
 ---
@@ -702,7 +813,8 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 | A storing node of the room's target | addresses of members publishing there. Public room: anyone with link computes target; private or closed: target changes hourly, can't be tied to a room |
 | A holder of a closed room's secret without an admit | one member key and its admit (§4.2) |
 | Anyone with a filter list | that a member ID of a room is author it names, as for any key |
-| Someone who later takes a member key or a member's disk | posts of its current generation and up to two days before (§3.2); private room: every post members still hold |
+| Someone who later takes a member key or a member's disk | posts of its current generation and the history window before (§3.2, §4.3); private room: every post members still hold; media it cached |
+| A neighbour | which media of the room the member fetches (§4.6) |
 
 - Member key keeps rooms apart, and apart from node: neighbours see node ID, but a post
   reaches the rest of room without it.
@@ -717,7 +829,8 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 | Post | ~200 B for a short line, ≤ 8 KiB; to each neighbour once |
 | Presence | ~150 B per member per 5 min, to each neighbour once |
 | `KeyDrop` | 64 B per member: 64 KiB for 1,024 members, per generation, so once a day |
-| History at a join | ≤ 1,000 posts: ~200 KB for short ones, at most a few MiB |
+| History at a join | ≤ 1,000 posts by default: ~200 KB for short ones, at most a few MiB; ≤ 10,000 when owner sets it |
+| Media | ≤ `media_max` per post, ≤ 16 MiB; at an uploader ≤ 200 KiB/s on average per hour (§4.6) |
 | Connections | ~3 per room, held open; ~48 for 16 rooms |
 | `SUB` record | one store per 30 min, on ~8 nodes |
 
@@ -734,6 +847,8 @@ Protocol doesn't limit room size, except admits of 1,024 keys in a closed room (
 | **Chat to every member**, each post sent by its author to all | nothing new on the wire | author connects to every member; needs their node IDs |
 | **One node hosts room** and passes posts on | order and history in one place | a server, which ed3k leaves to index nodes (`Protocol.md` §11); reads every post |
 | **Posts in Kad**, as signed records | offline members read later | record lifetime and size; every post a store on 8 nodes; a store anyone can fill |
+| **Media from any source**, published as a shared file | spreads faster | ties member key to node; author sees every reader; anyone with the root fetches closed-room media |
+| **Media inside the post** | no transfer | 8 KiB item cap; every post to every neighbour whether shown or not |
 | **Node key as author** | friend recognised in a room | every post tied to node and all it shares; rooms tied to each other |
 | **Mesh as the only gate**, no sealing | no keys to hand out | removed member still holding secret reads on whenever it slips in; on-disk history stays readable |
 | **Messaging Layer Security** (RFC 9420) | forward secrecy and post-compromise recovery, any group size | ratchet tree whose changes every member must apply in same order, needing one ordering service |
@@ -759,3 +874,7 @@ Protocol doesn't limit room size, except admits of 1,024 keys in a closed room (
   member, and a moderator can't tell.
 - Whether a member sharing a member key across its own devices should be allowed, as a pass
   allows `devices` ([`subscription.md`](subscription.md) §5.3).
+- **A room with every member away** keeps nothing (§4.3). A store outside room (Kad records
+  of sealed posts) was left out on purpose (§10).
+- Media from members that don't show it: a neighbour lacking a file could fetch it for the
+  asker. Left out: it would cache files its user chose not to.

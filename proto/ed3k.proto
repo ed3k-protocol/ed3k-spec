@@ -271,6 +271,7 @@ message FileRequest {         // type 5
   repeated HttpResult http_results = 7;   // outcome per HTTP source or link used   http-source.md §2.1
   bool   want_members = 8;    // on the stream of a manifest: tell me which members you have   file-set.md §4.1
   CreditBid credit = 9;       // credit.md §4.1
+  bytes  room = 10;           // 16 B: media of this room, served from a neighbour of it only   room.md §4.6
 }
 
 message FileStatus {          // type 6
@@ -806,6 +807,9 @@ message RoomInfo {
   bool   closed = 6;          // only admitted members join, read and post; a room with a secret only
   bool   moderated = 7;       // only admitted members post and are listed present
   bytes  banned = 8;          // n × 16 B member IDs banned for good, ascending, each once; at most 4,096
+  uint64 media_max = 9;       // largest media file of a post, bytes, read as at most 16 MiB; 0 = no media   room.md §2.6
+  uint32 keep_hours = 10;     // history kept, read as 24 to 720; 0 = 24   room.md §4.3
+  uint32 keep_posts = 11;     // posts kept, read as 1,000 to 10,000; 0 = 1,000
 }
 
 message Admit {
@@ -839,6 +843,16 @@ message RoomPost {
 message RoomText {
   string text = 1;            // 1 to 4,096 B of UTF-8                         room.md §2.5
   bytes  reply_to = 2;        // 16 B post id; absent = none
+  RoomMedia media = 3;        // room.md §2.6; absent = none
+}
+message RoomMedia {           // room.md §2.6; checked when used, never as content
+  bytes  root = 1;            // 32 B, root of the file as transferred (sealed in a room with a secret)
+  uint64 size = 2;            // 1 to the room's media_max
+  string type = 3;            // media type, at most 64 B
+  string name = 4;            // file name, at most 255 B of UTF-8
+  bytes  key = 5;             // room with a secret: 32 B, ChaCha20 key, zero nonce; public room: absent
+  uint32 width = 6;           // pixels, hint; 0 = not told
+  uint32 height = 7;
 }
 
 message KeyDrop {

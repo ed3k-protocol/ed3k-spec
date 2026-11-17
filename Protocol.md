@@ -2147,6 +2147,7 @@ message FileRequest {
   // field 7 belongs to the optional HTTP source extension (§13.1)
   // field 8 belongs to the optional file set extension (§13.1)
   // field 9 belongs to the optional credit extension (§13.1)
+  // field 10 belongs to the optional rooms extension (§13.1)
 }
 
 message FileStatus {
@@ -2934,10 +2935,11 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Anonymous paths: replay window for stream numbers of path and of session, PING on path link every | 1,024, 20 s |
 | Browse: entries per answer; pages and entries requester takes from one node, max | 1,000; 100 and 10,000 |
 | Chat: message ids of sender remembered for, max; senders remembered max, of them per host address; resends after lost connection max, within | 10 min, 1,024; 256, 16; 3, 10 min |
+| Rooms, media and history: `media_max` read as at most; history read as (hours, posts); media slots at once; media budget (bucket, refill); media requests per neighbour and minute; downloader asks again every, for | 16 MiB; 24–720, 1,000–10,000; 8; 64 MiB, 180 KiB/s; 30; 60 s, 10 min |
 | Rooms: item max (room info, `KeyDrop`); clock tolerance; moderators, admits, bans and lifts, presences per room; permanent bans; ban max; lift kept for; ban window of moderator kept after ban (when no longer in `mods`), windows per key | 8 KiB (72 KiB); 1 h; 8, 1,024, 4,096, 4,096; 4,096; 30 days; 30 days; 30 days, 64 |
-| Rooms: presence renewed every, own presences at least apart, `expires` max after `issued`, `issued` remembered after `expires`; history (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 60 s, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1 (+1 `left`); 60; 600 |
+| Rooms: presence renewed every, own presences at least apart, `expires` max after `issued`, `issued` remembered after `expires`; history by default (age, posts), `since` slack, dropped post ids kept; passed on per author and minute (posts, presences), per signer and minute (admits, bans, keys); taken per neighbour and minute | 5 min, 60 s, 15 min, 1 h; 24 h, 1,000, 1 h, 1 h; 20, 1 (+1 `left`); 60; 600 |
 | Rooms: neighbours aimed at / kept, rooms per node, bad neighbour refused for, item awaiting its room info (time, items per room); member proof clock tolerance; `SUB` target of private room changes every, neighbour hours searched in first / last | 3 / 2–4, 16, 24 h, 60 s, 64; 10 min; 1 h, 10 min / 10 min |
-| Rooms, generations: started again after (with posts), post of older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; post awaiting its `KeyDrop` (time, posts per room); moderator starts new generation once current one has `KeyDrop`s; key forgotten after later generation (no post held / at latest) | 24 h, 2 min, 64, 1,032; 60 s, 64; 32; 1 h / 48 h |
+| Rooms, generations: started again after (with posts), post of older one dropped after, `KeyDrop`s held, wraps per `KeyDrop`; post awaiting its `KeyDrop` (time, posts per room); moderator starts new generation once current one has `KeyDrop`s; key forgotten after later generation (no post held / at latest) | 24 h, 2 min, 64, 1,032; 60 s, 64; 32; 1 h / history window + 24 h |
 | HTTP sources: per `FileStatus`, per source record, per Kad answer; results until source is dropped; redirects followed; sealed source's `expires` ahead min | 8, 3, 16; 3; 3; 120 s |
 | HTTP sources: live sealed sources before no further chunk is published; failed or pending fetches per hour, per host / site / block, counted per file and, over all files, per namer of URL; over all files and namers together, per host; host is exempt over all files after verified block for | 2; 2 / 4 / 8; 8; 1 h |
 | File sets, manifest max: size, `files`, `dirs`, path component, components in path, depth, files with all inner sets | 4 MiB, 65,536, 65,536, 1–255 B, 32, 8, 1,000,000 |
