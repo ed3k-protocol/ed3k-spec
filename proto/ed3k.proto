@@ -413,6 +413,7 @@ message FileSet {
   SignedOffer offer = 12;     // paid set                                      subscription.md §3
   EpochKey released = 13;     // newest released epoch key                     subscription.md §4.3
   SignedChain released_chain = 14;  // the season of `released`
+  repeated string exts = 15;  // suggested extensions for followers' downloads   file-set.md §5.3
 }
 
 message Member {

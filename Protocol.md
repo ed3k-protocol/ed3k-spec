@@ -2129,6 +2129,10 @@ isn't thereby an index node; it runs a node beside it, which may be one
 
 ## 12. File transfer
 
+**Upload/download ratio.** A node whose upload limit is below 20 KiB/s MUST keep its download
+rate at most 3× (limit below 4 KiB/s), 4× (below 10 KiB/s) or 5× that limit, as eMule does, also
+without a download limit of its own.
+
 ### 12.1 The file stream
 
 Downloader opens one exchange per uploader for the file it wants from it; everything about that
@@ -2911,6 +2915,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Queue: time to come back (`recheck`) **(wire)** | 30 min to 4 h |
 | Queue: entry kept after time to come back, or after lost connection | 30 min |
 | Queue: ping interval, answer time | 30 min, 30 s |
+| Download rate per upload limit below 20 KiB/s (below 4 / 10 / 20 KiB/s) max | 3× / 4× / 5× |
 | Queue: `have` update to downloader with slot | 1 per 5 min |
 | Queue: early return for address or relay change, for another file, or for changed bid (short slots not counted) | 1 per 30 min, all together |
 | Slot offer: wait, failures before offers stop; entry told to stay connected kept after failed offer | 30 s, 2; 30 min |

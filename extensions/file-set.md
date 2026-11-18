@@ -50,6 +50,7 @@ message FileSet {
   // field 10 belongs to the optional Usenet extension (usenet.md §3)
   // field 11 belongs to the optional extension for videos named on a chain (chaintube.md §2.3)
   // fields 12 to 14 belong to the optional paid subscription extension (subscription.md §8)
+  repeated string exts = 15;  // optional: file name extensions the author suggests followers download (§5.3)
 }
 
 message Member {
@@ -366,6 +367,11 @@ Record is a `Signed` (`Protocol.md` §10.7) of kind `HEAD`, signed by the author
   *(initial)*. With the publish and subscribe extension it also gets new heads from other
   followers within seconds ([`pubsub.md`](pubsub.md)); still checks as above.
 - New members: user's choice per set, ask or download.
+- `exts`: author's suggestion which new members a follower downloading by itself takes: a
+  member whose name ends in `.` + an entry, any case. Entry lower case ASCII letters and digits, 1
+  to 16 B; at most 64 entries. Reader ignores a bad entry. A client MAY offer it as the default
+  of a local filter the user changes; never a limit on what the user can choose. Empty = no
+  suggestion.
 - A client MUST NOT delete or overwrite a file because a newer manifest leaves it out or names
   another root for its path. It keeps the old file until the user decides.
 - Member with unchanged root isn't downloaded again, wherever it moved.
