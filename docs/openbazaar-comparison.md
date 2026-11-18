@@ -73,7 +73,7 @@ enough for an order with its listing.
 | `Protocol.md` §5.1 | types 46 `Market`, 47 `MarketAck` |
 | `Protocol.md` §10.1, §10.3 | kind 16 `MAIL`: target, enum, `Store` field 15, `KadAnswer` 24/25, lifetime, every `ROUTER` stores it |
 | `Protocol.md` §10.7 | `signer` ignored for `MAIL` |
-| `Protocol.md` §13.1, §13.2, App. A, B | tables, `mb` link parameter, constants, vectors pending |
+| `Protocol.md` §13.1, §13.2, App. A, B | tables, `mb` link parameter, constants, list of vectors |
 | [`ip-diversity.md`](../extensions/ip-diversity.md) §2.4 | `MAIL` per-host/site limits |
 | [`pubsub.md`](../extensions/pubsub.md) §1 | `TopicType` 4 `DIRECTORY` |
 | [`chat.md`](../extensions/chat.md) | `subject` field 3; offline by mail |

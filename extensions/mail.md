@@ -4,7 +4,7 @@
 **Extends:** [`Protocol.md`](../Protocol.md) §10.1, §10.3, §13.1, §13.2; [`friend.md`](friend.md) §1; [`chat.md`](chat.md). § = that document unless this one is named; "§n here" = this document.
 **Capability:** none. Record kind 16 `MAIL`. One field in `Store`, two in `KadAnswer`; `mb` in `ed3k:friend` links.
 **Required of every `ROUTER`:** storing and returning the record kind `MAIL` (§4 here). The rest is optional.
-**Test vectors:** not yet (§9 here).
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Offline messages*.
 
 Chat ([`chat.md`](chat.md)), rooms and every request/answer message need both nodes online.
 A message for an offline node is stored in Kad as **sealed records** until the recipient comes
@@ -260,7 +260,6 @@ decimal, or above 16. Absent = node announced no mailbox; a sender MAY still try
 
 ## 9. Open points
 
-- Test vectors: box, bucket, target, one sealed record, a two-part message with signature.
 - Spam filling a bucket to `FULL`: costs 8 sites per target per day; spill helps one level.
   A per-sender proof of work, or a deposit, would cost honest senders too.
 - Mail from senders without `reply`: one-way only.

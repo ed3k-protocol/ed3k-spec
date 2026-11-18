@@ -3037,11 +3037,11 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   tip, an offer, a pass, a proof, a key exchange, sealed forms and a share report; the node list
   tag, keys of private channels, hop session, pair key of friend records; of rooms: names,
   proofs, keys and a sealed post; of readable names: targets, a delegation, a `NAME` and a
-  `CLAIM` record; and credit signatures of a bid and a receipt, under a test domain: chain ID and
-  contract of the public network not assigned yet
+  `CLAIM` record; of offline messages: box, bucket targets and a two-part sealed message; of the
+  market: a listing, an order with its id, chain and frame, a confirm and a rating; and credit
+  signatures of a bid and a receipt, under a test domain: chain ID and contract of the public
+  network not assigned yet
   ([`extensions/credit.md`](extensions/credit.md) §7.1).
-- Vectors still missing: offline messages ([`extensions/mail.md`](extensions/mail.md) §9) and
-  market ([`extensions/market.md`](extensions/market.md) §9).
 - The zstd dictionary does not exist yet; needs a message corpus. Until published, every node
   announces `dict = 0` and sends frames without a dictionary (§5.3).
 - Field numbers of every message are collected in `proto/ed3k.proto`; a change in a document has

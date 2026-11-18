@@ -3,6 +3,7 @@
 **Status:** draft 0.1 (2026-11-18). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §13; [`file-set.md`](file-set.md) §5; [`pubsub.md`](pubsub.md) §1; [`mail.md`](mail.md) §3; [`friend.md`](friend.md) §2; [`name.md`](name.md). § = this document unless a document is named.
 **Capability:** bit 21, `MARKET`. Message types 46 and 47. Three file formats. One `TopicType`. Mail payload type `market`.
+**Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Market*.
 **Required of every `ROUTER`:** nothing. Uses record kinds every `ROUTER` already stores (`HEAD`, `KEYWORD`, `SUB`, `FRIEND`, `MAIL`, `NAME`).
 
 A peer-to-peer market after OpenBazaar: stores, listings, orders under a Ricardian contract,
@@ -427,7 +428,6 @@ A store that wants its address hidden: nodes in `nodes` reached through paths
 ## 9. Open points
 
 - Price/category/region search: crawler or index node service, not specified.
-- Test vectors: order id, chain `prev`, rating signatures.
 - `chain` formats per coin: separate documents.
 - Vendor blocking buyers, moderator add/remove notices (OpenBazaar 16, 17, 19): local policy.
 - All numbers are first values.
