@@ -2,7 +2,7 @@
 
 **Status:** draft 0.1 (2026-10-11). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §13.1. § = that document.
-**Capability:** bit 4, `CHAT`. Message types 16 and 18.
+**Capability:** bit 4, `CHAT`. Message types 16 and 18. Offline delivery by [`mail.md`](mail.md) §3.1.
 
 `CHAT` = node accepts text messages from other nodes. A message goes to one node; rooms with many
 members: [`room.md`](room.md).
@@ -13,6 +13,7 @@ members: [`room.md`](room.md).
 message Chat {
   string text = 1;            // at most 4,096 bytes in UTF-8
   fixed64 id = 2;             // random per message, the same again when it is repeated: a replay id, not a request id (§5.2)
+  string subject = 3;         // optional, at most 64 B: thread the message belongs to, e.g. a market order id in hex (market.md §4.2)
 }
 
 message ChatAck { }
@@ -30,13 +31,16 @@ message ChatAck { }
   if the node does not want to reveal that the sender is blocked.
 - No captchas: the sender is an authenticated key the receiver can block, and the connection
   budget of §4.6 limits how fast a node can open connections to send.
-- Delivery needs a connection to the receiver; no storage for offline nodes. Finding a known
-  peer after its address changed: [`friend.md`](friend.md).
+- Delivery needs a connection to the receiver. Offline receiver: the message MAY go by mail
+  ([`mail.md`](mail.md) §3.1), same `id`. Finding a known peer after its address changed:
+  [`friend.md`](friend.md).
+- `subject` above 64 bytes → `Error{MALFORMED}`. Client groups messages by (peer, `subject`);
+  empty = the plain conversation.
 - **Rate limit.** A receiver MAY limit messages taken from one sender, counted per node ID and
   per host address (IPv4 /32, IPv6 /64). Over the limit → `Error{BUSY}` with `retry_after` in
   seconds. Limit is local policy; 20 messages per minute is reasonable. A sender getting
   `BUSY` waits that long before sending again, with the same `id`.
-- Check order: `UNSUPPORTED`, `MALFORMED` (size of `text`), its policy (`DENIED` or silent
+- Check order: `UNSUPPORTED`, `MALFORMED` (size of `text`, `subject`), its policy (`DENIED` or silent
   `ChatAck`), a repeated (sender, `id`), then rate limit (`BUSY`).
 - Every `Error{BUSY}` here carries a `retry_after` of at least 1 s, whole seconds
   rounded up.

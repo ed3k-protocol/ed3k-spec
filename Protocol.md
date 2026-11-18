@@ -109,6 +109,7 @@ Every participant is a **node**, announcing what it does with capability bits in
 | 18 | `PAID` | Ext.: hands out epoch keys of paid channels and sets to pass holders ([`extensions/subscription.md`](extensions/subscription.md)) |
 | 19 | `ROOM` | Ext.: takes part in rooms with many members ([`extensions/room.md`](extensions/room.md)) |
 | 20 | `NAMES` | Ext.: answers friends asking what a name stands for ([`extensions/name.md`](extensions/name.md)) |
+| 21 | `MARKET` | Ext.: takes market messages for stores it acts for ([`extensions/market.md`](extensions/market.md)) |
 
 `caps` travels in `Hello` only (§5.5), not in compact Kad contacts or source records: a node
 learns a peer's capabilities after connecting. A bit or policy changing during a connection
@@ -518,6 +519,8 @@ Types 1–63 keep the tag at one byte.
 | 43 | `RoomState` | both | optional, §13.1 |
 | 44 | `NameQuery` | request | optional, §13.1 |
 | 45 | `NameAnswer` | answer | optional, §13.1 |
+| 46 | `Market` | request | optional, §13.1 |
+| 47 | `MarketAck` | answer | optional, §13.1 |
 | 48–63 | reserved | | §10.6 |
 
 ### 5.2 Exchange patterns
@@ -1318,6 +1321,7 @@ Comparison: [`docs/nat-traversal-comparison.md`](docs/nat-traversal-comparison.m
 | `SUB` | `H("ed3k v1 topic", type(1) ‖ key ‖ id)[0..16)`; topic's type, key, `id` ([`extensions/pubsub.md`](extensions/pubsub.md) §1). A room stores `SUB` records under own target ([`extensions/room.md`](extensions/room.md) §1.2) |
 | `NAME` | `H("ed3k v1 name", zone ‖ label)[0..16)`; zone's root key, a name in it ([`extensions/name.md`](extensions/name.md) §3.2) |
 | `CLAIM` | `H("ed3k v1 name claim", name)[0..16)`; a global name ([`extensions/name.md`](extensions/name.md) §4.2) |
+| `MAIL` | `H("ed3k v1 mail target", b(1) ‖ bucket(2) ‖ period(8))[0..16)`; bucket of recipients' mailbox keys, day number ([`extensions/mail.md`](extensions/mail.md) §1) |
 | `KEYWORD` | `H("ed3k v1 keyword", level(1) ‖ word)[0..16)`; `word` = one keyword of the file name in UTF-8, defined below. `level`: one byte, 0 on Kad in version 1, 0 to 15 at an index node (§10.8, §11) |
 
 File hashes, node IDs and keyword keys come from one function, cut to the same 128 bits: one
@@ -1445,7 +1449,7 @@ One Kad request: always asks for closer nodes; optionally carries an operation t
 performs if responsible for the target.
 
 ```protobuf
-enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; ALIAS = 13; NAME = 14; CLAIM = 15; }
+enum Kind { NONE = 0; SOURCE = 1; KEYWORD = 2; NOTE = 3; HEAD = 4; MEMBER = 5; LIVE = 6; SUB = 7; HIDDEN = 8; PART = 9; FRIEND = 10; ANON = 11; GATE = 12; ALIAS = 13; NAME = 14; CLAIM = 15; MAIL = 16; }
 
 message KadRequest {
   bytes  target = 1;          // 16 B
@@ -1465,6 +1469,10 @@ message Query {
   uint32 min_sources = 5;     // compared with FileInfo.sources of the record
   string ext = 6;             // extension of the name (§10.1 step 4) without the `.`, normalised by the sender; empty = any
   uint32 offset = 7;          // skip this many matching records, in the order of the paging rule below
+  repeated string exts = 8;   // further extensions as `ext`: the name's is `ext` or one of these; empty with `ext` = any
+  uint32 min_duration = 9;    // compared with FileInfo.duration; 0 = no limit
+  uint32 min_bitrate = 10;    // compared with FileInfo.bitrate; 0 = no limit
+  string codec = 11;          // equals FileInfo.codec; normalised by the sender; empty = any
 }
 
 message Store {
@@ -1480,6 +1488,8 @@ message Store {
   // field 11 belongs to the optional extension for other names of a file (§13.1)
   // field 12 belongs to the optional extension for links at file hosters (§13.1)
   // field 13 belongs to the optional extension for readable names (§13.1)
+  repeated string file_names = 14;  // SOURCE: name the publisher gives the file, for `target` then each target of `also`; optional (below)
+  // field 15 belongs to the optional extension for offline messages (§13.1)
 }
 
 message Note {
@@ -1509,6 +1519,8 @@ message KadAnswer {
   // field 19 belongs to the optional extension for links at file hosters (§13.1)
   // field 20 belongs to the optional extension for readable names (§13.1)
   // fields 21 and 22 belong to the optional extension for anonymous paths (§13.1)
+  repeated string file_names = 23;  // SOURCE search: one per entry of `sources`, the name its publisher gave the file; empty = none
+  // fields 24 and 25 belong to the optional extension for offline messages (§13.1)
 }
 
 enum StoreResult {
@@ -1556,7 +1568,7 @@ Rules:
 - **Search or store.** Search = `search` present, also empty; store = `store` present; both →
   `Error{MALFORMED}`; neither → contacts only, whatever `kind` says, still setting `responsible`
   as below and, for a kind it stores, `load` and `spill` (§10.8), so a lookup learns them without
-  a search. `all` and `none` of a `Query`: at most 64 *(initial)* terms together; more →
+  a search. `all`, `none` and `exts` of a `Query`: at most 64 *(initial)* terms together; more →
   `Error{MALFORMED}`.
 - **Order of checks.** In this order; first deciding step gives the answer:
   1. Parses and keeps the size and layout rules of §0 and this section, else `Error{MALFORMED}`.
@@ -1620,6 +1632,10 @@ Rules:
   name, signable only by that key or a key it delegated to; `CLAIM`: its publisher calls a zone by
   a global name, held like `ALIAS`. Every `ROUTER` MUST store and return both, whether or not it
   sets `NAMES` ([`extensions/name.md`](extensions/name.md) §3.2, §4.2).
+- **`MAIL`**: messages for offline nodes, sealed, fixed size, under a target shared by many
+  recipients. Unsigned; storing node checks size only, keeps records in arrival order, all of
+  a target expiring together. Every `ROUTER` MUST store and return it
+  ([`extensions/mail.md`](extensions/mail.md) §4).
 - **`ANON`** and **`GATE`**: a node hiding its address behind other nodes. `ANON` names it as a file
   source by node ID alone; `GATE` says through which nodes it is reached. Both signed. A `SOURCE`
   search also returns node IDs of the target's `ANON` records, in `anon`, paged after `sources`
@@ -1675,7 +1691,7 @@ Rules:
 - **Keyword and note records are signed** by their publisher (§10.7). Content is still a claim;
   the signature fixes who made it.
 - Lifetimes *(initial)*: `SOURCE`, `ANON` and `FRIEND` 5 h, `GATE` 1 h, `KEYWORD` 24 h, `NOTE` 24 h, `MEMBER`, `ALIAS` and `CLAIM` 24 h, `LIVE` 10 min, `SUB` 60 min, `HEAD`, `HIDDEN`, `PART`
-  and `NAME` up to 7 days. Republish before expiry; how long before is local policy where the kind
+  and `NAME` up to 7 days, `MAIL` until 7 days after its target's day. Republish before expiry; how long before is local policy where the kind
   names no interval.
 - A `Store` holds at most 256 *(initial)* records, all record fields together; every record after
   the 256th is `REJECTED`, yet still counts as held: a `Store` whose only record of `kind` comes
@@ -1684,9 +1700,12 @@ Rules:
   search `Error{BUSY}` with `retry_after`.
 - **Keyword search.** Searcher splits its search text into words as in §10.1 (steps 1 to 3);
   derives target from the longest in UTF-8 bytes with 3 bytes or more (the first if equally long), from a
-  2-byte word only if no longer one. Sends the others in `all`, and `all`, `none` and `ext`
-  normalised as step 1 of §10.1; a storing node compares them as bytes with the name's words and
-  extension. `ext` is sent and compared without the `.`. A word in `all` or `none` matches a name
+  2-byte word only if no longer one. Sends the others in `all`, and `all`, `none`, `ext`, `exts`
+  and `codec` normalised as step 1 of §10.1; a storing node compares them as bytes with the name's
+  words and extension, `codec` with `FileInfo.codec` normalised so. `ext` and `exts` are sent and
+  compared without the `.`; a file type is a list of extensions in `exts`. A record whose
+  `duration` or `bitrate` is 0 (unknown) fails a `min_duration` or `min_bitrate` above 0. A node
+  not knowing a field ignores it (§16), so a searcher MAY drop a record not matching its `Query`. A word in `all` or `none` matches a name
   when it
   equals one of the name's words; no substring match. So a term = one word as steps 1–3 give it: a
   term with a separator inside, or an unspaced run of 3 or more, never matches; searcher splits
@@ -1700,10 +1719,16 @@ Rules:
   256th *(initial)* → `REJECTED`. `also` not n × 16 bytes makes a request of kind `SOURCE`
   `Error{MALFORMED}`. Other `kind`: `also` ignored, gets no entries. `nodes4`/`nodes6` refer to the
   request's target. Per-file fields (e.g. HTTP sources): request's target only. Publisher use: §10.4.
+- **Names with source records.** A publisher MAY name the file in `Store.file_names`: first the
+  request's target, then one per `also` target in order; missing or empty entry = no name. Each at
+  most 255 B of UTF-8; longer, or more entries than targets → `Error{MALFORMED}`. A storing node
+  keeps a name with the record of its target (a newer record replaces it) and returns it in
+  `KadAnswer.file_names`, one per entry of `sources`; shorter list reads empty for missing entries.
+  A searcher shows these names as names others give the file, a claim like `FileInfo.name`.
 - `store` answered per record in `results`, ordered by `Store` field number, within a repeated
   field by its order; then one per `also` target. Record fields:
   `source` (1), `files` (2), `note` (3), `head` (5), `members` (7), `sealed` (9), `anon` (10),
-  `aliases` (11), `names` (13). `http` (4) and `links` (12) belong to the `source` record, no
+  `aliases` (11), `names` (13), `mail` (15). `http` (4), `links` (12) and `file_names` (14) belong to the `source` record, no
   entry; nor `signer` and `also` themselves. Shorter list reads `STORED` for missing
   entries, like an absent list; extra entries ignored. `sites` shorter than the list it counts
   reads 0 for missing entries. Record failing a check (§10.7) or not of `kind` →
@@ -1888,7 +1913,7 @@ the day: `HIDDEN` ([`extensions/hidden-set.md`](extensions/hidden-set.md) §3).
   ([`extensions/file-set.md`](extensions/file-set.md) §5.2) and a last hop stores for a hiding
   node ([`extensions/hops.md`](extensions/hops.md) §4.2). Source records, bound to the
   connection, never use it: `signer` in a `Store` of `SOURCE`, of a kind stored like it (`LIVE`,
-  `SUB`, §10.3), or of `FRIEND` is ignored. In a `KadAnswer` the key is `keys[key]`, sent once per
+  `SUB`, §10.3), of `FRIEND` or of `MAIL` is ignored. In a `KadAnswer` the key is `keys[key]`, sent once per
   publisher.
 - `sigs` is a list from version 1 on. At most one signature per algorithm; a second of the same
   `alg`, or one with `alg` = 0, makes the record invalid.
@@ -1923,7 +1948,7 @@ the day: `HIDDEN` ([`extensions/hidden-set.md`](extensions/hidden-set.md) §3).
 
 Record failing a check on the storing node → `REJECTED` in `results` (§10.3). `Store.signer`
 not 32 bytes makes a request of a kind using it `Error{MALFORMED}` (§0); for `SOURCE`, `LIVE`,
-`SUB` and `FRIEND` ignored whatever its length.
+`SUB`, `FRIEND` and `MAIL` ignored whatever its length.
 **Newer.** Every signed kind keeps one record per publisher and file, target or root (over all
 publishers a keyword file, a `MEMBER` set, an `ALIAS` root and a `CLAIM` zone keep at most 3,
 §10.8 and their documents), except `HEAD`, `HIDDEN`, `GATE` and `NAME`: one record per target
@@ -2580,9 +2605,10 @@ A media layout made for playing, fragmented MP4 with its index at the start:
 
 Optional, each announced by a capability bit, none required: browsing a peer's shared files, chat,
 rooms, HTTP sources, file sets, live streams, publish and subscribe, finding nodes in the local
-network. Optional w/o bit of their own (adding file formats, links, four record kinds): hidden
+network, a market. Optional w/o bit of their own (adding file formats, links, five record kinds): hidden
 sets, sets with several authors, other names of a file, torrents and Usenet posts as file sets,
-videos named on a chain, shared filter lists, first contact, finding a known node. Readable names
+videos named on a chain, shared filter lists, first contact, finding a known node, offline
+messages. Readable names
 for keys (websites among things named) are optional: two record kinds, a link, a bit. Links at file hosters are
 a further source kind, with own bit.
 
@@ -2619,11 +2645,13 @@ separate program next to an ordinary node, no further role (§11).
 | First contact | none | node list file format (fetched and shipped); `ed3k:nodes` links | [`extensions/bootstrap.md`](extensions/bootstrap.md) |
 | Finding a known node | none | record kind 10; field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
 | Readable names | bit 20, `NAMES` | message types 44, 45; record kinds 14, 15; two fields in `Record`, one in `Store` and `KadAnswer`; name list file format; `ed3k:name` links; DNS record and file at a web server; local web server for websites | [`extensions/name.md`](extensions/name.md) |
+| Offline messages | none | record kind 16; field in `Store`, two in `KadAnswer`; `mb` in `ed3k:friend` links | [`extensions/mail.md`](extensions/mail.md) |
+| Market | bit 21, `MARKET` | message types 46, 47; profile, listing and rating file formats; one `TopicType`; field in `Chat`; mail payload type | [`extensions/market.md`](extensions/market.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16); one exception (§10.3): a `ROUTER` stores, checks and returns records of
 every kind in this table, and `Store` fields of a source record (HTTP sources, links at hosters),
-whether or not it sets the bit. So version-1 record kinds are 1 to 15; the documents above define
+whether or not it sets the bit. So version-1 record kinds are 1 to 16; the documents above define
 their checks.
 
 ### 13.2 Links
@@ -2669,7 +2697,7 @@ file's hash tree. Client without the HTTP source extension ignores both; that ex
 defines `ed3k:cache` (link to a cache server). Other extensions:
 file set adds `path` to `ed3k:file`, defines `ed3k:set`; live stream defines `ed3k:live`;
 hidden set adds `s` to `ed3k:set`; torrent adds `bt` and links at file hosters add `hl`, both
-to `ed3k:file`; first contact defines `ed3k:nodes`; finding a known node defines `ed3k:friend`;
+to `ed3k:file`; first contact defines `ed3k:nodes`; finding a known node defines `ed3k:friend`, offline messages add `mb` to it;
 videos named on a chain add `b3`, `sz`, `ipfs` to `ed3k:set`, and `ipfs` to `ed3k:file`;
 paid subscription adds `paid` to `ed3k:live` and `ed3k:set`, defines `ed3k:pass`; room defines
 `ed3k:room`; readable names define `ed3k:name`.
@@ -2885,7 +2913,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Kad: bucket refreshed after, contact verified again after, second attempt after failed one | 60 min, 60 min, 5 min |
 | Kad, own network down: offline after no connection or datagram for, with failed dials or requests to different sites at least; maintenance after offline, address change or sleep spread over; timer late by that shows sleep | 2 min, 4; 5 min; 2 min |
 | Kad: time for one node to answer, longest lookup | 5 s, 60 s |
-| Kad: records in one `Store` max; terms in `all` and `none` of `Query` together max | 256; 64 |
+| Kad: records in one `Store` max; terms in `all`, `none` and `exts` of `Query` together max | 256; 64 |
 | Source records: targets in `also`, max per request and per batch; target stored less long ago rides along in no batch; longest time from last successful store to the next; `STORED` answers below which a target gets its own lookup | 256; 2 h; 4 h; 4 |
 | Declined stores: `STORED` answers below which further nodes are asked; further nodes max | 4; 4 |
 | Diversity, per host / site / block: bucket, answer | 1 / 2 / 4 |
@@ -2975,6 +3003,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Filter lists: list file max, sets of lists followed, list files per set, list files read in all | 4 MiB, 32, 64, 64 MiB |
 | First contact: saved contacts, fetch lists when fewer than N answered / max per first contact, list max, redirects followed, `created` max old (default, configurable; shipped list none), nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (max half from one list, for max), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
 | Finding known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of record or request max ahead, record stored every, lookup of friend max, sealed values opened per search max | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
+| Offline messages: record `sealed` **(wire)**, message part max, parts per message, bucket width default / range, records per target (per host / site), records per search answer, lifetime past target's day, sender re-store every, recipient fetch every / days back / nodes per target, parts kept for, ack collected for | 1,024 B, 962 B, 64, 8 / 0–16, 4,096 (256 / 512), 256, 7 days, 12 h, 30 min / 8 / 3, 8 days, 1 h |
+| Market: profile / listing / rating file max, nodes per profile, sections per order, store unreachable before mail after | 64 KiB / 1 MiB / 16 KiB, 8, 64, 2 min |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of set; results until link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots max, time for payment (from `FileStatus` with `price` or `due`), bid raise (a lower bid any time), ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 10 min, 10 min |
 | Credits: void bids before priority is withheld (per node ID), withheld for | 2, 24 h |
@@ -3010,6 +3040,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   `CLAIM` record; and credit signatures of a bid and a receipt, under a test domain: chain ID and
   contract of the public network not assigned yet
   ([`extensions/credit.md`](extensions/credit.md) §7.1).
+- Vectors still missing: offline messages ([`extensions/mail.md`](extensions/mail.md) §9) and
+  market ([`extensions/market.md`](extensions/market.md) §9).
 - The zstd dictionary does not exist yet; needs a message corpus. Until published, every node
   announces `dict = 0` and sends frames without a dictionary (§5.3).
 - Field numbers of every message are collected in `proto/ed3k.proto`; a change in a document has

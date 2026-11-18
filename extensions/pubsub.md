@@ -39,6 +39,7 @@ enum TopicType {
   SET_HEAD = 1;               // key and id of a set that changes (file-set.md §5.1)
   ON_AIR = 2;                 // key and id of a live channel (live.md §1.1)
   // 3, PAID, belongs to the optional paid subscription extension (subscription.md §8.4)
+  // 4, DIRECTORY, belongs to the optional market extension (market.md §3.2)
 }
 ```
 
@@ -55,6 +56,8 @@ per topic: newest verified.
 | `PAID` | `HIDDEN` record of a paid hidden set; none for other paid scopes ([`subscription.md`](subscription.md) §8.4) | `Sealed.seq` | set key |
 
 - No topic for free data. A type is defined by a specification, with a forwarding node's checks.
+- `DIRECTORY` ([`market.md`](market.md) §3.2): a list of nodes, no item. Only `SUB` records
+  (§5); `TopicJoin` for it → `Error{UNSUPPORTED}`.
 - Nodes join only topics of known types; others can't be verified.
 - `PAID` topic: named by its scope, not the hash above; its `SUB` records move to a new target
   daily. Only pass holders join ([`subscription.md`](subscription.md) §6.3, §8.4). Opened item

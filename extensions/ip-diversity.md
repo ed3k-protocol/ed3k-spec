@@ -119,6 +119,7 @@ Storing nodes limit publishers per target, refining the per-source-address reque
 | `NOTE` records per file target (`Protocol.md` §10.8) | 4 | 8 | — |
 | `KEYWORD` and `NOTE`: publishers counted per entry | 1 | 1 | — |
 | `FRIEND` records per target ([`friend.md`](friend.md) §4) | 8 | 16 | — |
+| `MAIL` records per target ([`mail.md`](mail.md) §4) | 256 | 512 | — |
 | `MEMBER` sets per file ([`file-set.md`](file-set.md) §6) | — | 16 | — |
 | `ALIAS` roots per target ([`alias.md`](alias.md) §3) | — | 8 | — |
 | `CLAIM` zones per target ([`name.md`](name.md) §4.2) | — | 8 | — |

@@ -47,6 +47,8 @@ Optional features on top of the core, each announced by a capability bit or carr
 | [`room`](./extensions/room.md) | Group chat rooms joined via `ed3k:room` links. |
 | [`name`](./extensions/name.md) | Human-readable names for nodes and sets, also via DNS. |
 | [`friend`](./extensions/friend.md) | Finds a known node again by its key after its address changed. |
+| [`mail`](./extensions/mail.md) | Offline messages: sealed records in Kad, shared by many recipients for privacy. |
+| [`market`](./extensions/market.md) | Peer-to-peer stores, orders and ratings after OpenBazaar; payment stays on chain. |
 | [`browse`](./extensions/browse.md) | Browses the shared files of a peer. |
 | [`hops`](./extensions/hops.md) | Anonymous paths over several hops to hide who downloads or shares. |
 | [`lan-discovery`](./extensions/lan-discovery.md) | Finds nodes in the local network via multicast for fast LAN transfers. |

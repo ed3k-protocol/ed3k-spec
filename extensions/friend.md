@@ -31,7 +31,7 @@ Pairwise keys are Briar's, the request Tox's
 ## 1. Friends
 
 ```
-ed3k:friend?key=<node key, base32 lower case, no padding>[&r=<request value>][&dn=<url-encoded name>]
+ed3k:friend?key=<node key, base32 lower case, no padding>[&r=<request value>][&dn=<url-encoded name>][&mb=<mailbox bucket width>]
 ```
 
 Friends = each node added the other's key. Nothing else exchanged.
@@ -52,7 +52,8 @@ k   = H("ed3k v1 friend pair", ss ‖ key of the publishing node ‖ key of the 
 - `key`, `s`, `r`: base32 per `Protocol.md` §13.2: written lower case without padding, read
   either way.
 - Link invalid if `key` missing, repeated or not 32 bytes; `s` not 32 bytes; `r` not 8 bytes;
-  or `s`, `r` or `dn` repeated.
+  or `s`, `r` or `dn` repeated. `mb`: node takes mail under `key`, rules in
+  [`mail.md`](mail.md) §6; allowed in every form.
 
 ---
 

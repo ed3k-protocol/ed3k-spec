@@ -1,6 +1,6 @@
 # Extension: rooms (`room`)
 
-**Status:** draft 0.2 (2026-11-18: media, owner-set history, §2.6, §4.6). Optional in wire version 1.
+**Status:** draft 0.2 (2026-11-18: media, other small files, owner-set history, §2.6, §4.6). Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.3 and §13, [`chat.md`](chat.md), [`pubsub.md`](pubsub.md) §2 and §5, [`live.md`](live.md) §10. § = this document unless a document is named.
 **Capability:** bit 19, `ROOM`. Message types 42 and 43. `ed3k:room` links.
 **Required of every `ROUTER`:** nothing. Rooms use record kind `SUB` of [`pubsub.md`](pubsub.md) §5, which every `ROUTER` already stores.
@@ -18,7 +18,8 @@ between them. A **room** carries posts among many members.
 - Members keep posts of the **last day**, or as long as owner sets (up to 30 days), and give
   them to a member joining or coming back. Only room members keep them: no Kad node and no
   stranger stores a post.
-- A post MAY carry an **image or video** (§2.6), fetched from room neighbours only.
+- A post MAY carry an **image or video**, or where owner allows **another small file** (§2.6),
+  fetched from room neighbours only.
 - Owner names **moderators**: they admit and ban members, and in a closed room hand out keys.
 - A room is **public**, **private** or **closed**:
 
@@ -156,6 +157,7 @@ message RoomInfo {
   uint64 media_max = 9;       // largest media file of a post, bytes (§2.6); 0 = no media
   uint32 keep_hours = 10;     // history members keep (§4.3); 0 = 24
   uint32 keep_posts = 11;     // posts members keep (§4.3); 0 = 1,000
+  bool   files = 12;          // other small files besides media allowed (§2.6); off = media only
 }
 ```
 
@@ -173,6 +175,8 @@ message RoomInfo {
   later version may raise a cap without a fault at older nodes. A node without room info, or
   one that predates these fields, reads 0, 24 and 1,000.
 - Owner sets `media_max` to allow media; 6.5 MiB is a sensible default for emoji and memes.
+  Owner sets `files` to allow other small files too; `media_max` bounds them as well. A node
+  predating `files` reads it off.
 - **Changes take effect at once.** A key dropped from `mods` signs nothing more that counts, and
   its admits, bans, lifts and `KeyDrop`s stop counting (§2.2, §2.3, §3.2); one arriving later is
   dropped, as from any non-moderator (§4.4). Owner dropping a moderator re-admits members it
@@ -287,7 +291,7 @@ message RoomPost {
 message RoomText {
   string text = 1;            // 1 to 4,096 B of UTF-8
   bytes  reply_to = 2;        // 16 B id of the post this one answers; absent = none
-  RoomMedia media = 3;        // an image or video shown with the post (§2.6); absent = none
+  RoomMedia media = 3;        // a file shown or offered with the post (§2.6); absent = none
 }
 ```
 
@@ -330,14 +334,20 @@ message RoomMedia {
 }
 ```
 
-A post MAY carry one file to show with it: emoji, a meme, a short clip.
+A post MAY carry one file: **media** to show with it (emoji, a meme, a short clip) or, in a room
+whose info sets `files`, **another small file** (a text, a download list) offered with it.
+
+- **Media** = `type` starting `image/` or `video/` (ASCII, any case, something after the `/`).
+  Any other `type`, empty too, is a **file**. Below and in §4.6 "media" covers both unless
+  said; files have the same limits, slots and budget.
 
 - **`text` stays required** (1 to 4,096 B, §2.5). Author puts a caption or the file name there:
   a client not reading `media`, or not showing it, shows that text.
 - **Media is checked when used, never as content.** A `media` with `root` ≠ 32 B, `size` 0 or
   above the room's `media_max`, `type` or `name` over its limit, `key` present in a public room,
   or absent or ≠ 32 B in a room with a secret, is ignored: the post is kept, passed on and shown
-  as text. So is any `media` in a room whose `media_max` is 0. Ignored media is neither fetched nor
+  as text. So is any `media` in a room whose `media_max` is 0, and a file in a room without
+  `files`. Ignored media is neither fetched nor
   served (§4.6). No fault: the relaying neighbour may predate this section, and room info may
   have changed since.
 - **In a room with a secret the file is sealed** with its own key, so a holder of the root alone
@@ -767,6 +777,10 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
   the user allows); never run scripts (no SVG); cap pixels and frames before decoding; play video
   muted. It SHOULD let the user turn showing off, then show `text` and fetch on a click, and MAY
   limit fetches per room and hour, then show further media as a click to fetch.
+- **Files** (§2.6): client MUST NOT fetch one without a click, nor open or run one by itself.
+  It MAY show a text as plain text; it hands a download list only to its user's own
+  add-download step, starting nothing; anything else it offers to save at most. Media whose
+  bytes are no format it shows is handled as a file.
 - Client shows a member by nick plus part of its member ID, so same-nick members are told apart;
   marks moderators' posts.
 - Posts shown in `sent` order; a post whose `sent` is far from arrival time MAY be marked.
@@ -798,8 +812,9 @@ Member publishes a `SUB` record ([`pubsub.md`](pubsub.md) §5) under the room's 
 | **Owner key is taken** | Nothing helps; no successor key (§11) |
 | **Flood media** | Author rate (§4.4) × `media_max`; each uploader's media budget (§4.6) bounds what it sends; clients limit fetches per room and hour (§6) |
 | **A file that attacks the decoder** | Client decodes by bytes, few formats, capped size (§6); showing can be off |
+| **A file that runs or downloads something** | Files only with owner's `files`; fetched on a click, never opened or run by itself; a download list goes only to the user's add-download step (§6) |
 | **Find who holds a media file** | `FileRequest` without `room`, or from a non-neighbour: `NOT_FOUND` (§4.6). No source records |
-| **Unlawful media** | Members that show media hold it on disk; a moderator bans, `media_max` 0 turns media off; client MAY not fetch without a click |
+| **Unlawful media** | Members that show media hold it on disk; a moderator bans, `media_max` 0 turns media off, `files` off other files; client MAY not fetch without a click |
 | **Two moderators start a generation at once** | Every node takes the same one (§3.2); nothing lost |
 
 ---
