@@ -1,7 +1,7 @@
 # Extension: first contact (`bootstrap`)
 
-**Status:** draft 0.2 (2026-11-03). Implemented in packmule (fetch, shipped list, export, source
-pool). Optional in wire version 1.
+**Status:** draft 0.3 (2026-11-21; 0.2 2026-11-03). Implemented in packmule (fetch, shipped list,
+export, source pool, rejoin). Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §10.2, §10.3 and §13.2. § = that document unless this one is named.
 **Capability:** none. One file format, one link; nothing changes between two nodes.
 
@@ -45,7 +45,8 @@ Client tries in order, stops when its lookups work:
    derived cannot be dialled from eD2K, but can dial a peer whose hash is.
 5. **Shipped node list**: a node list file (§2 of this document) that comes with the client, as
    eMule ships `nodes.dat`. No request leaves the host for it. Used once, at the point where
-   lists would be fetched; never refused for its age (§2), so it lasts as long as the release.
+   lists would be fetched, and kept for a rejoin (§4.1 of this document); never refused for its
+   age (§2), so it lasts as long as the release.
    Its nodes count as nodes of sources 1 to 5 below: a fetch follows only if it too gives
    < 10 handshakes, at the next check.
 6. **Fetched node lists** (§2 to §4 of this document).
@@ -184,13 +185,35 @@ public endpoint of each family it is open in; a seed node's file thus names that
   *(initial)* from first handshake, then every node counts. All candidates dialled and < 4
   count → look up with those that completed a handshake; none → this first contact failed (§1
   of this document). So one list can't supply every seed of the first lookup. Afterwards table
-  fills by lookups; lists not used again.
+  fills by lookups; lists not used again, but by a rejoin (§4.1 of this document).
 - A listed node that doesn't answer is dropped, no second attempt.
 - Client skips an entry naming its own node ID or one of its adopted public endpoints (a list
   it wrote itself, e.g. the shipped list of a seed node); never dialled.
 - List belongs to one network ([`Protocol.md`](../Protocol.md) §4.3); a node of another doesn't
   answer. A closed network's name or `net_id` is never in a list; `net_tag` hashes `net_id` under
   its own context (§2 of this document).
+
+### 4.1 Rejoin and stores of a small table
+
+A table can empty while the node runs: a node with a few contacts sends them every lookup, and
+contacts that leave lookups unanswered are dropped (§10.2). Afterwards no source above runs again
+by itself (saved contacts load at start, lists once, a fetch ≤ once per 6 h). So:
+
+- **Rejoin.** A table that held ≥ 1 contact and is empty again gets one more first contact
+  (this §4), 5 min *(initial)* after it was first seen empty, unless it held contacts again by
+  then. Candidates: the shipped list (also if it was not used, §1 source 5), the lists of the
+  last fetch, and the contacts dropped for failed attempts, as one more list (≤ 200 *(initial)*,
+  newest first, then the seeds of earlier first contacts). §4's limits per list hold. One rejoin
+  per emptying: the next is allowed only once the table held 10 *(initial)* contacts again. No
+  fetch: the 6 h of §1 still hold.
+- **Stores wait for 10 contacts.** A client SHOULD NOT start a lookup that stores (§10.3
+  `store`, publishing included) while its table holds < 10 *(initial)* contacts, whether its
+  lookups work or not; it holds the store until then. Searches are not held by this. A lookup
+  that only asks index nodes (§11) is not a walk of the table and not held. A network of fewer
+  nodes (tests, a closed network) MAY lower the 10.
+- **Why:** a node with 5 contacts started ~100 stores at once (its shared files); the 5 were
+  asked by every one, left some unanswered, and all were dropped within a minute. With no source
+  left the node stayed without contacts.
 
 ---
 

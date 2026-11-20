@@ -1410,7 +1410,10 @@ contact whose `Hello` on a later connection of that family no longer has `ROUTER
 Contact dropped after two failed attempts in a row: failed connection attempt, or an answer
 counting as failed attempt (§10.3, §10.4). Counted per contact. Only a `KadAnswer` counting no
 failed attempt resets the count; an `Error` neither counts nor resets; a completed connection
-does not reset. Second attempt 5 min *(initial)* after the first failed.
+does not reset. Second attempt 5 min *(initial)* after the first failed. One retry only: further
+failures before then count as the first, not as a second (several lookups that ask one busy
+contact at once fail together; counted each, they emptied a small table within a minute).
+An emptied table: [`extensions/bootstrap.md`](extensions/bootstrap.md) §4.1.
 
 **Maintenance.** A bucket no lookup touched for 60 min *(initial)* gets a lookup for a random ID
 in its range. A contact unverified for 60 min *(initial)* is reconnected and sent a `KadRequest`;
@@ -1431,8 +1434,8 @@ a named network), while dials or requests to nodes of ≥ 4 *(initial)* differen
   attempts counted since that last connection or datagram are void.
 - A second failed attempt in a row with no such connection or datagram of that family since the
   first is held, not counted: it drops the contact at the next such connection or datagram, and is
-  void if the node goes offline first. Else two quick lookup timeouts drop a contact before
-  offline can be decided.
+  void if the node goes offline first. Else the retry drops a contact while too few sites were
+  tried to decide offline.
 - Offline ends at the first such connection or datagram. The node then runs the maintenance above
   on every bucket and contact of that family at once, spread over 5 min *(initial)* instead of the
   hour.
