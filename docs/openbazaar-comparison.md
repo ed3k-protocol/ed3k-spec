@@ -24,8 +24,8 @@ Result: two new extensions, [`mail.md`](../extensions/mail.md) (offline messages
 | Chat (type 1) | online + offline | `Chat` + `subject`; offline by mail |
 | Order flow types 4–13, 20, 21, 501 | 22 message types, contract grows | one `Market` message carrying signed contract sections (§4 there) |
 | `RicardianContract` | listing + order + each party's signed parts | chain of `Section`s, each signed, linked by hash |
-| Moderators: pointer at `sha256("moderators")` | DHT provider list | pubsub `DIRECTORY` topic, `SUB` records |
-| Ratings with vendor-signed rating keys | anonymous but buyer-only | same scheme ([`market.md`](../extensions/market.md) §6) |
+| Moderators: pointer at `sha256("moderators")` | DHT provider list | pubsub `DIRECTORY` topic per coin, `SUB` records |
+| Ratings with vendor-signed rating keys | anonymous but buyer-only | same scheme, rating key signed at fulfilment, not confirmation ([`market.md`](../extensions/market.md) §6) |
 | Offline messages: NaCl box, pointer in 14-bit prefix bucket, push nodes | store-and-forward | `MAIL` records in a bucket target, data in the records (§3) |
 | Tor transport option | hide address | paths ([`hops.md`](../extensions/hops.md)) |
 | search.ob1.io crawler | central index | `KEYWORD` with `ext = ed3klst`; richer search by an index node or crawler |
@@ -63,7 +63,7 @@ ed3k ([`mail.md`](../extensions/mail.md)):
 
 Why buckets: a per-recipient target tells storing nodes who gets mail. Why data in records:
 no always-on hosts, no second fetch protocol; cost is 1 KiB granularity and a 57 KiB cap,
-enough for an order with its listing.
+enough for most orders; larger ones go as a sealed file (`MailFile`).
 
 ## 4. Changes made to ed3k
 

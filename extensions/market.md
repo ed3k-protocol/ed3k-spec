@@ -1,10 +1,10 @@
 # Extension: market (`market`)
 
-**Status:** draft 0.1 (2026-11-18). Not implemented. Optional in wire version 1.
+**Status:** draft 0.2 (2026-11-20, audited). Not implemented. Optional in wire version 1.
 **Extends:** [`Protocol.md`](../Protocol.md) §13; [`file-set.md`](file-set.md) §5; [`pubsub.md`](pubsub.md) §1; [`mail.md`](mail.md) §3; [`friend.md`](friend.md) §2; [`name.md`](name.md). § = this document unless a document is named.
 **Capability:** bit 21, `MARKET`. Message types 46 and 47. Three file formats. One `TopicType`. Mail payload type `market`.
 **Test vectors:** [`tests/vectors-v1.md`](../tests/vectors-v1.md), *Market*.
-**Required of every `ROUTER`:** nothing. Uses record kinds every `ROUTER` already stores (`HEAD`, `KEYWORD`, `SUB`, `FRIEND`, `MAIL`, `NAME`).
+**Required of every `ROUTER`:** nothing. Uses record kinds every `ROUTER` already stores (`HEAD`, `KEYWORD`, `MEMBER`, `SUB`, `FRIEND`, `MAIL`, `NAME`).
 
 A peer-to-peer market after OpenBazaar: stores, listings, orders under a Ricardian contract,
 escrow with a moderator, ratings. ed3k carries **everything but the money**: payment, escrow
@@ -17,7 +17,7 @@ chain needs. Mapping from OpenBazaar: [`docs/openbazaar-comparison.md`](../docs/
 | Store handle | `NAME` / `CLAIM` ([`name.md`](name.md)) |
 | Following a store | pubsub `SET_HEAD` on the store set |
 | Finding listings | `KEYWORD` records of listing files, `Query.ext = "ed3klst"` |
-| Finding moderators | pubsub topic `DIRECTORY` (§3.2) |
+| Finding moderators | pubsub topic `DIRECTORY` per coin (§3.2) |
 | Reaching a store's node | open friend link in the profile ([`friend.md`](friend.md) §2) |
 | Order messages, online | `Market` / `MarketAck` (§4) |
 | Order messages, offline | mail, type `market` ([`mail.md`](mail.md)) |
@@ -28,13 +28,16 @@ chain needs. Mapping from OpenBazaar: [`docs/openbazaar-comparison.md`](../docs/
 
 ## 1. Keys
 
-- **Store key**: Ed25519, signs the store set, profile, listings, a vendor's contract sections.
-  Not the node key: a store moves between nodes, a node runs several stores, a store key can
-  live offline.
-- **Buyer key**: key signing a buyer's sections: its store key if it has one, else any
-  Ed25519 key it keeps for the order's lifetime (node key allowed).
-- A node acts for a key when the key is its node key, or the key's profile lists the node key
-  in `nodes` (§2.2). Proven by the handshake (T1) plus the signed profile.
+- **Store key**: Ed25519, signs the store set, profile, listings, a vendor's contract sections;
+  usually also the mailbox key, opening mail to the store. Not the node key: a store moves
+  between nodes, a node runs several stores. Needed online where orders are handled: it signs
+  sections, opens mail, signs a new set head within 7 days ([`file-set.md`](file-set.md) §5).
+- **Buyer key**: key signing a buyer's sections: its store key if it has one, else its node key.
+- A node acts for a key when the key is its node key, or the key's **current profile** lists the
+  node key in `nodes` (§2.2). Current profile = `profile.ed3kprf` of the newest head of the
+  key's store set ([`file-set.md`](file-set.md) §5); an older profile counts for nothing, so a
+  node dropped from `nodes` stops acting with the next head. Proven by the handshake (T1) plus
+  that profile.
 - Rating key: one-off Ed25519 key per ordered item (§6).
 - Chain keys (escrow): per coin, per order, in `chain` bytes; ed3k doesn't derive them.
 
@@ -49,7 +52,7 @@ Changing file set ([`file-set.md`](file-set.md) §5.1), signed by the store key,
 |---|---|
 | `profile.ed3kprf` | profile (§2.2), exactly one |
 | `listings/<slug>.ed3klst` | one listing per file (§2.3) |
-| `ratings/<order hex>-<n>.ed3krat` | ratings received (§6) |
+| `ratings/<order id hex>-<item index>.ed3krat` | ratings received (§6) |
 
 Other paths allowed, ignored by this document (images, a second set for posts, …). Images
 referenced by root from the documents, MAY be members of the set.
@@ -65,7 +68,7 @@ Every document file: 8-byte magic ‖ `MarketDoc`.
 | File | Magic | Body | Max size |
 |---|---|---|---|
 | profile | `ed3kprf` 0x01 | `Profile` | 64 KiB |
-| listing | `ed3klst` 0x01 | `Listing` | 1 MiB |
+| listing | `ed3klst` 0x01 | `Listing` | 256 KiB |
 | rating | `ed3krat` 0x01 | `Rating` | 16 KiB |
 
 ```protobuf
@@ -107,7 +110,8 @@ message Moderator {
 ```
 
 Reader checks: magic, size, `key` 32 B and = the set's key (profile, listing), signature per
-`Protocol.md` §10.7 rules. Failing → document ignored.
+`Protocol.md` §10.7 rules. Failing → document ignored. `handle` shown only when the name
+resolves ([`name.md`](name.md)) to this store key; else ignored.
 
 ### 2.3 Listing
 
@@ -115,7 +119,7 @@ Reader checks: magic, size, `key` 32 B and = the set's key (profile, listing), s
 message Listing {
   string slug = 1;            // 1 to 64 B of [a-z0-9-]; file name is <slug>.ed3klst
   ListingType type = 2;
-  string title = 3;           // at most 140 B
+  string title = 3;           // 1 to 140 B
   string description = 4;     // at most 64 KiB
   repeated string tags = 5;   // each at most 40 B, at most 16
   repeated string categories = 6;
@@ -132,7 +136,7 @@ message Listing {
   bool   nsfw = 17;
   uint64 expires = 18;        // Unix time; 0 = none
   uint32 escrow_hours = 19;   // moderated order: vendor may claim after; 0 = coin default
-  repeated bytes coupons = 20;  // 32 B H("ed3k v1 market coupon", code); discounts in `coupon_off`
+  repeated bytes coupons = 20;  // 32 B H("ed3k v1 market coupon", store key(32) ‖ code); discounts in `coupon_off`
   repeated Price coupon_off = 21;  // one per coupon
   string coin = 22;           // CRYPTO: coin sold
   uint64 seq = 23;            // version; higher replaces, also across a slug rename
@@ -169,8 +173,10 @@ message Service { string name = 1; Price price = 2; Price extra_item = 3; string
 - Listing is identified by (store key, `slug`); its **hash** = `H("ed3k v1 market listing",
   whole file)`, what an order quotes (§4.2).
 - Member path keeps the slug; `KEYWORD` records carry `FileInfo.name` = `<title>.ed3klst`
-  (title without `/` and control characters, cut to 255 B), so keyword search finds titles
-  (§3.1).
+  (title with `/` and control characters left out; ≤ 148 B), so keyword search finds titles
+  (§3.1). Listing with an empty title → ignored.
+- Coupon hash salted with the store key, so one table doesn't serve every store; a short code
+  is still found by trying codes against the listing: codes worth hiding are long and random.
 - New version: new file, same path, higher `seq`; store set gets a new manifest.
 
 ## 3. Finding
@@ -191,10 +197,15 @@ message Service { string name = 1; Price price = 2; Price extra_item = 3; string
 DIRECTORY = 4;                // key = 32 zero bytes, id = UTF-8 directory name; no items, SUB records only
 ```
 
-- Directory `market.moderators`: every node acting for a moderator stores `SUB` under
-  `H("ed3k v1 topic", 4 ‖ 0³² ‖ "market.moderators")[0..16)` (pubsub.md §5).
+- Directory per coin, `market.moderators.<coin>` (`<coin>` as in `Moderator.coins`, e.g.
+  `market.moderators.BTC`): every node acting for a moderator stores `SUB` under
+  `H("ed3k v1 topic", 4 ‖ 0³² ‖ "market.moderators.<coin>")[0..16)` (pubsub.md §5), for each
+  coin it moderates. Spreads the directory over targets; each still a target that unsigned
+  `SUB` records can fill (pubsub.md §5 limits).
 - Client searches `SUB` there, dials, asks `Market{who}`, gets the store keys the node acts
   for (`MarketAck.stores`), reads their profiles; keeps those with `moderator`.
+- A moderator reached only through paths ([`hops.md`](hops.md)) stores no `SUB`; found through
+  `Listing.moderators` of stores accepting it.
 - `DIRECTORY` topics have no items: `TopicJoin` for one → `Error{UNSUPPORTED}`. Other
   extensions MAY name further directories.
 
@@ -216,25 +227,29 @@ message Market {              // type 46, request
   bytes   order = 4;          // 32 B order id (§4.2); empty for `who`
   repeated Section sections = 5;  // new sections, in chain order
   bool    who = 6;            // ask which keys the node acts for; nothing else set
-  bool    resend = 7;         // ask the receiver for every section of `order` it has
+  bool    resend = 7;         // ask the receiver for the sections of `order` it has
+  uint32  skip = 8;           // resend: sections the asker already holds, from ORDER on
 }
 
 message MarketAck {           // type 47, answer
   repeated bytes stores = 1;  // answer to `who`: 32 B keys this node acts for
   uint32  have = 2;           // sections of `order` the receiver now holds
   string  error = 3;          // section refused: reason, at most 256 B; nothing appended
+  repeated Section sections = 4;  // answer to `resend`: from index `skip` on, chain order, as many as fit the frame
 }
 ```
 
 - `Market` is one request/answer exchange (`Protocol.md` §5.2); answered by `MarketAck` once taken.
   Without `MARKET`: `Error{UNSUPPORTED}`.
-- Receiver: drops unless the node acts for `to`, else `Error{DENIED}`. Sender acts for `from`:
-  checked by the handshake + `from`'s profile. By mail ([`mail.md`](mail.md) §3, type `market`,
+- Receiver: `who` → `MarketAck.stores`, no `to` needed; a node MAY leave out keys it keeps
+  apart (§7). Otherwise node not acting for `to` → `Error{DENIED}`. Sender acts for `from`:
+  checked by the handshake + `from`'s current profile (§1). By mail ([`mail.md`](mail.md) §3, type `market`,
   payload = serialised `Market`): `MailHead.from` MUST equal `Market.from`, or be listed in its
   profile's `nodes`.
 - Repeated (`from`, `id`) → `MarketAck`, handled once. Rate limits: as chat.
-- Frame ≤ 1 MiB (`Protocol.md` §5.2); by mail ≤ 64 parts, larger → `MailFile`
-  ([`mail.md`](mail.md) §3.3).
+- Frame ≤ 1 MiB (`Protocol.md` §5.2); `Order.listings` together ≤ 512 KiB, so an `ORDER`
+  fits. `resend` answer longer than a frame: asker asks again with `skip` raised. By mail ≤ 64
+  parts, larger → `MailFile` ([`mail.md`](mail.md) §3.3).
 
 ### 4.2 The contract
 
@@ -246,7 +261,8 @@ message Section {
   SectionKind kind = 1;
   bytes  body = 2;            // serialised message of `kind` (§4.3)
   bytes  key = 3;             // 32 B signer
-  repeated Signature sigs = 4;  // over "ed3k v1 market section" ‖ prev(32) ‖ kind(1) ‖ body
+  repeated Signature sigs = 4;  // over "ed3k v1 market section" ‖ prev(32) ‖ kind(1) ‖ time(8) ‖ body
+  uint64 time = 5;            // Unix time in seconds, set by the signer
 }
 
 enum SectionKind {
@@ -258,37 +274,49 @@ enum SectionKind {
 ```
 
 ```
-order id = H("ed3k v1 market order", body of the ORDER section)
-prev     = order id for the section after ORDER; then H("ed3k v1 market chain", prev ‖ kind(1) ‖ body)
-         ORDER's own prev = 32 zero bytes
+order id = H("ed3k v1 market order", key(32) ‖ body)       of the ORDER section; key = buyer key
+prev     = 32 zero bytes for ORDER; order id for the section after ORDER;
+           then H("ed3k v1 market chain", prev ‖ kind(1) ‖ key(32) ‖ time(8) ‖ body) of the section before
 ```
 
-- One chain per order, at most 64 *(initial)* sections. `prev` binds each section to all before.
-- Receiver appends a section only when: signature valid, `key` is the party the kind allows
-  (table §4.3), kind allowed after the chain's last state (table), `prev` matches. Else
-  `MarketAck.error`, nothing appended. Missing earlier sections → `resend`.
-- Two valid sections for the same step (a race: buyer `CANCEL`, vendor `CONFIRM`) → first one in
-  chain order a party received wins; the other party learns by `resend`. Money moves only on
-  chain, so a chain conflict is settled there (§5).
+- One chain per order, at most 64 *(initial)* sections. `prev` binds each section, signer
+  included, to all before. **Buyer** = `key` of `ORDER`; **vendor** = `Order.vendor`;
+  **moderator** = `Order.moderator`.
+- `ORDER`'s `time` = `Order.issued`. Every later `time` ≥ the `time` before it and ≤ receiver's
+  clock + 1 h *(initial)*.
+- Receiver appends a section only when: signature valid (`Protocol.md` §10.7 rules), `key` is
+  the party the kind allows (table §4.3), kind allowed after the chain's state for the order's
+  `method`, `time` as above, `prev` matches. Else `MarketAck.error`, nothing appended. Missing
+  earlier sections → `resend`.
+- **State** = kind of the last section. Kinds marked *end* close the chain; nothing follows.
+- **Race**: two valid sections with the same `prev` (buyer `CANCEL`, vendor `CONFIRM`) → the one
+  whose chain hash (the `prev` it gives the next section) is lower wins, at every party; a
+  party holding the other drops it and everything after it. Parties learn by `resend` and end
+  on the same chain. Money moves only on chain (§5): a party acts on a section once the
+  other's `MarketAck.have` counts it.
+- **Escrow time** of an order = the highest `escrow_hours` of its listings (0 → coin
+  default), counted from the `time` of its first `FULFILL`.
 
 ### 4.3 Sections
 
+Allowed after the state; D = `DIRECT`, O = `OFFLINE`, M = `MODERATED`, none named = all:
+
 | Kind | Signer | After | Body |
 |---|---|---|---|
-| `ORDER` | buyer | — | `Order` |
-| `CONFIRM` | vendor | `ORDER`, `PAYMENT` | `Confirm` |
-| `REJECT` | vendor | `ORDER`, `PAYMENT` | `MarketNote` |
-| `CANCEL` | buyer | `ORDER`, `PAYMENT` (offline-paid, not confirmed) | `MarketNote` |
-| `PAYMENT` | buyer | `ORDER`, `CONFIRM` | `Payment` |
-| `FULFILL` | vendor | `CONFIRM`, `PAYMENT`, `FULFILL` | `Fulfill` |
-| `COMPLETE` | buyer | `FULFILL` | `Complete` |
-| `DISPUTE` | buyer or vendor | `CONFIRM` to `FULFILL`; vendor also after its `escrow_hours` | `MarketNote` |
+| `ORDER` | buyer | — (first) | `Order` |
+| `CONFIRM` | vendor | `ORDER` (D, M); `PAYMENT` (O) | `Confirm` |
+| `PAYMENT` | buyer | `CONFIRM` (D, M); `ORDER` (O) | `Payment` |
+| `REJECT` | vendor | `ORDER`; `PAYMENT` (O) | `MarketNote`; *end* |
+| `CANCEL` | buyer | `ORDER`; `PAYMENT` (O) | `MarketNote`; *end* |
+| `FAILURE` | vendor | `ORDER`; `PAYMENT` (O) | `MarketNote`: order couldn't be processed; *end* |
+| `FULFILL` | vendor | `PAYMENT` (D, M); `CONFIRM` (O); `FULFILL` | `Fulfill` |
+| `COMPLETE` | buyer | `FULFILL` | `Complete`; *end* |
+| `REFUND` | vendor | `PAYMENT` (D, M); `CONFIRM` (O); `FULFILL` | `Payment`; *end* |
+| `FINALIZED` | vendor | `FULFILL` (M), `time` ≥ escrow time over | `Payment`; *end* |
+| `DISPUTE` | buyer or vendor | `PAYMENT`, `FULFILL` (M only) | `MarketNote` |
 | `DISPUTE_UPDATE` | moderator | `DISPUTE` | `MarketNote`: moderator has both chains |
 | `RESOLUTION` | moderator | `DISPUTE`, `DISPUTE_UPDATE` | `Resolution` |
-| `ACCEPT` | buyer or vendor | `RESOLUTION` | `Payment` (release signatures) |
-| `REFUND` | vendor | any state after `CONFIRM`, before `COMPLETE` | `Payment` |
-| `FINALIZED` | vendor | `FULFILL` after `escrow_hours`, no `COMPLETE` or `DISPUTE` | `Payment` |
-| `FAILURE` | vendor | `ORDER`, `PAYMENT` | `MarketNote`: order couldn't be processed |
+| `ACCEPT` | buyer or vendor | `RESOLUTION`; `ACCEPT` by the other party | `Payment` (release signatures); the second *ends* |
 
 Moderator receives the chain from the party opening `DISPUTE` (that party sends every section
 to the moderator, `to` = moderator key) and the other party's on `resend`; both chains from
@@ -297,7 +325,7 @@ to the moderator, `to` = moderator key) and the other party's on `resend`; both 
 ```protobuf
 message Order {
   bytes  vendor = 1;          // 32 B store key
-  repeated bytes listings = 2;  // whole listing files ordered from, as published
+  repeated bytes listings = 2;  // whole listing files ordered from, as published; together ≤ 512 KiB
   repeated Item items = 3;
   PayMethod method = 4;
   string coin = 5;
@@ -307,7 +335,7 @@ message Order {
   string contact = 9;
   MailBox mailbox = 10;       // buyer's, for offline answers
   string link = 11;           // optional open friend link of the buyer's node
-  uint64 issued = 12;
+  uint64 issued = 12;         // = ORDER section's time
   Price  total = 13;          // as the buyer computed it
 }
 
@@ -325,7 +353,7 @@ enum PayMethod { PAY_NONE = 0; DIRECT = 1; OFFLINE = 2; MODERATED = 3; }
 
 message Confirm {
   bytes  chain = 1;           // coin-specific: vendor's escrow key, payment address/script, amount due
-  repeated bytes rating_sigs = 2;  // per Item, 64 B Ed25519 by vendor over "ed3k v1 market rating key" ‖ order id ‖ index(4) ‖ rating_key
+  reserved 2;
   Price  total = 3;           // vendor's figure; client shows any difference to the buyer
 }
 
@@ -335,6 +363,7 @@ message Fulfill {
   repeated Delivery delivery = 1;  // one per Item
   bytes  chain = 2;           // vendor's release signatures (OFFLINE, MODERATED), payout address
   string note = 3;
+  repeated bytes rating_sigs = 4;  // first FULFILL only: per Item, 64 B Ed25519 by vendor (§6)
 }
 
 message Delivery {
@@ -369,7 +398,7 @@ what the `chain` bytes hold:
 |---|---|---|
 | `DIRECT` | buyer pays vendor's address in `Confirm` | address, txid |
 | `OFFLINE` | buyer pays a 1-of-2 address (buyer, vendor) while vendor offline | both keys, signatures |
-| `MODERATED` | 2-of-3 (buyer, vendor, moderator), vendor alone after `escrow_hours` (timelock) | keys, signatures of release, resolution |
+| `MODERATED` | 2-of-3 (buyer, vendor, moderator), vendor alone after the escrow time (§4.2, timelock) | keys, signatures of release, resolution |
 
 - A node MUST NOT move money on a section alone: it checks the chain.
 - Credits ([`credit.md`](credit.md)) are no payment for goods: not transferable to a person,
@@ -377,8 +406,14 @@ what the `chain` bytes hold:
 
 ## 6. Ratings
 
-- Buyer puts one `rating_key` per item in `ORDER`; vendor signs each in `CONFIRM`
-  (`rating_sigs`). Only buyers of a confirmed order hold such a key.
+- Buyer puts one `rating_key` per item in `ORDER`; vendor signs each in its first `FULFILL`
+  (`rating_sigs`), after payment:
+
+  ```
+  "ed3k v1 market rating key" ‖ order id(32) ‖ index(4) ‖ listing hash(32) ‖ rating key(32)     index = Item index, big-endian
+  ```
+
+  Only buyers of a paid and fulfilled order hold a signed rating key.
 - Rating file: `MarketDoc` with magic `ed3krat` 0x01, `key` = rating key, body `Rating`.
 - Buyer sends ratings in `COMPLETE`. Vendor adds them to `ratings/` of its store set. Buyer MAY
   also keep them in its own store set: vendor can drop bad ratings from its own set, not from
@@ -397,31 +432,39 @@ message Rating {
   uint64 issued = 12;
   bytes  buyer = 13;          // optional 32 B buyer key, not anonymous
   bytes  buyer_sig = 14;      // by `buyer` over "ed3k v1 market rating buyer" ‖ rating key(32)
+  bytes  listing = 15;        // 32 B listing hash of the item
 }
 ```
 
-Reader checks: `vendor_sig` under `vendor` for (`order`, `index`, rating key); `buyer_sig`
-when `buyer` set. Counts one rating per (order, index).
+Reader checks: `vendor_sig` under `vendor` for (`order`, `index`, `listing`, rating key);
+`buyer_sig` when `buyer` set; `slug` only shown, the listing is `listing`. Counts one rating
+per (order, index): highest `issued` wins, a tie → the rating file lower in byte order.
 
 ## 7. What it shows
 
 | To whom | What |
 |---|---|
-| Anyone | store's profile, listings, ratings; who seeds it; the store key's nodes in `nodes` |
+| Anyone | store's profile, listings, ratings; who seeds it; the store key's nodes in `nodes`, hence which stores share a node |
+| Anyone asking `who` | keys the node acts for, unless it leaves some out (§4.1) |
+| Anyone with the profile's `link` | the node's address whenever online (friend.md §5); can store false records at its friend place (friend.md §2) |
 | Vendor | buyer key, ship-to, contact |
 | Moderator | the whole chain of a disputed order |
 | Storing nodes | `HEAD`/`KEYWORD` of a store as of any set; mail volume in buckets ([`mail.md`](mail.md) §7) |
 | Chain observers | payments; outside ed3k |
 
-A store that wants its address hidden: nodes in `nodes` reached through paths
-([`hops.md`](hops.md)), mail only.
+- A store that wants its address hidden: nodes in `nodes` reached through paths
+  ([`hops.md`](hops.md)), mail only, no `link`.
+- `link` in a public profile is an open link anyone holds: false records there cost a client a
+  dial; it drops a node not acting for the store (§1). Node counts such a link against its open-link
+  limit (friend.md §2) and takes it back when flooded.
+- Stores meant to stay apart run on different nodes: `nodes` and `who` link those on one.
 
 ## 8. Alternatives considered
 
 | Alternative | Pro | Con |
 |---|---|---|
 | **Mirror OpenBazaar's JSON/protobuf messages 1:1** | reuse its code | ties to its BIP 32 key layout and IPFS paths; 22 types instead of one chain |
-| **Store key = node key** (OpenBazaar) | one key | store can't move, node can't hide its stores |
+| **Store key = node key** (OpenBazaar) | one key | store can't move; one store per node |
 | **Listings as Kad records** | no file per listing | 1 KiB limit; no images; no versions |
 | **Payment in credits** | no chain | credits aren't money (§5) |
 
@@ -430,4 +473,7 @@ A store that wants its address hidden: nodes in `nodes` reached through paths
 - Price/category/region search: crawler or index node service, not specified.
 - `chain` formats per coin: separate documents.
 - Vendor blocking buyers, moderator add/remove notices (OpenBazaar 16, 17, 19): local policy.
+- Self-ratings: a vendor can order from itself under other keys and fulfil; a rating proves an
+  order went through the chain, not a sale. Readers weigh by local means (buyer keys, coin
+  payments shown).
 - All numbers are first values.

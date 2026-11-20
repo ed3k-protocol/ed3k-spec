@@ -17,43 +17,52 @@ pub fn run(pk1: &[u8], seed1: &[u8], pk2: &[u8], seed2: &[u8]) {
     let lsig = sign(seed1, &lpre);
     let lfile = cat(&[&lmagic, &fb(1, &listing), &fb(2, pk1), &fm(3, &sigmsg(&lsig))]);
     let lhash = h("ed3k v1 market listing", &lfile);
-    let coupon = h("ed3k v1 market coupon", b"SAVE10");
+    let coupon = h("ed3k v1 market coupon", &cat(&[pk1, b"SAVE10"]));
 
     // rating key: Ed25519 seed byte i = 0x29 XOR i
     let rseed: Vec<u8> = (0..32u8).map(|i| 0x29 ^ i).collect();
     let rpk = SigningKey::from_bytes(rseed.as_slice().try_into().unwrap()).verifying_key().to_bytes().to_vec();
 
-    // ORDER by the buyer (second key)
+    // a section (§4.2): signed over prev ‖ kind ‖ time ‖ body; next prev = H(chain, prev ‖ kind ‖ key ‖ time ‖ body)
+    let section = |seed: &[u8], key: &[u8], prev: &[u8], kind: u8, time: u64, body: &[u8]| {
+        let pre = cat(&[b"ed3k v1 market section", prev, &[kind], &time.to_be_bytes(), body]);
+        let sig = sign(seed, &pre);
+        let sec = cat(&[&fv(1, kind as u64), &fb(2, body), &fb(3, key), &fm(4, &sigmsg(&sig)), &fv(5, time)]);
+        let next = h("ed3k v1 market chain", &cat(&[prev, &[kind], key, &time.to_be_bytes(), body]));
+        (pre.len(), sig, sec, next)
+    };
+
+    // ORDER by the buyer (second key), DIRECT
     let item = cat(&[&fb(1, &lhash), &fv(2, 1), &fb(6, &rpk)]);
     let order = cat(&[&fb(1, pk1), &fb(2, &lfile), &fm(3, &item), &fv(4, 1), &fb(5, b"BTC"), &fv(12, t), &fm(13, &price)]);
-    let order_id = h("ed3k v1 market order", &order);
+    let order_id = h("ed3k v1 market order", &cat(&[pk2, &order]));
     let zero = [0u8; 32];
-    let opre = cat(&[b"ed3k v1 market section", &zero, &[1u8], &order]);
-    let osig = sign(seed2, &opre);
-    let osec = cat(&[&fv(1, 1), &fb(2, &order), &fb(3, pk2), &fm(4, &sigmsg(&osig))]);
+    let (olen, osig, osec, _) = section(seed2, pk2, &zero, 1, t, &order);
 
-    // CONFIRM by the vendor: rating signature of item 0
-    let rkpre = cat(&[b"ed3k v1 market rating key", &order_id, &0u32.to_be_bytes(), &rpk]);
+    // CONFIRM by the vendor, PAYMENT by the buyer, FULFILL by the vendor with the rating signature of item 0
+    let confirm = cat(&[&fb(1, b"bc1qtestaddress"), &fm(3, &price)]);
+    let (clen, csig, csec, p2) = section(seed1, pk1, &order_id, 2, t + 600, &confirm);
+    let payment = cat(&[&fb(1, b"BTC"), &fb(2, b"txid-0001"), &fv(3, 25000)]);
+    let (plen, psig, psec, p3) = section(seed2, pk2, &p2, 5, t + 1200, &payment);
+    let rkpre = cat(&[b"ed3k v1 market rating key", &order_id, &0u32.to_be_bytes(), &lhash, &rpk]);
     let rksig = sign(seed1, &rkpre);
-    let confirm = cat(&[&fb(2, &rksig), &fm(3, &price)]);
-    let cpre = cat(&[b"ed3k v1 market section", &order_id, &[2u8], &confirm]);
-    let csig = sign(seed1, &cpre);
-    let csec = cat(&[&fv(1, 2), &fb(2, &confirm), &fb(3, pk1), &fm(4, &sigmsg(&csig))]);
-    let prev3 = h("ed3k v1 market chain", &cat(&[&order_id, &[2u8], &confirm]));
+    let delivery = cat(&[&fb(1, b"Post"), &fb(2, b"TRACK1")]);
+    let fulfill = cat(&[&fm(1, &delivery), &fb(4, &rksig)]);
+    let (flen, fsig, fsec, p4) = section(seed1, pk1, &p3, 6, t + 3600, &fulfill);
 
     // Market frame of the ORDER, buyer → store
     let mid: u64 = 0x1112131415161718;
     let frame = cat(&[&f64x(1, mid), &fb(2, pk2), &fb(3, pk1), &fb(4, &order_id), &fm(5, &osec)]);
 
     // rating file (§6), signed by the rating key
-    let rating = cat(&[&fb(1, pk1), &fb(2, &order_id), &fb(4, &rksig), &fb(5, b"mug"), &fv(6, 5), &fb(11, b"good mug"), &fv(12, t + 86400)]);
+    let rating = cat(&[&fb(1, pk1), &fb(2, &order_id), &fb(4, &rksig), &fb(5, b"mug"), &fv(6, 5), &fb(11, b"good mug"), &fv(12, t + 86400), &fb(15, &lhash)]);
     let rmagic = cat(&[b"ed3krat", &[1u8]]);
     let rpre = cat(&[b"ed3k v1 market doc", &rmagic, &rating]);
     let rsig = sign(&rseed, &rpre);
     let rfile = cat(&[&rmagic, &fb(1, &rating), &fb(2, &rpk), &fm(3, &sigmsg(&rsig))]);
 
-    // moderator directory (§3.2)
-    let dir = h("ed3k v1 topic", &cat(&[&[4u8], &zero, b"market.moderators"]))[..16].to_vec();
+    // moderator directory for BTC (§3.2)
+    let dir = h("ed3k v1 topic", &cat(&[&[4u8], &zero, b"market.moderators.BTC"]))[..16].to_vec();
 
     println!("
 ## Market (market.md §2 to §4 and §6)
@@ -65,8 +74,8 @@ divisibility 2 }}` = `{}`.
 **Directory and coupon:**
 
 ```
-market.moderators = H(\"ed3k v1 topic\", 04 ‖ 32 zero bytes ‖ \"market.moderators\")[0..16) = {}
-coupon \"SAVE10\"   = H(\"ed3k v1 market coupon\", \"SAVE10\") = {}
+market.moderators.BTC = H(\"ed3k v1 topic\", 04 ‖ 32 zero bytes ‖ \"market.moderators.BTC\")[0..16) = {}
+coupon \"SAVE10\"       = H(\"ed3k v1 market coupon\", store key ‖ \"SAVE10\") = {}
 ```
 
 **Listing** `{{ slug \"mug\", type PHYSICAL, title \"Test mug\", price, seq 1 }}` (market.md §2.2, §2.3):
@@ -82,15 +91,15 @@ hash        = H(\"ed3k v1 market listing\", file) = {}
 ```
 
 **Order** (market.md §4.2, §4.3). One item: the listing above, quantity 1, the rating key;
-`method` DIRECT, `coin` `BTC`, `issued` the sample time, `total` the price:
+`method` DIRECT, `coin` `BTC`, `issued` = section `time` = the sample time, `total` the price:
 
 ```
 rating key  = {}
 Item        = {}
 Order       = {}
               ({} bytes)
-order id    = H(\"ed3k v1 market order\", Order) = {}
-signed      = \"ed3k v1 market section\" ‖ 32 zero bytes ‖ 01 ‖ Order      ({} bytes)
+order id    = H(\"ed3k v1 market order\", buyer key ‖ Order) = {}
+signed      = \"ed3k v1 market section\" ‖ 32 zero bytes ‖ 01 ‖ time ‖ Order      ({} bytes)
 signature   = {}
 Section     = {}
               ({} bytes)
@@ -103,21 +112,40 @@ Market      = {}
               ({} bytes)
 ```
 
-**Confirm** by the vendor, `prev` = order id:
+**The chain on.** Each section signed over `\"ed3k v1 market section\" ‖ prev ‖ kind ‖ time ‖ body`;
+the next `prev` = `H(\"ed3k v1 market chain\", prev ‖ kind ‖ key ‖ time ‖ body)`. `CONFIRM`
+(vendor, sample time + 600, `chain` = `bc1qtestaddress`, `total` the price), `PAYMENT` (buyer,
++ 1,200, `coin` `BTC`, `txids` `txid-0001`, `amount` 25,000), `FULFILL` (vendor, + 3,600, one
+`Delivery {{ carrier \"Post\", tracking \"TRACK1\" }}`, the rating signature of item 0):
 
 ```
-signed      = \"ed3k v1 market rating key\" ‖ order id ‖ 00000000 ‖ rating key      ({} bytes)
-rating_sig  = {}
+CONFIRM     prev = order id
 Confirm     = {}
-signed      = \"ed3k v1 market section\" ‖ order id ‖ 02 ‖ Confirm      ({} bytes)
+signed      = ({} bytes)
 signature   = {}
 Section     = {}
               ({} bytes)
-next prev   = H(\"ed3k v1 market chain\", order id ‖ 02 ‖ Confirm) = {}
+
+PAYMENT     prev = {}
+Payment     = {}
+signed      = ({} bytes)
+signature   = {}
+Section     = {}
+              ({} bytes)
+
+FULFILL     prev = {}
+rating_sig  = Ed25519 by the vendor over \"ed3k v1 market rating key\" ‖ order id ‖ 00000000 ‖ listing hash ‖ rating key      ({} bytes)
+            = {}
+Fulfill     = {}
+signed      = ({} bytes)
+signature   = {}
+Section     = {}
+              ({} bytes)
+next prev   = {}
 ```
 
 **Rating** of item 0, `overall` 5, `review` `good mug`, `issued` one day after the sample time,
-signed by the rating key (market.md §6):
+`listing` the listing hash, signed by the rating key (market.md §6):
 
 ```
 Rating      = {}
@@ -129,8 +157,10 @@ file        = {}
 ```",
         hx(&price), hx(&dir), hx(&coupon),
         hx(&listing), hx(&lmagic), lpre.len(), sig2(&lsig), w(&hx(&lfile), 14), lfile.len(), hx(&lhash),
-        hx(&rpk), hx(&item), w(&hx(&order), 14), order.len(), hx(&order_id), opre.len(), sig2(&osig), w(&hx(&osec), 14), osec.len(),
+        hx(&rpk), hx(&item), w(&hx(&order), 14), order.len(), hx(&order_id), olen, sig2(&osig), w(&hx(&osec), 14), osec.len(),
         w(&hx(&frame), 14), frame.len(),
-        rkpre.len(), sig2(&rksig), w(&hx(&confirm), 14), cpre.len(), sig2(&csig), w(&hx(&csec), 14), csec.len(), hx(&prev3),
+        hx(&confirm), clen, sig2(&csig), w(&hx(&csec), 14), csec.len(),
+        hx(&p2), hx(&payment), plen, sig2(&psig), w(&hx(&psec), 14), psec.len(),
+        hx(&p3), rkpre.len(), sig2(&rksig), w(&hx(&fulfill), 14), flen, sig2(&fsig), w(&hx(&fsec), 14), fsec.len(), hx(&p4),
         w(&hx(&rating), 14), rating.len(), hx(&rmagic), rpre.len(), sig2(&rsig), w(&hx(&rfile), 14), rfile.len());
 }

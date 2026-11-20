@@ -1568,8 +1568,8 @@ divisibility 2 }` = `0a0355534410e2091802`.
 **Directory and coupon:**
 
 ```
-market.moderators = H("ed3k v1 topic", 04 ‖ 32 zero bytes ‖ "market.moderators")[0..16) = ddc5f2bee40a7bc31eb1a66a6206249a
-coupon "SAVE10"   = H("ed3k v1 market coupon", "SAVE10") = 38b223f9b06606e5523eb41a15c11e71d78c5aef678e26029c932654ed8dbe01
+market.moderators.BTC = H("ed3k v1 topic", 04 ‖ 32 zero bytes ‖ "market.moderators.BTC")[0..16) = 1175e89abbe3ec68c0799e2aeb728727
+coupon "SAVE10"       = H("ed3k v1 market coupon", store key ‖ "SAVE10") = 0f5a1edf57f514f434ab1f57fb1700323a337a779fb497e1ccc925eaaa836b39
 ```
 
 **Listing** `{ slug "mug", type PHYSICAL, title "Test mug", price, seq 1 }` (market.md §2.2, §2.3):
@@ -1589,7 +1589,7 @@ hash        = H("ed3k v1 market listing", file) = 28a1c67a3433cacbcbdea0d907b8f9
 ```
 
 **Order** (market.md §4.2, §4.3). One item: the listing above, quantity 1, the rating key;
-`method` DIRECT, `coin` `BTC`, `issued` the sample time, `total` the price:
+`method` DIRECT, `coin` `BTC`, `issued` = section `time` = the sample time, `total` the price:
 
 ```
 rating key  = cb340cda6596a2a200ab67a24fac09b486a72790e0eb1f098750975792431752
@@ -1601,75 +1601,102 @@ Order       = 0a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f70751
               33cacbcbdea0d907b8f9af1cd03e078685b1b0a0f1869d4f6f813710013220cb340cda6596a2a200ab67a24fac09b486
               a72790e0eb1f09875097579243175220012a034254436080e9b5d6066a0a0a0355534410e2091802
               (280 bytes)
-order id    = H("ed3k v1 market order", Order) = c9867c4c10b76fe16da4debeff2e4edb665398fc4c9613ad51973555e7ef5cc0
-signed      = "ed3k v1 market section" ‖ 32 zero bytes ‖ 01 ‖ Order      (335 bytes)
-signature   = 674eb0d7d51d156be223a264e5a405d9dbc680756d5de4ee18fec6dd0b4c68cc
-              95d741ead99b766497eb8edbed7bedf80c1465bceeffcbc95aceb803247ec800
+order id    = H("ed3k v1 market order", buyer key ‖ Order) = 1788bab6c441684f18e6dac77c9034ba065b98389adcd9b9216d5b03692c29fa
+signed      = "ed3k v1 market section" ‖ 32 zero bytes ‖ 01 ‖ time ‖ Order      (343 bytes)
+signature   = 7c509a9795d9b1ea9898d5e0ac74c34ac8e54ade9a9066016791aa0b4feb6d97
+              98dc3b3823077da77af11a5debda4cf111ade314898786d7720389fd7cf49a0d
 Section     = 08011298020a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a1292016564336b6c73
               74010a200a036d756710011a0854657374206d7567420a0a0355534410e2091802b801011220d75a980182b10ab7d54b
               fed3c964073a0ee172f3daa62325af021a68f707511a1a440801124005d298281fdc0c241e0438cccbff0f1afd41d0a5
               3d47560559afaab8324991b716c2135de1f3ad50a871307a9958bbbeeee736de8831cae38fa2cab2c60ad7001a460a20
               28a1c67a3433cacbcbdea0d907b8f9af1cd03e078685b1b0a0f1869d4f6f813710013220cb340cda6596a2a200ab67a2
               4fac09b486a72790e0eb1f09875097579243175220012a034254436080e9b5d6066a0a0a0355534410e20918021a203d
-              4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c224408011240674eb0d7d51d156be223a2
-              64e5a405d9dbc680756d5de4ee18fec6dd0b4c68cc95d741ead99b766497eb8edbed7bedf80c1465bceeffcbc95aceb8
-              03247ec800
-              (389 bytes)
+              4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c2244080112407c509a9795d9b1ea9898d5
+              e0ac74c34ac8e54ade9a9066016791aa0b4feb6d9798dc3b3823077da77af11a5debda4cf111ade314898786d7720389
+              fd7cf49a0d2880e9b5d606
+              (395 bytes)
 ```
 
 **Market frame** carrying the `ORDER`, `id` `1112131415161718`, from the buyer to the store:
 
 ```
 Market      = 09181716151413121112203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1a20d75a98
-              0182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a2220c9867c4c10b76fe16da4debeff2e4edb66
-              5398fc4c9613ad51973555e7ef5cc02a850308011298020a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa623
+              0182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a22201788bab6c441684f18e6dac77c9034ba06
+              5b98389adcd9b9216d5b03692c29fa2a8b0308011298020a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa623
               25af021a68f707511a1292016564336b6c7374010a200a036d756710011a0854657374206d7567420a0a0355534410e2
               091802b801011220d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a1a440801124005d2
               98281fdc0c241e0438cccbff0f1afd41d0a53d47560559afaab8324991b716c2135de1f3ad50a871307a9958bbbeeee7
               36de8831cae38fa2cab2c60ad7001a460a2028a1c67a3433cacbcbdea0d907b8f9af1cd03e078685b1b0a0f1869d4f6f
               813710013220cb340cda6596a2a200ab67a24fac09b486a72790e0eb1f09875097579243175220012a034254436080e9
               b5d6066a0a0a0355534410e20918021a203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466
-              0c224408011240674eb0d7d51d156be223a264e5a405d9dbc680756d5de4ee18fec6dd0b4c68cc95d741ead99b766497
-              eb8edbed7bedf80c1465bceeffcbc95aceb803247ec800
-              (503 bytes)
+              0c2244080112407c509a9795d9b1ea9898d5e0ac74c34ac8e54ade9a9066016791aa0b4feb6d9798dc3b3823077da77a
+              f11a5debda4cf111ade314898786d7720389fd7cf49a0d2880e9b5d606
+              (509 bytes)
 ```
 
-**Confirm** by the vendor, `prev` = order id:
+**The chain on.** Each section signed over `"ed3k v1 market section" ‖ prev ‖ kind ‖ time ‖ body`;
+the next `prev` = `H("ed3k v1 market chain", prev ‖ kind ‖ key ‖ time ‖ body)`. `CONFIRM`
+(vendor, sample time + 600, `chain` = `bc1qtestaddress`, `total` the price), `PAYMENT` (buyer,
++ 1,200, `coin` `BTC`, `txids` `txid-0001`, `amount` 25,000), `FULFILL` (vendor, + 3,600, one
+`Delivery { carrier "Post", tracking "TRACK1" }`, the rating signature of item 0):
 
 ```
-signed      = "ed3k v1 market rating key" ‖ order id ‖ 00000000 ‖ rating key      (93 bytes)
-rating_sig  = 8f6dbd049da17fad20486fc01c73e15269e0f7e9f7c7259d370e407c701905a2
-              d9cfbde7889139911999e90c554761aaaca95884f77e1b6d274f416fe8e97d03
-Confirm     = 12408f6dbd049da17fad20486fc01c73e15269e0f7e9f7c7259d370e407c701905a2d9cfbde7889139911999e90c5547
-              61aaaca95884f77e1b6d274f416fe8e97d031a0a0a0355534410e2091802
-signed      = "ed3k v1 market section" ‖ order id ‖ 02 ‖ Confirm      (133 bytes)
-signature   = 75dbb93821e87df666a9d652261ad83b41678d591a3491ac5385821bb2e1d11c
-              d36ed2c35ee2203accbc998004a99d7172311d9358cb8969a140e01403d0f40a
-Section     = 0802124e12408f6dbd049da17fad20486fc01c73e15269e0f7e9f7c7259d370e407c701905a2d9cfbde7889139911999
-              e90c554761aaaca95884f77e1b6d274f416fe8e97d031a0a0a0355534410e20918021a20d75a980182b10ab7d54bfed3
-              c964073a0ee172f3daa62325af021a68f707511a22440801124075dbb93821e87df666a9d652261ad83b41678d591a34
-              91ac5385821bb2e1d11cd36ed2c35ee2203accbc998004a99d7172311d9358cb8969a140e01403d0f40a
-              (186 bytes)
-next prev   = H("ed3k v1 market chain", order id ‖ 02 ‖ Confirm) = 8f15b1238774565fe3379fec885b967aa32952d39107456d97e692392dc838b4
+CONFIRM     prev = order id
+Confirm     = 0a0f6263317174657374616464726573731a0a0a0355534410e2091802
+signed      = (92 bytes)
+signature   = 552240c95ecdf64632cf5715a9e63f3c9d50a36a246a1b3247ec482ee725ff6b
+              1f5fa4b335a9b057f14a45f889c62dd3c57067f7f5fb528a32e1c3a4284cb602
+Section     = 0802121d0a0f6263317174657374616464726573731a0a0a0355534410e20918021a20d75a980182b10ab7d54bfed3c9
+              64073a0ee172f3daa62325af021a68f707511a224408011240552240c95ecdf64632cf5715a9e63f3c9d50a36a246a1b
+              3247ec482ee725ff6b1f5fa4b335a9b057f14a45f889c62dd3c57067f7f5fb528a32e1c3a4284cb60228d8edb5d606
+              (143 bytes)
+
+PAYMENT     prev = dc1db6e87346637a30197486b302891450049ba2020c81c297a132ef4330a287
+Payment     = 0a034254431209747869642d3030303118a8c301
+signed      = (83 bytes)
+signature   = ff3b9f1ee8f4c7519ab256e66b6b125f13168bbde54f732c74d67343ebd53eec
+              5879f3b2d7e158ad9630169cb4f8f5189e4d27eca157ca338e3ec2050abac309
+Section     = 080512140a034254431209747869642d3030303118a8c3011a203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4
+              968cc0cd55f12af4660c224408011240ff3b9f1ee8f4c7519ab256e66b6b125f13168bbde54f732c74d67343ebd53eec
+              5879f3b2d7e158ad9630169cb4f8f5189e4d27eca157ca338e3ec2050abac30928b0f2b5d606
+              (134 bytes)
+
+FULFILL     prev = 47e71c146327a432f232a881b0ed9dbc0db649271096121792a5a7de805b58b0
+rating_sig  = Ed25519 by the vendor over "ed3k v1 market rating key" ‖ order id ‖ 00000000 ‖ listing hash ‖ rating key      (125 bytes)
+            = 1516f9aa6381654c1100cbd5720dd7d629879bb8dec54d5ed4fa15138889a4ff
+              a656e5bb94ece2afe70a467fa4eeafb22c0c035f10fe8b3f9fbd3d5ad513fb01
+Fulfill     = 0a0e0a04506f73741206545241434b3122401516f9aa6381654c1100cbd5720dd7d629879bb8dec54d5ed4fa15138889
+              a4ffa656e5bb94ece2afe70a467fa4eeafb22c0c035f10fe8b3f9fbd3d5ad513fb01
+signed      = (145 bytes)
+signature   = 6751e1a7bc6b27ccf5c3f1e011063ac55a186a631bfeb2968f9c3eb624e71194
+              1c2dbd87bbfc00e9e84b402c7c73ade7a20b361c48e2eca8ac54940fba4ad10f
+Section     = 080612520a0e0a04506f73741206545241434b3122401516f9aa6381654c1100cbd5720dd7d629879bb8dec54d5ed4fa
+              15138889a4ffa656e5bb94ece2afe70a467fa4eeafb22c0c035f10fe8b3f9fbd3d5ad513fb011a20d75a980182b10ab7
+              d54bfed3c964073a0ee172f3daa62325af021a68f707511a2244080112406751e1a7bc6b27ccf5c3f1e011063ac55a18
+              6a631bfeb2968f9c3eb624e711941c2dbd87bbfc00e9e84b402c7c73ade7a20b361c48e2eca8ac54940fba4ad10f2890
+              85b6d606
+              (196 bytes)
+next prev   = 28d26ed98e427467581219b776226d90f29f7e4dccaa33b3235f43caae84718b
 ```
 
 **Rating** of item 0, `overall` 5, `review` `good mug`, `issued` one day after the sample time,
-signed by the rating key (market.md §6):
+`listing` the listing hash, signed by the rating key (market.md §6):
 
 ```
-Rating      = 0a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a1220c9867c4c10b76fe16da4debe
-              ff2e4edb665398fc4c9613ad51973555e7ef5cc022408f6dbd049da17fad20486fc01c73e15269e0f7e9f7c7259d370e
-              407c701905a2d9cfbde7889139911999e90c554761aaaca95884f77e1b6d274f416fe8e97d032a036d756730055a0867
-              6f6f64206d756760808cbbd606
-              (157 bytes)
-signed      = "ed3k v1 market doc" ‖ 6564336b72617401 ‖ Rating      (183 bytes)
-signature   = ca947262735966f32fc2bc36bd99a677f056785b6fd98c7d19820bdc73ba24d7
-              84c7f277d8d740e7e2af8c1b8b06f9e71ce0f1142e5d9dafc7bc337775032200
-file        = 6564336b726174010a9d010a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a1220c9
-              867c4c10b76fe16da4debeff2e4edb665398fc4c9613ad51973555e7ef5cc022408f6dbd049da17fad20486fc01c73e1
-              5269e0f7e9f7c7259d370e407c701905a2d9cfbde7889139911999e90c554761aaaca95884f77e1b6d274f416fe8e97d
-              032a036d756730055a08676f6f64206d756760808cbbd6061220cb340cda6596a2a200ab67a24fac09b486a72790e0eb
-              1f0987509757924317521a4408011240ca947262735966f32fc2bc36bd99a677f056785b6fd98c7d19820bdc73ba24d7
-              84c7f277d8d740e7e2af8c1b8b06f9e71ce0f1142e5d9dafc7bc337775032200
-              (272 bytes)
+Rating      = 0a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a12201788bab6c441684f18e6dac7
+              7c9034ba065b98389adcd9b9216d5b03692c29fa22401516f9aa6381654c1100cbd5720dd7d629879bb8dec54d5ed4fa
+              15138889a4ffa656e5bb94ece2afe70a467fa4eeafb22c0c035f10fe8b3f9fbd3d5ad513fb012a036d756730055a0867
+              6f6f64206d756760808cbbd6067a2028a1c67a3433cacbcbdea0d907b8f9af1cd03e078685b1b0a0f1869d4f6f8137
+              (191 bytes)
+signed      = "ed3k v1 market doc" ‖ 6564336b72617401 ‖ Rating      (217 bytes)
+signature   = be5072f258505009f63b6fce8cac97e519fedbe9afdaa23b65eb1d82d290fdc6
+              2fa055ad0c3642e353285722b812ec271baa272a5a754423376e454a810f440c
+file        = 6564336b726174010abf010a20d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a122017
+              88bab6c441684f18e6dac77c9034ba065b98389adcd9b9216d5b03692c29fa22401516f9aa6381654c1100cbd5720dd7
+              d629879bb8dec54d5ed4fa15138889a4ffa656e5bb94ece2afe70a467fa4eeafb22c0c035f10fe8b3f9fbd3d5ad513fb
+              012a036d756730055a08676f6f64206d756760808cbbd6067a2028a1c67a3433cacbcbdea0d907b8f9af1cd03e078685
+              b1b0a0f1869d4f6f81371220cb340cda6596a2a200ab67a24fac09b486a72790e0eb1f0987509757924317521a440801
+              1240be5072f258505009f63b6fce8cac97e519fedbe9afdaa23b65eb1d82d290fdc62fa055ad0c3642e353285722b812
+              ec271baa272a5a754423376e454a810f440c
+              (306 bytes)
 ```

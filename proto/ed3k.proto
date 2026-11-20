@@ -1241,18 +1241,18 @@ message MailHead {
   uint64   size = 2;          // payload bytes, all parts together
   bytes    hash = 3;          // 32 B H("ed3k v1 mail payload", payload)
   uint64   sent = 4;          // Unix time in seconds
-  string   type = 5;          // payload type, at most 64 B (§3 here)
+  string   type = 5;          // payload type, at most 64 B (mail.md §3)
   optional uint32 reply = 6;  // `b` of the sender's mailbox under `from`; absent = sender takes no mail
-  repeated Signature sigs = 7;  // by `from`, over the layout below
+  repeated Signature sigs = 7;  // by `from`, over the layout of mail.md §2
 }
 
 message MailAck {
-  repeated bytes msgs = 1;    // 16 B ids of messages delivered (§2 here step 5); at most 64
+  repeated bytes msgs = 1;    // 16 B ids of messages delivered (mail.md §2 step 5); at most 64
 }
 
 message MailFile {
   bytes  root = 1;            // 32 B root of the sealed file
-  uint64 size = 2;            // its size
+  uint64 size = 2;            // size of the sealed file, nonce included; at most 2^38 + 12 (hidden-set.md §4.2)
   bytes  key = 3;             // 32 B key it is sealed with
   string type = 4;            // payload type of the opened file, as MailHead.type
   string name = 5;            // optional, at most 255 B
@@ -1302,7 +1302,7 @@ message Moderator {
 message Listing {
   string slug = 1;            // 1 to 64 B of [a-z0-9-]; file name is <slug>.ed3klst
   ListingType type = 2;
-  string title = 3;           // at most 140 B
+  string title = 3;           // 1 to 140 B
   string description = 4;     // at most 64 KiB
   repeated string tags = 5;   // each at most 40 B, at most 16
   repeated string categories = 6;
@@ -1319,7 +1319,7 @@ message Listing {
   bool   nsfw = 17;
   uint64 expires = 18;        // Unix time; 0 = none
   uint32 escrow_hours = 19;   // moderated order: vendor may claim after; 0 = coin default
-  repeated bytes coupons = 20;  // 32 B H("ed3k v1 market coupon", code); discounts in `coupon_off`
+  repeated bytes coupons = 20;  // 32 B H("ed3k v1 market coupon", store key(32) ‖ code); discounts in `coupon_off`
   repeated Price coupon_off = 21;  // one per coupon
   string coin = 22;           // CRYPTO: coin sold
   uint64 seq = 23;            // version; higher replaces, also across a slug rename
@@ -1359,20 +1359,23 @@ message Market {              // type 46, request
   bytes   order = 4;          // 32 B order id (§4.2); empty for `who`
   repeated Section sections = 5;  // new sections, in chain order
   bool    who = 6;            // ask which keys the node acts for; nothing else set
-  bool    resend = 7;         // ask the receiver for every section of `order` it has
+  bool    resend = 7;         // ask the receiver for the sections of `order` it has
+  uint32  skip = 8;           // resend: sections the asker already holds, from ORDER on
 }
 
 message MarketAck {           // type 47, answer
   repeated bytes stores = 1;  // answer to `who`: 32 B keys this node acts for
   uint32  have = 2;           // sections of `order` the receiver now holds
   string  error = 3;          // section refused: reason, at most 256 B; nothing appended
+  repeated Section sections = 4;  // answer to `resend`: from index `skip` on, chain order, as many as fit the frame
 }
 
 message Section {
   SectionKind kind = 1;
   bytes  body = 2;            // serialised message of `kind` (§4.3)
   bytes  key = 3;             // 32 B signer
-  repeated Signature sigs = 4;  // over "ed3k v1 market section" ‖ prev(32) ‖ kind(1) ‖ body
+  repeated Signature sigs = 4;  // over "ed3k v1 market section" ‖ prev(32) ‖ kind(1) ‖ time(8) ‖ body
+  uint64 time = 5;            // Unix time in seconds, set by the signer
 }
 
 enum SectionKind {
@@ -1384,7 +1387,7 @@ enum SectionKind {
 
 message Order {
   bytes  vendor = 1;          // 32 B store key
-  repeated bytes listings = 2;  // whole listing files ordered from, as published
+  repeated bytes listings = 2;  // whole listing files ordered from, as published; together ≤ 512 KiB
   repeated Item items = 3;
   PayMethod method = 4;
   string coin = 5;
@@ -1394,7 +1397,7 @@ message Order {
   string contact = 9;
   MailBox mailbox = 10;       // buyer's, for offline answers
   string link = 11;           // optional open friend link of the buyer's node
-  uint64 issued = 12;
+  uint64 issued = 12;         // = ORDER section's time
   Price  total = 13;          // as the buyer computed it
 }
 
@@ -1412,7 +1415,7 @@ enum PayMethod { PAY_NONE = 0; DIRECT = 1; OFFLINE = 2; MODERATED = 3; }
 
 message Confirm {
   bytes  chain = 1;           // coin-specific: vendor's escrow key, payment address/script, amount due
-  repeated bytes rating_sigs = 2;  // per Item, 64 B Ed25519 by vendor over "ed3k v1 market rating key" ‖ order id ‖ index(4) ‖ rating_key
+  reserved 2;
   Price  total = 3;           // vendor's figure; client shows any difference to the buyer
 }
 
@@ -1422,6 +1425,7 @@ message Fulfill {
   repeated Delivery delivery = 1;  // one per Item
   bytes  chain = 2;           // vendor's release signatures (OFFLINE, MODERATED), payout address
   string note = 3;
+  repeated bytes rating_sigs = 4;  // first FULFILL only: per Item, 64 B Ed25519 by vendor over "ed3k v1 market rating key" ‖ order id ‖ index(4) ‖ listing hash(32) ‖ rating_key (market.md §6)
 }
 
 message Delivery {
@@ -1458,4 +1462,5 @@ message Rating {
   uint64 issued = 12;
   bytes  buyer = 13;          // optional 32 B buyer key, not anonymous
   bytes  buyer_sig = 14;      // by `buyer` over "ed3k v1 market rating buyer" ‖ rating key(32)
+  bytes  listing = 15;        // 32 B listing hash of the item
 }

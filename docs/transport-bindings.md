@@ -102,6 +102,8 @@ formats, because their layout assumes it. That is the point at which a new wire 
 
 - Its identifier inside the transport (an ALPN string or the equivalent) and, if it adds
   obfuscation, a `magic` value of its own.
+  Not to be confused with a host ALPN (`Protocol.md` §4.1): that rides on `quic-obfs` and
+  carries no ed3k message, so it is no binding.
 - How T1 is met. With TLS, raw public keys as in §4.1.
 - How exchanges map to the transport: QUIC has streams; a TCP binding needs a multiplexer.
 - Its reachability classes and how they are tested.

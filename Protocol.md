@@ -170,6 +170,14 @@ close it: [`docs/transport-bindings.md`](docs/transport-bindings.md).
 ### 4.1 QUIC profile
 
 - QUIC version 1 (RFC 9000/9001/9002) with TLS 1.3. ALPN `ed3k/1`. No SNI.
+- **Host ALPNs.** A node MAY also accept connections under other ALPNs on its port, for its own
+  program's use (e.g. a client reaching its user's own node). Such a connection uses this binding
+  (§4.1 to §4.5: datagrams keyed by the acceptor's `obf_id`, raw keys, `NO_KEY`, `WRONG_PEER`) but
+  carries no ed3k message: no `Hello`, no exchanges, its bytes the host's. ed3k says nothing more
+  about it, except §4.6. A server agreeing on an ALPN the client did not offer: client closes
+  `PROTOCOL`. Rest of this document means `ed3k/1` connections only. *(Informative:)* a node
+  offering a host ALPN tells this to anyone knowing its node ID who offers that ALPN; offer it
+  only while used.
 - **Mutual authentication with raw public keys** (RFC 7250), Ed25519 only. No X.509: a
   certificate adds several hundred bytes per handshake and carries nothing the key does not.
   Both sides MUST send their key; handshake w/o client key is closed with `NO_KEY`. A server MAY
@@ -428,6 +436,9 @@ A node MUST limit the new connections it accepts from one peer.
 - Private addresses (§8.2 (8)) are exempt from the host-address row and address bans (§12.3)
   where acceptable: in a named network (§4.3) and for a peer found in the local network
   (§8.2 (8)). The node-ID row applies to them.
+- **Host ALPN connections** (§4.1) count in the host-address row only, not the node-ID row: a
+  client reconnecting to its user's node is not banned for it. Bans apply to them as to any
+  connection. They are no second connection in the next rule.
 - At most one connection per peer and address family. To stay within others' budgets a node
   MUST NOT open a second connection to a peer in a family where it already has one with it, and
   SHOULD keep a connection it will reuse open for the idle timeout. One per family is allowed:
@@ -637,7 +648,7 @@ elements: a compact IPv4 node is 22 bytes vs ~30 as a sub-message (eMule Kad: 25
 
 ### 5.5 `Hello`
 
-First exchange on every connection: `Hello` travels only on the first bidirectional stream the
+First exchange on every `ed3k/1` connection: `Hello` travels only on the first bidirectional stream the
 initiator opens (QUIC stream 0). Initiator sends `Hello`, responder answers with its own. Either
 side MAY open other exchanges w/o waiting. Streams can arrive in any order, so neither side answers a
 peer-opened exchange before reading the peer's `Hello` (responder: the one on stream 0;
@@ -2646,7 +2657,7 @@ separate program next to an ordinary node, no further role (§11).
 | Finding a known node | none | record kind 10; field in `Store` and in `KadAnswer`; `ed3k:friend` links | [`extensions/friend.md`](extensions/friend.md) |
 | Readable names | bit 20, `NAMES` | message types 44, 45; record kinds 14, 15; two fields in `Record`, one in `Store` and `KadAnswer`; name list file format; `ed3k:name` links; DNS record and file at a web server; local web server for websites | [`extensions/name.md`](extensions/name.md) |
 | Offline messages | none | record kind 16; field in `Store`, two in `KadAnswer`; `mb` in `ed3k:friend` links | [`extensions/mail.md`](extensions/mail.md) |
-| Market | bit 21, `MARKET` | message types 46, 47; profile, listing and rating file formats; one `TopicType`; field in `Chat`; mail payload type | [`extensions/market.md`](extensions/market.md) |
+| Market | bit 21, `MARKET` | message types 46, 47; profile, listing and rating file formats; one `TopicType`; mail payload type | [`extensions/market.md`](extensions/market.md) |
 
 A node without the capability answers the message types with `Error{UNSUPPORTED}` (§5.2) and
 ignores the fields (§16); one exception (§10.3): a `ROUTER` stores, checks and returns records of
@@ -3003,8 +3014,8 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
 | Filter lists: list file max, sets of lists followed, list files per set, list files read in all | 4 MiB, 32, 64, 64 MiB |
 | First contact: saved contacts, fetch lists when fewer than N answered / max per first contact, list max, redirects followed, `created` max old (default, configurable; shipped list none), nodes per family, sources shipped / fetched, nodes taken per list, self-lookup after N answered (max half from one list, for max), listed nodes reachable for; nodes taken per list from one site / block; first LAN round over after first announces | 200, 10 / 1 per 6 h, 32 KiB, 3, 30 days, 200, 4 / 2, 50, 4 (30 s), 24 h; 2 / 8; 2 s |
 | Finding known node: friends, open links, request stored every / for, request place searched every, records per target (per host / site), `sealed` **(wire)**, `issued` of record or request max ahead, record stored every, lookup of friend max, sealed values opened per search max | 64, 4, 4 h / 7 days, 30 min, 32 (8 / 16), 384 B, 1 h, 4 h, 1 per 30 min, 256 |
-| Offline messages: record `sealed` **(wire)**, message part max, parts per message, bucket width default / range, records per target (per host / site), records per search answer, lifetime past target's day, sender re-store every, recipient fetch every / days back / nodes per target, parts kept for, ack collected for | 1,024 B, 962 B, 64, 8 / 0–16, 4,096 (256 / 512), 256, 7 days, 12 h, 30 min / 8 / 3, 8 days, 1 h |
-| Market: profile / listing / rating file max, nodes per profile, sections per order, store unreachable before mail after | 64 KiB / 1 MiB / 16 KiB, 8, 64, 2 min |
+| Offline messages: record `sealed` **(wire)**, message part max, parts per message, bucket width default / range, bucket aim records per day, `b` change at most once per / old `b` fetched for, records per target (per host / site), records per search answer, lifetime after a target's first record at a node, sender store spread / re-store every, recipient fetch every / days back / nodes per target, parts kept for, `sent` max age / ahead, delivered ids kept, ack collected for, `MailFile` shared for | 1,024 B, 962 B, 64, 8 / 0–16, 64–1,024, 7 days / 7 days, 4,096 (256 / 512), 256, 8 days, 1 h / 12 h, 30 min / 9 / 3, 8 days, 8 days / 1 h, 9 days, 1 h, 7 days |
+| Market: profile / listing / rating file max, listings per order together, nodes per profile, sections per order, section time ahead, store unreachable before mail after | 64 KiB / 256 KiB / 16 KiB, 512 KiB, 8, 64, 1 h, 2 min |
 | Links at hosters: per `FileStatus`, per source record, per Kad answer, per member of set; results until link is dropped; streams per hoster and account | 8, 3, 16, 4; 3; 1 |
 | Credits: tranche, priority slots max, time for payment (from `FileStatus` with `price` or `due`), bid raise (a lower bid any time), ledger read valid for | 4 MiB, 2/3, 30 s, 1 per 10 min, 10 min |
 | Credits: void bids before priority is withheld (per node ID), withheld for | 2, 24 h |
@@ -3038,7 +3049,7 @@ Rows marked **(wire)** are fixed in wire version 1 and are not tuning values (§
   tag, keys of private channels, hop session, pair key of friend records; of rooms: names,
   proofs, keys and a sealed post; of readable names: targets, a delegation, a `NAME` and a
   `CLAIM` record; of offline messages: box, bucket targets and a two-part sealed message; of the
-  market: a listing, an order with its id, chain and frame, a confirm and a rating; and credit
+  market: a listing, an order with its id and frame, a chain to `FULFILL` and a rating; and credit
   signatures of a bid and a receipt, under a test domain: chain ID and contract of the public
   network not assigned yet
   ([`extensions/credit.md`](extensions/credit.md) §7.1).
