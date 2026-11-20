@@ -213,6 +213,26 @@ nodes must give it.
   downloader asks it for a range.
 - Field optional on both sides.
 
+### 3.2 Under the anonymous key
+
+A file the node downloads under its anonymous key ([`hops.md`](hops.md) §1) can't use a source
+directly: the GET shows the server the node's address and which file. Local policy, no wire
+change:
+
+- By default such sources aren't fetched. Any source travels and is kept as usual (§2); only the
+  fetch is held.
+- The user MAY name a proxy for the anonymous key's HTTP: then every request for such a file
+  (data, hash body, each redirect) goes through that proxy only. Never directly, never through
+  the node key's proxy; proxy gone or unreachable → request fails, nothing falls back.
+- Names resolved through the proxy too (proxy-side or DNS over HTTPS through it); the local
+  resolver never sees them.
+- Off by default; the user turns it on. The client SHOULD say what it gives: the proxy's operator
+  sees the address and every file fetched; the HTTP server sees the proxy. Not hidden like a
+  path (§2 of [`hops.md`](hops.md)): one operator, who can log.
+- Such a file's sources aren't vouched for in a record or passed on (§2.2, §2.3): either would tie
+  the file to the node key.
+- A client that shows sources it holds back says so per file (count and reason).
+
 ## 4. Cache servers
 
 Sealed chunks are stored on a server speaking the HTTP Cache contract: `POST` stores a blob
@@ -375,7 +395,8 @@ what the publisher stored.
 ## 7. What it reveals
 
 - **To the HTTP server:** every fetching node's address. Plain source: also which file; sealed:
-  only that some chunk was fetched.
+  only that some chunk was fetched. Under the anonymous key through its proxy (§3.2): the
+  proxy's address; the proxy's operator sees both.
 - **To anyone with a sealed chunk's description:** its content; key travels with the URL. The
   only claim: the *server* never gets the key.
 - **In Kad:** a source-record description is public; for a sealed chunk that publishes the key.

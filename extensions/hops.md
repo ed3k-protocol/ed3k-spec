@@ -66,7 +66,9 @@ first hop (§6). A client turns `HOP` on by default while hiding is on and the n
 - What is done under anonymous key MUST go through a path, or at 0 hops as §2.6 says: no direct
   connection, no HTTP
   source ([`http-source.md`](http-source.md)), no eD2K (`Protocol.md` §14), no answer in the local
-  network ([`lan-discovery.md`](lan-discovery.md)).
+  network ([`lan-discovery.md`](lan-discovery.md)). One exception, off by default: HTTP sources
+  through a proxy the user named for the anonymous key alone, never directly
+  ([`http-source.md`](http-source.md) §3.2).
 - Hiding off (no path): nothing under anonymous key is served or asked for; nothing falls back to
   node key.
 - A client MUST show its user which files are shared under which key, and MUST ask before moving
